@@ -21,7 +21,7 @@ trainer:
   gradient_clip_val: 1.0
 
 loader:
-  batch_size: 128
+  batch_size: 16
   num_workers: ${num_workers}
   persistent_workers: True
   prefetch_factor: 3
@@ -35,7 +35,7 @@ optimizer:
 wandb:
   enabled: True
   config:
-    entity: lewm
+    entity: shonosukehida
     project: lewm
     name: ${output_model_name}
     id: ${subdir}

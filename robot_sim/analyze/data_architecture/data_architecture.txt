@@ -1,0 +1,4 @@
+=== Checking dataset in: datasets/franka_push/pairs_3_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse ===
+
+[1] Checking data.p...
+❌ Failed to load data.p: [Errno 2] No such file or directory: 'datasets/franka_push/pairs_3_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/data.p'

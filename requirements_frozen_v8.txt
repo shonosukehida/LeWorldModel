@@ -1,0 +1,1 @@
+Error getting pip freeze: Command '['/home/shonosukehida/work/LeWorldModel/.venv/bin/python3', '-m', 'pip', 'freeze']' returned non-zero exit status 1.

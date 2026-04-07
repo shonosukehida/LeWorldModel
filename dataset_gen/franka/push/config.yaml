@@ -1,0 +1,82 @@
+is_val: false
+pairs: 1 #5
+min_dist: 0.15
+episodes_per_pair: 1 #2000
+steps_per_episode: 500 ##100
+image_size: [64, 64] #[64, 64]
+model_path: mujoco_menagerie/franka_emika_panda/scene.xml
+camera_name: top_reverse #top_view, default, diagonal_view, top_reverse
+save_dir: datasets/franka_push
+specify_init_position: true #初期姿勢を指定するか
+specify_goal_position: true #ゴール状態のFranka の位置を中点に指定するか
+init_joint_method: random #Franka初期位置の取得方法, random/center
+goal_offset: [0.2, -0.2, 0.2]
+box_start_pos: null #データセット生成時のbluebox のstart位置 #[0.50, -0.05, 0.05]
+box_goal_pos: null #データセット生成時のbluebox のgoal位置 #[0.50, -0.10, 0.05]
+
+eval_only: false
+data_dir: pldm_envs/franka/presaved_datasets/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse #pldm_envs/franka/presaved_datasets/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1_1 #null
+
+#データ確認するか
+confirm_ik_result: false
+confirm_dist: false
+make_video: false #false
+confirm_ee_trajectory: false
+confirm_ee_traj_xz: false #false
+confirm_data: false
+count_contact: false
+
+visualize_target_trajectory: false #target_xyz軌跡の可視化
+plot_all_ee_traj: true #データセットのFranka手先の分布を可視化
+plot_all_bluebox_traj: true #データセットのblueboxの分布を可視化
+
+
+start_goal_x_range: [0.415, 0.615]
+start_goal_y_range: [-0.10, 0.10]
+start_goal_z_range: [0.05, 0.05]
+
+x_range: [0.315, 0.715] 
+y_range: [-0.2, 0.2] 
+z_range: [0.1, 0.1] 
+
+#sample_method
+#direction --> 方向ベクトルをサンプリング
+#uniform --> 一様分布
+#uniform_constrain --> 一様分布だが, 現在の位置との距離がmax_dist 未満になるまで繰り返す
+
+sample_method_list: ["direction", "towards_bluebox"] #["direction", "towards_bluebox"] #null 単一のsampleメソッド
+sample_method_ratio: [1, 1] #[1, 1]
+
+sample_method: 'towards_bluebox' #'direction' or 'uniform' or 'uniform_constrain' or 'towards_bluebox'
+margin_ratio: 0.80
+sample_direction:
+  dist_range: [0.0025, 0.0025] #出力距離の範囲 #[0.0025, 0.0025]
+  max_loop: 100
+  freeze_z: true
+  prob_dist: 'vonmises' # uniform, vonmises
+  vonmises:
+    kappa: 20.0
+sample_uniform_constrain: #距離制限つき一様分布
+  max_dist: 0.01
+  max_loop: 100
+sample_towards_bluebox:
+  step_range: [0.0020, 0.0020]   # 一ステップで近づく距離の範囲 [m] #[0.0020, 0.0020]
+  near_threshold: 0.0       # これ以下なら無理に詰めず，軽くノイズだけ #0.05
+  lateral_noise_std: 0.0005   # 横方向ノイズの標準偏差（無し:0.0） #0.0005
+
+
+freeze_quat: false
+ee_x: [1, 0, 0]
+ee_y: [0, -1, 0]
+ee_z: [0, 0, -1]
+target_sampling_step: 1 #target_xyzをサンプリングするデータセットタイムステップ間隔
+tol: 0.005
+rot_weight: 0.1 #IKの回転ずれ許容量の重み
+alpha: 0.8
+control_hz: 50
+dataset_hz: 10 #データセット周波数 #10
+max_dq: 0.03 #0.03
+settle_steps: 10000 #指定位置をset した後に進める自然時間
+
+# chunk_size: 100 #画像を保存するときのchunk_sizeを指定
+episode_chunk_size: 10 #何エピソードを1chunk とするかを指定

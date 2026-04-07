@@ -13,6 +13,7 @@ from omegaconf import DictConfig, OmegaConf
 from sklearn import preprocessing
 from torchvision.transforms import v2 as transforms
 import stable_worldmodel as swm
+import env.franka
 
 def img_transform(cfg):
     transform = transforms.Compose(
@@ -52,10 +53,13 @@ def run(cfg: DictConfig):
     assert (
         cfg.plan_config.horizon * cfg.plan_config.action_block <= cfg.eval.eval_budget
     ), "Planning horizon must be smaller than or equal to eval_budget"
+    print("[eval.py] cfg:", cfg)
+    print("[eval.py] cfg.world.width: ", cfg.world.width)
+    print("[eval.py] cfg.world.height: ", cfg.world.height)
 
     # create world environment
     cfg.world.max_episode_steps = 2 * cfg.eval.eval_budget
-    world = swm.World(**cfg.world, image_shape=(224, 224))
+    world = swm.World(**cfg.world, image_shape=(cfg.world.height, cfg.world.width))
 
     # create the transform
     transform = {

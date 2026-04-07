@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-04-01T14:05:22.943829",
+  "python": {
+    "version": "3.10.16 (main, Mar 17 2025, 21:01:46) [Clang 20.1.0 ]",
+    "version_info": {
+      "major": 3,
+      "minor": 10,
+      "micro": 16
+    },
+    "executable": "/home/shonosukehida/work/LeWorldModel/.venv/bin/python3",
+    "prefix": "/home/shonosukehida/work/LeWorldModel/.venv"
+  },
+  "system": {
+    "platform": "Linux-5.15.0-139-generic-x86_64-with-glibc2.31",
+    "system": "Linux",
+    "release": "5.15.0-139-generic",
+    "machine": "x86_64",
+    "processor": "x86_64",
+    "hostname": "gf-rtx3070ti-0"
+  },
+  "packages": {
+    "pip_freeze": "Error getting pip freeze: Command '['/home/shonosukehida/work/LeWorldModel/.venv/bin/python3', '-m', 'pip', 'freeze']' returned non-zero exit status 1.",
+    "key_packages": {},
+    "total_packages": 0
+  },
+  "cuda": {
+    "nvidia_smi_output": "NVIDIA GeForce RTX 3070 Ti, 535.183.01, 8192 MiB",
+    "driver_version": "535.183.01"
+  },
+  "git": {
+    "commit_hash": "19399be69f230128b1ad8d426c564df27d6728fa",
+    "branch": "main",
+    "has_uncommitted_changes": true,
+    "uncommitted_changes": "M config/train/data/ogb.yaml\n M config/train/lewm.yaml\n?? .gitignore\n?? __pycache__/\n?? _dbg/\n?? cube/\n?? environment.json\n?? lewm/\n?? nohup.out\n?? ogbench/\n?? outputs/\n?? requirements_frozen.txt\n?? wandb/",
+    "remote_url": "https://github.com/shonosukehida/LeWorldModel.git"
+  },
+  "slurm": null,
+  "environment_variables": {
+    "LD_LIBRARY_PATH": "/usr/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu/GL:/home/shonosukehida/catkin_ws/install/lib:/home/shonosukehida/catkin_ws/devel/lib:/opt/ros/noetic/lib:/opt/ros/noetic/lib/x86_64-linux-gnu:/usr/local/cuda-12.2/lib64:/usr/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu/GL:/usr/local/cuda-12.2/lib64:/usr/lib/nvidia:/home/shonosukehida/.mujoco/mujoco210/bin:/usr/lib/nvidia:/home/shonosukehida/.mujoco/mujoco210/bin",
+    "PATH": "/home/shonosukehida/work/LeWorldModel/.venv/bin:/home/shonosukehida/work/LeWorldModel/.venv/bin:/home/shonosukehida/.mujoco/mujoco/bin:/opt/ros/noetic/bin:/home/shonosukehida/.local/bin:/usr/local/cuda-12.2/bin:/home/shonosukehida/.vscode-server/cli/servers/Stable-b58957e67ee1e712cebf466b995adf4c5307b2bd/server/bin/remote-cli:/usr/local/cuda-12.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
+    "PYTHONPATH": "/home/shonosukehida/catkin_ws/install/lib/python3.8/site-packages:/home/shonosukehida/catkin_ws/devel/lib/python3.8/site-packages:/opt/ros/noetic/lib/python3.8/site-packages:/opt/ros/noetic/lib/python3/dist-packages",
+    "CUDA_MODULE_LOADING": "LAZY",
+    "CUDA_DEVICE_ORDER": "PCI_BUS_ID"
+  }
+}

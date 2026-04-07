@@ -1,0 +1,6 @@
+nohup*
+datasets
+lewm
+wandb
+outputs
+dataset_gen/franka/push/check

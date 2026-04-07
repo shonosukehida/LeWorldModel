@@ -14,6 +14,8 @@ from jepa import JEPA
 from module import ARPredictor, Embedder, MLP, SIGReg
 from utils import get_column_normalizer, get_img_preprocessor, ModelObjectCallBack
 
+from datetime import datetime
+
 
 def lejepa_forward(self, batch, stage, cfg):
     """encode observations, predict next states, compute losses."""
@@ -149,6 +151,11 @@ def run(cfg):
 
     logger = None
     if cfg.wandb.enabled:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        cfg.wandb.config.name = f"{cfg.output_model_name}_{timestamp}"
+        cfg.wandb.config.id = cfg.wandb.config.name  
+
+        
         logger = WandbLogger(**cfg.wandb.config)
         logger.log_hyperparams(OmegaConf.to_container(cfg))
 
