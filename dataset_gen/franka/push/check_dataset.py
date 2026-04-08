@@ -166,7 +166,6 @@ def check_h5_dataset(h5_path: str, save_dir: str = "dataset_gen/franka/push/chec
 
 
 def make_video_from_h5(
-    self,
     h5_path=None,
     save_dir="dataset_gen/franka/push/check/video",
     fps = 10
@@ -606,7 +605,10 @@ def plot_all_bluebox_trajectories_from_h5(
 
 
 if __name__ == "__main__":
-    h5_path = os.path.expanduser("~/.stable_worldmodel/datasets/franka/push.h5")
+    DATA_PATH = "/home/hida/.stable_worldmodel/datasets/franka/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push.h5"
+    
+    h5_path = os.path.expanduser(DATA_PATH)
+    print("h5_path:", h5_path)
     check_h5_dataset(h5_path)
     make_video_from_h5(h5_path)
     confirm_endeffector_trajectory_from_h5(h5_path)

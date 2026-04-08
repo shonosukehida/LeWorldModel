@@ -4,3 +4,6 @@ lewm
 wandb
 outputs
 dataset_gen/franka/push/check
+__pycache__/
+env/__pycache__/
+env/franka/__pycache__/

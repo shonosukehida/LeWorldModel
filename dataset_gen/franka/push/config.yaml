@@ -1,5 +1,5 @@
 is_val: false
-pairs: 1 #5
+pairs: 100 #5
 min_dist: 0.15
 episodes_per_pair: 1 #2000
 steps_per_episode: 500 ##100
