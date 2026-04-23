@@ -34,7 +34,7 @@ dataset:
     - bluebox_pos
 
 seed: 42
-policy: lewm_weights
+policy: lewm_weights 
 
 plan_config:
   horizon: 5
@@ -42,11 +42,26 @@ plan_config:
   action_block: 1
 
 eval:
-  num_eval: 10
-  goal_offset_steps: 25
-  eval_budget: 50
+
+  num_eval: 1 #1
+  eval_budget: 50 #50
   img_size: 64
   dataset_name: franka/pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
+
+  eval_tr_ds:
+    execute: true
+    goal_offset_steps: 25 #25
+
+  eval_zeroshot:
+    execute: true
+    num_eval: 1 #1
+    # goal_offset_steps: 25 #25
+    eval_budget: 50 #50
+    img_size: 64
+    start_positions: [0.50, 0.07, 0.05]
+    goal_positions: [0.50, 0.15, 0.05]
+    init_ee_positions: [0.50, 0.00, 0.05]
+
 
   callables:
     - method: set_state
@@ -65,7 +80,7 @@ eval:
       args:
         goal_pos:
           value: bluebox_pos
-          offset: ${eval.goal_offset_steps}
+          offset: ${eval.eval_tr_ds.goal_offset_steps}
 
 output:
   filename: franka_push_results.txt

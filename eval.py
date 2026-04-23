@@ -50,16 +50,25 @@ def get_dataset(cfg, dataset_name):
 @hydra.main(version_base=None, config_path="./config/eval", config_name="pusht")
 def run(cfg: DictConfig):
     """Run evaluation of dinowm vs random policy."""
+
     assert (
         cfg.plan_config.horizon * cfg.plan_config.action_block <= cfg.eval.eval_budget
     ), "Planning horizon must be smaller than or equal to eval_budget"
-    print("[eval.py] cfg:", cfg)
-    print("[eval.py] cfg.world.width: ", cfg.world.width)
-    print("[eval.py] cfg.world.height: ", cfg.world.height)
+    
+
+    results_path = (
+        Path(swm.data.utils.get_cache_dir(), cfg.policy).parent
+        if cfg.policy != "random"
+        else Path(__file__).parent
+    ) #/home/shonosukehida/.stable_worldmodel/franka_push/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse
+    
+
 
     # create world environment
     cfg.world.max_episode_steps = 2 * cfg.eval.eval_budget
     world = swm.World(**cfg.world, image_shape=(cfg.world.height, cfg.world.width))
+    
+    
 
     # create the transform
     transform = {
@@ -86,7 +95,8 @@ def run(cfg: DictConfig):
             process[f"goal_{col}"] = process[col]
 
     # -- run evaluation
-    policy = cfg.get("policy", "random")
+    policy = cfg.get("policy", "random") #franka_push/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/lewm
+
 
     if policy != "random":
         model = swm.policy.AutoCostModel(cfg.policy)
@@ -96,6 +106,7 @@ def run(cfg: DictConfig):
         model.interpolate_pos_encoding = True
         config = swm.PlanConfig(**cfg.plan_config)
         solver = hydra.utils.instantiate(cfg.solver, model=model)
+        # print("solver:", solver) #solver: <stable_worldmodel.solver.cem.CEMSolver object at 0x7f881e73a140>
         policy = swm.policy.WorldModelPolicy(
             solver=solver, config=config, process=process, transform=transform
         )
@@ -103,15 +114,79 @@ def run(cfg: DictConfig):
     else:
         policy = swm.policy.RandomPolicy()
 
-    results_path = (
-        Path(swm.data.utils.get_cache_dir(), cfg.policy).parent
-        if cfg.policy != "random"
-        else Path(__file__).parent
-    )
+
+    world.set_policy(policy)        
+    if cfg.eval.eval_zeroshot.execute:
+    
+        st_ps = list(cfg.eval.eval_zeroshot.start_positions)
+        gl_ps = list(cfg.eval.eval_zeroshot.goal_positions)
+        init_ee_ps = list(cfg.eval.eval_zeroshot.init_ee_positions)
+        
+        start_positions = np.repeat([st_ps], cfg.eval.num_eval, axis=0)
+        goal_positions = np.repeat([gl_ps], cfg.eval.num_eval, axis=0)
+        init_ee_positions = np.repeat([init_ee_ps], cfg.eval.num_eval, axis=0)
+        
+        video_dir = results_path / "zeroshot"
+        video_dir.mkdir(parents=True, exist_ok=True)
+
+        start_time = time.time()
+        metrics = world.evaluate_zeroshot(
+            start_positions=start_positions,
+            goal_positions=goal_positions,
+            init_ee_poses=init_ee_positions,
+            eval_budget=cfg.eval.eval_zeroshot.eval_budget,
+            start_option_name="box_pos",
+            goal_option_name="goal_marker_pos",
+            start_info_name="bluebox_pos",
+            goal_info_name="goal_pos",
+            callables=[
+                {
+                    "method": "set_bluebox_pos",
+                    "args": {
+                        "bluebox_pos": {
+                            "value": "start_positions",
+                            "in_positions": True,
+                        },
+                    },
+                },
+                {
+                    "method": "set_goal_pos",
+                    "args": {
+                        "goal_pos": {
+                            "value": "goal_positions",
+                            "in_positions": True,
+                        },
+                    },
+                },
+            ],
+            video_path=video_dir,
+        )
+        end_time = time.time()
+        
+        print("==RESULTS==")
+        print(f"metrics: {metrics}")
+        print(f"evaluation_time: {end_time - start_time} seconds\n")
+        
+        log_path = video_dir / "zeroshot_results.txt"
+        with log_path.open('a') as f:
+            f.write("\n")  # separate from previous runs
+
+            f.write("==== CONFIG ====\n")
+            f.write(OmegaConf.to_yaml(cfg))
+            f.write("\n")
+
+            f.write("==== RESULTS ====\n")
+            f.write(f"metrics: {metrics}\n")
+            f.write(f"evaluation_time: {end_time - start_time} seconds\n")
+            
+
+
+
+    
 
     # sample the episodes and the starting indices
     episode_len = get_episodes_length(dataset, ep_indices)
-    max_start_idx = episode_len - cfg.eval.goal_offset_steps - 1
+    max_start_idx = episode_len - cfg.eval.eval_tr_ds.goal_offset_steps - 1
     max_start_idx_dict = {ep_id: max_start_idx[i] for i, ep_id in enumerate(ep_indices)}
     # Map each dataset row’s episode_idx to its max_start_idx
     col_name = "episode_idx" if "episode_idx" in dataset.column_names else "ep_idx"
@@ -140,35 +215,44 @@ def run(cfg: DictConfig):
     if len(eval_episodes) < cfg.eval.num_eval:
         raise ValueError("Not enough episodes with sufficient length for evaluation.")
 
+
     world.set_policy(policy)
 
-    start_time = time.time()
-    metrics = world.evaluate_from_dataset(
-        dataset,
-        start_steps=eval_start_idx.tolist(),
-        goal_offset_steps=cfg.eval.goal_offset_steps,
-        eval_budget=cfg.eval.eval_budget,
-        episodes_idx=eval_episodes.tolist(),
-        callables=OmegaConf.to_container(cfg.eval.get("callables"), resolve=True),
-        video_path=results_path,
-    )
-    end_time = time.time()
+
+    if cfg.eval.eval_tr_ds.execute:
+        
     
-    print(metrics)
+        start_time = time.time()
+        
+        #学習データセット分布内テスト
+        metrics = world.evaluate_from_dataset(
+            dataset,
+            start_steps=eval_start_idx.tolist(),
+            goal_offset_steps=cfg.eval.eval_tr_ds.goal_offset_steps,
+            eval_budget=cfg.eval.eval_budget,
+            episodes_idx=eval_episodes.tolist(),
+            callables=OmegaConf.to_container(cfg.eval.get("callables"), resolve=True),
+            video_path=results_path,
+        )
+        end_time = time.time()
+        
+        print(metrics)
 
-    results_path = results_path / cfg.output.filename
-    results_path.parent.mkdir(parents=True, exist_ok=True)
+        results_path = results_path / cfg.output.filename
+        results_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with results_path.open("a") as f:
-        f.write("\n")  # separate from previous runs
+        with results_path.open("a") as f:
+            f.write("\n")  # separate from previous runs
 
-        f.write("==== CONFIG ====\n")
-        f.write(OmegaConf.to_yaml(cfg))
-        f.write("\n")
+            f.write("==== CONFIG ====\n")
+            f.write(OmegaConf.to_yaml(cfg))
+            f.write("\n")
 
-        f.write("==== RESULTS ====\n")
-        f.write(f"metrics: {metrics}\n")
-        f.write(f"evaluation_time: {end_time - start_time} seconds\n")
+            f.write("==== RESULTS ====\n")
+            f.write(f"metrics: {metrics}\n")
+            f.write(f"evaluation_time: {end_time - start_time} seconds\n")
+        
+        
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import numpy as np
 
 from env.franka.env import FrankaSimEnv
 
+from env.franka.ik_with_limits import *
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     # 必要に応じてあなたの環境に合わせて修正
@@ -179,6 +180,7 @@ class FrankaPushEnv(gym.Env):
     # Gymnasium API
     # -----------------------------
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        print("[env/franka/gym_env.py] options:", options)
         super().reset(seed=seed)
 
         self._step_count = 0
@@ -194,13 +196,17 @@ class FrankaPushEnv(gym.Env):
 
         start_marker_pos = options.get("start_marker_pos", None)
         goal_marker_pos = options.get("goal_marker_pos", None)
-        init_position = options.get("init_position", None)
+        init_ee_pos = options.get("init_ee_pos", None)
+        
+        
+        # init_position = options.get("init_position", None)
+        
 
         self.sim.reset_and_place_all(
             box_pos=box_pos,
             start_marker_pos=start_marker_pos,
             goal_marker_pos=goal_marker_pos,
-            init_position=init_position,
+            init_ee_pos=init_ee_pos,
         )
 
         obs = self._get_obs()
@@ -221,6 +227,7 @@ class FrankaPushEnv(gym.Env):
         info = {
             "step_count": self._step_count,
             "bluebox_pos": self._get_bluebox_pos(),
+            "ee_pos" : obs["state"][-3:].copy(),
             "goal_pos": None if self.goal_pos is None else self.goal_pos.copy(),
             "is_success": terminated,
         }
