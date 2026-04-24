@@ -504,8 +504,8 @@ def plot_all_bluebox_trajectories_from_h5(
     axes: str = "xy",
     stride: int = 1,
     max_episodes: int | None = None,
-    alpha: float = 0.25,
-    lw: float = 1.6,
+    alpha: float = 1.0,
+    lw: float = 2.5,
     show_workspace: bool = True,
     save_dir: str = "dataset_gen/franka/push/check/bluebox_trajectory_all",
     filename: str | None = None,
@@ -605,12 +605,12 @@ def plot_all_bluebox_trajectories_from_h5(
 
 
 if __name__ == "__main__":
-    DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/franka/pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push.h5"
+    DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/franka/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push.h5"
     
     h5_path = os.path.expanduser(DATA_PATH)
     print("h5_path:", h5_path)
     check_h5_dataset(h5_path)
-    make_video_from_h5(h5_path)
-    confirm_endeffector_trajectory_from_h5(h5_path)
+    # make_video_from_h5(h5_path)
+    # confirm_endeffector_trajectory_from_h5(h5_path)
     plot_all_endeffector_trajectories_from_h5(h5_path)
     plot_all_bluebox_trajectories_from_h5(h5_path)
