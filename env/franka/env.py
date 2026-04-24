@@ -62,6 +62,8 @@ class FrankaSimEnv:
     def reset_and_place_all(self, box_pos, start_marker_pos=None, goal_marker_pos=None, init_ee_pos=None, init_position=None):
         self.physics.reset()
         
+        assert (init_ee_pos is None or init_position is None), "you specified both init_ee_pos and init_position..."
+        
         
         ## reset直後
         blue = self.bluebox_geom_id
@@ -70,18 +72,19 @@ class FrankaSimEnv:
         print("box pos after reset:", p0)
         ###
         
+        if init_position is not None:
+            self.physics.data.qpos[:7] = init_position
+            self.physics.data.qvel[:7] = 0.
+            self.physics.data.ctrl[self.arm_actuator_ids] = init_position
+            
+            
         if init_ee_pos is not None:
             init_ee_ik = self.calc_inverse_kinematic(init_ee_pos)
-            # print("[env/franka/env.py] init_ee_pos:", init_ee_pos)
-            # print("[env/franka/env.py] init_ee_ik:", init_ee_ik)
-            self.physics.data.qpos[:7] = init_ee_ik.qpos[:7]
-            self.physics.data.qvel[:7] = 0.   
-            
-
-        
-        # if init_position is not None:
-        #     self.physics.data.qpos[:7] = init_position
-        #     self.physics.data.qvel[:7] = 0.
+            q = init_ee_ik.qpos[:7]
+            self.physics.data.qpos[:7] = q
+            self.physics.data.qvel[:7] = 0.
+            self.physics.data.ctrl[self.arm_actuator_ids] = q
+    
 
         joint_id = self.physics.model.name2id("free_joint_blue_box", "joint")
         start_idx = self.physics.model.jnt_qposadr[joint_id]
