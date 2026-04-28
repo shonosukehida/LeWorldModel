@@ -24,10 +24,17 @@ def lejepa_forward(self, batch, stage, cfg):
     n_preds = cfg.wm.num_preds
     lambd = cfg.loss.sigreg.weight
 
+    # print("type(batch):", type(batch))
+    action_key = ""
+    for k in batch.keys():
+        if ("action" in k): action_key = k
+    
     # Replace NaN values with 0 (occurs at sequence boundaries)
-    batch["action"] = torch.nan_to_num(batch["action"], 0.0)
+    batch[action_key] = torch.nan_to_num(batch[action_key], 0.0)
 
     output = self.model.encode(batch)
+
+    
 
     emb = output["emb"]  # (B, T, D)
     act_emb = output["act_emb"]
@@ -37,6 +44,7 @@ def lejepa_forward(self, batch, stage, cfg):
 
     tgt_emb = emb[:, n_preds:] # label
     pred_emb = self.model.predict(ctx_emb, ctx_act) # pred
+
 
     # LeWM loss
     output["pred_loss"] = (pred_emb - tgt_emb).pow(2).mean()
@@ -49,13 +57,22 @@ def lejepa_forward(self, batch, stage, cfg):
 
 @hydra.main(version_base=None, config_path="./config/train", config_name="lewm")
 def run(cfg):
+    
+    
     #########################
     ##       dataset       ##
     #########################
+    print("cfg:", cfg)
+    # print("cfg.wm.action_dim:", cfg.wm.action_dim)
 
+    print("cfg.data.dataset:", cfg.data.dataset)
     dataset = swm.data.HDF5Dataset(**cfg.data.dataset, transform=None)
+    print("dataset path: ", dataset.h5_path)
+    print("dataset name:", cfg.data.dataset.name)
+   
     transforms = [get_img_preprocessor(source='pixels', target='pixels', img_size=cfg.img_size)]
     
+    #この中でaction_dimを決定している
     with open_dict(cfg):
         for col in cfg.data.dataset.keys_to_load:
             if col.startswith("pixels"):
@@ -63,9 +80,21 @@ def run(cfg):
 
             normalizer = get_column_normalizer(dataset, col, col)
             transforms.append(normalizer)
+            
+            # print("col:", col)
+            # if col == "action":
+            #     print("dataset.get_dim(col):", dataset.get_dim(col))
+            # elif col == "action_joint":
+            #     print("dataset.get_dim(col):", dataset.get_dim(col))
+            # elif col == "action_cartesian":
+            #     print("dataset.get_dim(col):", dataset.get_dim(col))
+                
 
-            setattr(cfg.wm, f"{col}_dim", dataset.get_dim(col))
+            if col == "action" or col == "action_joint" or col == "action_cartesian":
+                print("col:", col)
+                setattr(cfg.wm, f"action_dim", dataset.get_dim(col))
 
+    
     transform = spt.data.transforms.Compose(*transforms)
     dataset.transform = transform
 
@@ -91,6 +120,7 @@ def run(cfg):
 
     hidden_dim = encoder.config.hidden_size
     embed_dim = cfg.wm.get("embed_dim", hidden_dim)
+    # print("cfg.wm.action_dim:", cfg.wm.action_dim)
     effective_act_dim = cfg.data.dataset.frameskip * cfg.wm.action_dim
 
     predictor = ARPredictor(
@@ -141,6 +171,8 @@ def run(cfg):
         forward=partial(lejepa_forward, cfg=cfg),
         optim=optimizers,
     )
+    # print("world_model:", world_model)
+    
 
     ##########################
     ##       training       ##

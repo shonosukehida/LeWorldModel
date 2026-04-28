@@ -5,11 +5,15 @@ dataset:
 
   keys_to_load:
     - pixels
-    - action
+    # - action
+    # - action_joint
+    - action_cartesian
     # - observation
 
   keys_to_cache:
-    - action
+    # - action
+    # - action_joint
+    - action_cartesian
     # - observation
 
   keys_to_merge:

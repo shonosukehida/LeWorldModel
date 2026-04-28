@@ -134,7 +134,7 @@ def run(cfg: DictConfig):
             start_positions=start_positions,
             goal_positions=goal_positions,
             init_ee_poses=init_ee_positions,
-            eval_budget=cfg.eval.eval_zeroshot.eval_budget,
+            eval_budget=cfg.eval.eval_budget,
             start_option_name="box_pos",
             goal_option_name="goal_marker_pos",
             start_info_name="bluebox_pos",

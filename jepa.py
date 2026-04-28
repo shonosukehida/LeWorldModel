@@ -39,8 +39,14 @@ class JEPA(nn.Module):
         emb = self.projector(pixels_emb)
         info["emb"] = rearrange(emb, "(b t) d -> b t d", b=b)
 
+        # print("type(info):", type(info)) #dict
         if "action" in info:
             info["act_emb"] = self.action_encoder(info["action"])
+        if "action_joint" in info:
+            info["act_emb"] = self.action_encoder(info["action_joint"])
+        if "action_cartesian" in info:
+            info["act_emb"] = self.action_encoder(info["action_cartesian"])
+        
 
         return info
 

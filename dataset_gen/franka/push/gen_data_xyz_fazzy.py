@@ -29,6 +29,8 @@ import matplotlib.pyplot as plt
 
 import h5py
 
+from stable_worldmodel.data.utils import get_cache_dir
+
 
 
 
@@ -248,6 +250,9 @@ class FrankaDatasetGenerator:
         
         self.episode_chunk_size = config['episode_chunk_size']
         self.chunk_idx = 0
+        
+        #順運動学計算用env
+        self.env_for_fk = FrankaSimEnv(config)
 
 
     def _get_center_of_cube(self):
@@ -305,7 +310,8 @@ class FrankaDatasetGenerator:
 
                 episode_images = []
                 episode_obs = []
-                episode_actions = []
+                episode_actions_joint = []
+                episode_actions_cartesian = []
                 ik_log = []
                 dist_log = []
                 dist_xyz_log = []
@@ -456,7 +462,9 @@ class FrankaDatasetGenerator:
                         
                         
                         
-                        action = joint_angles.copy()
+                        action_joint = joint_angles.copy()
+                        action_cartesian = target_xyz.copy()
+                        
                         obs = np.concatenate(
                                 [
                                     self.env.physics.data.qpos[:7], 
@@ -467,7 +475,8 @@ class FrankaDatasetGenerator:
                             )
 
                         episode_obs.append(obs.copy())
-                        episode_actions.append(action.copy())
+                        episode_actions_joint.append(action_joint.copy())
+                        episode_actions_cartesian.append(action_cartesian)
                         img = self.env.physics.render(height=self.IMAGE_SIZE[0], width=self.IMAGE_SIZE[1], camera_id=self.camera_id)
                         # self.all_images.append(img)
                         episode_images.append(img)
@@ -478,7 +487,9 @@ class FrankaDatasetGenerator:
                     self.data_list.append(
                                 {
                                 "observations": np.array(episode_obs),
-                                "actions": np.array(episode_actions),
+                                "actions": np.array(episode_actions_joint),
+                                "action_joint": np.array(episode_actions_joint),
+                                "action_cartesian": np.array(episode_actions_cartesian),
                                 "goal_obs": self.goal_obs_list[pair_idx][0].copy(),
                                 "map_idx": pair_idx,
                             }
@@ -850,6 +861,8 @@ class FrankaDatasetGenerator:
         保存される主な key:
         - pixels      : (N, H, W, C) uint8
         - action      : (N, 7) float32
+        - action_joint : (N, 7) float32
+        - action_cartesian : (N, 3) float32
         - ep_len      : (E,) int32
         - ep_offset   : (E,) int64
 
@@ -891,6 +904,8 @@ class FrankaDatasetGenerator:
         # ---- episode ごとに整列して HDF5 用に flatten ----
         pixels_all = []
         actions_all = []
+        action_joint_all = []
+        action_cartesian_all = []
         qpos_all = []
         qvel_all = []
         ee_pos_all = []
@@ -907,6 +922,12 @@ class FrankaDatasetGenerator:
         for ep_idx, ep in enumerate(all_episodes):
             obs = np.asarray(ep["observations"])   # shape: (T+1, obs_dim)
             acts = np.asarray(ep["actions"])       # shape: (T, 7)
+            acts_joint = np.asarray(ep["action_joint"])
+            acts_cartesian = np.asarray(ep["action_cartesian"])
+            
+            # print("acts.shape:", acts.shape)
+            # print("acts_joint.shape: ", acts_joint.shape)
+            # print("acts_cartesian.shape: ", acts_cartesian.shape)
 
             T = acts.shape[0]
 
@@ -928,6 +949,12 @@ class FrankaDatasetGenerator:
             # images[:-1] と actions[:] を対応させる
             pixels_ep = ep_images[:-1]              # (T, H, W, C)
             action_ep = acts.astype(np.float32)     # (T, 7)
+            action_joint_ep = acts_joint.astype(np.float32)
+            action_cartesian_ep = acts_cartesian.astype(np.float32)
+            
+            # print("action_ep.shape: ", action_ep.shape)
+            # print("action_joint_ep.shape:", action_joint_ep.shape)
+            # print("action_cartesian_ep.shape:", action_cartesian_ep.shape)
 
             # observations の中身:
             # [qpos(7), qvel(7), ee_pos(3), bluebox_pos(3)] を想定
@@ -941,6 +968,8 @@ class FrankaDatasetGenerator:
 
             pixels_all.append(pixels_ep.astype(np.uint8))
             actions_all.append(action_ep)
+            action_joint_all.append(action_joint_ep)
+            action_cartesian_all.append(action_cartesian_ep)
             qpos_all.append(qpos_ep)
             qvel_all.append(qvel_ep)
             ee_pos_all.append(ee_pos_ep)
@@ -957,6 +986,8 @@ class FrankaDatasetGenerator:
         # 連結
         pixels_all = np.concatenate(pixels_all, axis=0)
         actions_all = np.concatenate(actions_all, axis=0)
+        action_joint_all = np.concatenate(action_joint_all, axis=0)
+        action_cartesian_all = np.concatenate(action_cartesian_all, axis=0)
         qpos_all = np.concatenate(qpos_all, axis=0)
         qvel_all = np.concatenate(qvel_all, axis=0)
         ee_pos_all = np.concatenate(ee_pos_all, axis=0)
@@ -978,6 +1009,8 @@ class FrankaDatasetGenerator:
         with h5py.File(h5_path, "w") as f:
             f.create_dataset("pixels", data=pixels_all, compression="gzip")
             f.create_dataset("action", data=actions_all, compression="gzip")
+            f.create_dataset("action_joint", data=action_joint_all, compression="gzip")
+            f.create_dataset("action_cartesian", data=action_cartesian_all, compression="gzip")
 
             f.create_dataset("ep_len", data=ep_len)
             f.create_dataset("ep_offset", data=ep_offset)
@@ -994,7 +1027,154 @@ class FrankaDatasetGenerator:
         print(f"   path: {h5_path}")
         print(f"   pixels: {pixels_all.shape}, dtype={pixels_all.dtype}")
         print(f"   action: {actions_all.shape}, dtype={actions_all.dtype}")
+        print(f"   action_joint: {action_joint_all.shape}, dtype={actions_all.dtype}")
+        print(f"   action_cartesian: {action_cartesian_all.shape}, dtype={actions_all.dtype}")
         print(f"   ep_len: {ep_len.shape}, total episodes={len(ep_len)}")
+
+
+    def _resolve_h5_path(self, h5_name="push.h5"):
+        
+
+        candidates = []
+
+        data_dir = self.config.get("data_dir", None)
+        if data_dir is not None:
+            candidates.append(os.path.join(data_dir, h5_name))
+
+            base_name = os.path.basename(os.path.normpath(data_dir))
+            datasets_dir = get_cache_dir(sub_folder="datasets")
+            candidates.append(os.path.join(datasets_dir, "franka", base_name, h5_name))
+
+        datasets_dir = get_cache_dir(sub_folder="datasets")
+        candidates.append(os.path.join(datasets_dir, "franka", self.prefix, h5_name))
+
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+
+        raise FileNotFoundError("push.h5 not found. candidates:\n" + "\n".join(candidates))
+
+
+    def add_action_field(self, h5_name="push.h5", overwrite=False, batch_size=10000):
+        h5_path = self._resolve_h5_path(h5_name)
+        print(f"[ADD ACTION FIELD] target h5: {h5_path}")
+
+        with h5py.File(h5_path, "a") as f:
+            if "action" not in f:
+                raise KeyError("Existing dataset must have key 'action'.")
+
+            action = f["action"]
+            if action.ndim != 2 or action.shape[1] != 7:
+                raise ValueError(f"'action' must be joint action with shape (N, 7), got {action.shape}")
+
+            N = action.shape[0]
+
+            if "action_joint" in f:
+                if overwrite:
+                    del f["action_joint"]
+                else:
+                    print("[SKIP] action_joint already exists")
+            if "action_cartesian" in f:
+                if overwrite:
+                    del f["action_cartesian"]
+                else:
+                    print("[SKIP] action_cartesian already exists")
+
+            if "action_joint" not in f:
+                f.create_dataset(
+                    "action_joint",
+                    data=action[:].astype(np.float32),
+                    compression="gzip",
+                )
+                print("✅ created action_joint")
+
+            if "action_cartesian" not in f:
+                dset = f.create_dataset(
+                    "action_cartesian",
+                    shape=(N, 3),
+                    dtype=np.float32,
+                    compression="gzip",
+                )
+
+                for s in tqdm(range(0, N, batch_size), desc="Computing FK action_cartesian"):
+                    e = min(s + batch_size, N)
+                    joints = action[s:e]
+
+                    xyz = np.zeros((e - s, 3), dtype=np.float32)
+                    for i, q in enumerate(joints):
+                        xyz[i] = self.env_for_fk.calc_forward_kinematics(q)
+
+                    dset[s:e] = xyz
+
+                print("✅ created action_cartesian")
+
+        print("✅ add_action_field finished")
+    
+    # def _test_fk(self, target_xyz):
+        
+    #     print("type(target_xyz): ", type(target_xyz))
+    #     print("target_xyz:", target_xyz)
+        
+    #     result = self.env_for_fk.calc_inverse_kinematic(target_xyz)
+    #     target_joint = result.qpos[:7]
+        
+    #     print("result:", result)
+    #     print("target_joint:", target_joint)
+        
+    #     recon_xyz = self.env_for_fk.calc_forward_kinematics(target_joint)
+        
+    #     print("type(recon_xyz):", type(recon_xyz))
+    #     print("recon_xyz:", recon_xyz)
+        
+        
+    #     diff = np.linalg.norm(target_xyz - recon_xyz, ord=2)
+    #     print("diff(L2):", diff)
+        
+    #     return 
+    
+    # def _test_loop(self, loop = 10):
+    #     success = 0
+        
+    #     # 範囲
+    #     x_range = [0.315, 0.515]
+    #     y_range = [-0.2, 0.2]
+    #     z_range = [0.05, 0.05]
+        
+    #     eps = 1e-3
+        
+    #     diffs = []
+        
+    #     for _ in range(loop):
+
+    #         # 1サンプル取得
+    #         x = np.random.uniform(*x_range)
+    #         y = np.random.uniform(*y_range)
+    #         z = np.random.uniform(*z_range)
+
+    #         target_xyz = np.array([x, y, z])
+            
+            
+    #         result = self.env_for_fk.calc_inverse_kinematic(target_xyz)
+    #         target_joint = result.qpos[:7]
+            
+    #         recon_xyz = self.env_for_fk.calc_forward_kinematics(target_joint)
+    #         diff = np.linalg.norm(target_xyz - recon_xyz, ord=2)
+    #         diffs.append(diff)
+            
+            
+    #         if diff < eps:
+    #             success += 1
+        
+    #     print("success rate:", success / loop * 100. , "%")
+    #     print("num_success: ", success, "num_trials:", loop)
+        
+        
+    #     print("diff log")
+    #     for i, d in enumerate(diffs):
+    #         print("i: ", i, "d: ", d)
+            
+            
+    
 
 
 
@@ -1015,6 +1195,9 @@ if __name__ == "__main__":
         if len(dataset_generator.data_list) > 0:
             dataset_generator._save_chunk()
         dataset_generator.merge_chunks()
+    
+    if config['add_action_field']:
+        dataset_generator.add_action_field()
     
     
         

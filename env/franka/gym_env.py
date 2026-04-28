@@ -129,6 +129,8 @@ class FrankaPushEnv(gym.Env):
                 ),
             }
         )
+        
+
 
     # -----------------------------
     # Internal helpers
@@ -168,6 +170,7 @@ class FrankaPushEnv(gym.Env):
         簡易 success 判定:
         blue box が goal_pos から tol 以内
         """
+
         if self.goal_pos is None:
             return False
 

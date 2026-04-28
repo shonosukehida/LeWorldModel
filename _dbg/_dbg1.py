@@ -1,15 +1,9 @@
-import os
-import sys
+import h5py
 
-PROJECT_ROOT = "/home/shonosukehida/work/LeWorldModel"
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+path = "/home/shonosukehida/.stable_worldmodel/datasets/ogbench/cube_single_expert.h5"
 
-import jepa
-import torch
-
-path = "/home/shonosukehida/.stable_worldmodel/lewm_epoch_100_object.ckpt"
-obj = torch.load(path, map_location="cpu")
-
-print("type:", type(obj))
-print(hasattr(obj, "get_cost"))
+with h5py.File(path, "r") as f:
+    def print_structure(name, obj):
+        if isinstance(obj, h5py.Dataset):
+            print(f"{name}: shape={obj.shape}, dtype={obj.dtype}")
+    f.visititems(print_structure)

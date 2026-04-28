@@ -55,6 +55,8 @@ class FrankaSimEnv:
         self.control_dt = float(self.physics.model.opt.timestep) * int(self.substeps)
         
         self.bluebox_geom_id = self.physics.model.name2id("blue_box", mujoco.mjtObj.mjOBJ_GEOM)
+        
+
 
 
 
@@ -132,6 +134,17 @@ class FrankaSimEnv:
             rot_weight=rot_weight
         )
         return result
+    
+    #順運動学計算処理を追加
+    def calc_forward_kinematics(self, joint_angles):
+        joint_angles = np.asarray(joint_angles, dtype=np.float32)
+
+        self.physics.data.qpos[:7] = joint_angles
+        self.physics.data.qvel[:7] = 0.0
+        self.physics.forward()
+
+        ee_pos = self.get_ee_position().copy()
+        return ee_pos
     
     
     def get_ee_position(self):
@@ -275,3 +288,7 @@ class FrankaSimEnv:
 
         self.physics.reset()
         return flag
+    
+    # def _create_fk_env(self):
+    #     fk_env = FrankaSimEnv(self.config)
+    #     return fk_env

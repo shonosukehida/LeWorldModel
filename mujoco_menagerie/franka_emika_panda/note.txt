@@ -1,0 +1,13 @@
+位置ゲインKp: 5000 (default)
+現在10000にしている
+
+gainprm、biasprm[1]
+「
+<general name="actuator7" joint="joint7"
+        class="panda"
+        gear="1"
+        gainprm="10000"
+        biasprm="0 -10000 -500"
+        forcerange="-200 200"
+        />
+」

@@ -32,8 +32,15 @@ plan_config:
 
 # evaluation from dataset (replay expert trajectories)
 eval:
+
+  eval_tr_ds:
+    execute: true
+    goal_offset_steps: 25 #25
+
+  eval_zeroshot:
+    execute: false
   num_eval: 50
-  goal_offset_steps: 25
+  # goal_offset_steps: 25
   eval_budget: 50
   img_size: 224
   dataset_name: ogbench/cube_single_expert

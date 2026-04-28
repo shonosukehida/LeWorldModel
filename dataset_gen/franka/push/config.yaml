@@ -2,7 +2,7 @@ is_val: false
 pairs: 1 #5
 min_dist: 0.15
 episodes_per_pair: 1 #2000
-steps_per_episode: 500 ##100
+steps_per_episode: 100 ##100
 image_size: [64, 64] #[64, 64]
 model_path: mujoco_menagerie/franka_emika_panda/scene.xml
 camera_name: top_reverse #top_view, default, diagonal_view, top_reverse
@@ -14,8 +14,9 @@ goal_offset: [0.2, -0.2, 0.2]
 box_start_pos: null #データセット生成時のbluebox のstart位置 #[0.50, -0.05, 0.05]
 box_goal_pos: null #データセット生成時のbluebox のgoal位置 #[0.50, -0.10, 0.05]
 
-eval_only: false
-data_dir: pldm_envs/franka/presaved_datasets/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse #pldm_envs/franka/presaved_datasets/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1_1 #null
+eval_only: true
+add_action_field: true
+data_dir: /home/shonosukehida/.stable_worldmodel/datasets/franka/pairs_500_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse #pldm_envs/franka/presaved_datasets/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1_1 #null
 
 #データ確認するか
 confirm_ik_result: false

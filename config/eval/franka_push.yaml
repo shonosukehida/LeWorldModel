@@ -21,7 +21,7 @@ world:
     camera_name: top_reverse
     image_size: [64, 64]
     confirm_ik_result: False
-    tol: 0.02
+    tol: 0.05
     target_sampling_step: 1
     substeps: 200
 
@@ -37,30 +37,29 @@ seed: 42
 policy: lewm_weights 
 
 plan_config:
-  horizon: 5
+  horizon: 5 #CEMの計算horizon
   receding_horizon: 5
   action_block: 1
 
 eval:
 
   num_eval: 1 #1
-  eval_budget: 50 #50
+  eval_budget: 150 #50
   img_size: 64
   dataset_name: franka/pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
 
   eval_tr_ds:
-    execute: true
+    execute: false
     goal_offset_steps: 25 #25
 
   eval_zeroshot:
     execute: true
     num_eval: 1 #1
     # goal_offset_steps: 25 #25
-    eval_budget: 50 #50
     img_size: 64
-    start_positions: [0.50, 0.07, 0.05]
-    goal_positions: [0.50, 0.15, 0.05]
-    init_ee_positions: [0.50, 0.00, 0.05]
+    start_positions: [0.50, 0.05, 0.05] #[0.50, 0.07, 0.05]
+    goal_positions: [0.45, 0.13, 0.05] #[0.50, 0.15, 0.05]
+    init_ee_positions: [0.50, -0.02, 0.05] #[0.50, 0.00, 0.05]
 
 
   callables:
