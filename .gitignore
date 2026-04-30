@@ -9,3 +9,5 @@ env/__pycache__/
 env/franka/__pycache__/
 *.mp4
 lightning_logs
+environment*
+requirements_frozen*
