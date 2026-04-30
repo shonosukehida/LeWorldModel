@@ -8,3 +8,4 @@ __pycache__/
 env/__pycache__/
 env/franka/__pycache__/
 *.mp4
+lightning_logs

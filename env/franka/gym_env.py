@@ -103,6 +103,9 @@ class FrankaPushEnv(gym.Env):
         # FrankaSimEnv.step は absolute joint target を期待している
         low = self.sim.ctrlrange[:, 0].astype(np.float32)
         high = self.sim.ctrlrange[:, 1].astype(np.float32)
+        print("[FrankaPushEnv] low:", low)
+        print("[FrankaPushEnv] high:", high)
+        
         self.action_space = spaces.Box(
             low=low,
             high=high,
@@ -219,8 +222,25 @@ class FrankaPushEnv(gym.Env):
     def step(self, action: np.ndarray):
         self._step_count += 1
 
-        action = np.asarray(action, dtype=np.float32).reshape(7,)
-        self.sim.step(action)
+        action = np.asarray(action, dtype=np.float32).reshape(-1)
+
+        if action.shape[0] == 3:
+            print("accepted cartesian action")
+            target_xyz = action
+
+            result = self.sim.calc_inverse_kinematic(target_xyz)
+            if not result.success:
+                joint_action = self.sim.physics.data.qpos[:7].copy()
+            else:
+                joint_action = result.qpos[:7].copy()
+
+        elif action.shape[0] == 7:
+            joint_action = action
+
+        else:
+            raise ValueError(f"Unexpected action shape: {action.shape}")
+
+        self.sim.step(joint_action)
 
         obs = self._get_obs()
         reward = self._compute_reward()
@@ -230,13 +250,12 @@ class FrankaPushEnv(gym.Env):
         info = {
             "step_count": self._step_count,
             "bluebox_pos": self._get_bluebox_pos(),
-            "ee_pos" : obs["state"][-3:].copy(),
+            "ee_pos": obs["state"][-3:].copy(),
             "goal_pos": None if self.goal_pos is None else self.goal_pos.copy(),
             "is_success": terminated,
         }
 
         return obs, reward, terminated, truncated, info
-
     def render(self):
         return self.sim.render_image(self.image_size)
 

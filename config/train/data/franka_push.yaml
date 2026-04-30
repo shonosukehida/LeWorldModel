@@ -1,5 +1,5 @@
 dataset:
-  name: franka/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
+  name: franka/pairs_1_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
   num_steps: ${eval:'${wm.num_preds} + ${wm.history_size}'}
   frameskip: 1
 

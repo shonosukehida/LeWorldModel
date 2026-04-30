@@ -568,7 +568,7 @@ def plot_all_bluebox_trajectories_from_h5(
     print(f"[BOX-ALL] total segments: {len(segments)}")
 
     fig, ax = plt.subplots(figsize=(7, 7))
-    lc = LineCollection(segments, linewidths=lw, alpha=alpha, colors="black")
+    lc = LineCollection(segments, linewidths=lw, alpha=alpha, colors="blue")
     ax.add_collection(lc)
 
     if show_workspace:
@@ -605,7 +605,7 @@ def plot_all_bluebox_trajectories_from_h5(
 
 
 if __name__ == "__main__":
-    DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/franka/pairs_500_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push.h5"
+    DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/franka/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push.h5"
     
     h5_path = os.path.expanduser(DATA_PATH)
     print("h5_path:", h5_path)

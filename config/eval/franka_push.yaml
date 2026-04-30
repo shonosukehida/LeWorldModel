@@ -29,6 +29,8 @@ dataset:
   stats: ${eval.dataset_name}
   keys_to_cache:
     - action
+    # - action_joint
+    # - action_cartesian
     - qpos
     - qvel
     - bluebox_pos
@@ -40,13 +42,14 @@ plan_config:
   horizon: 5 #CEMの計算horizon
   receding_horizon: 5
   action_block: 1
+  action_space: "joint" #cartesian / joint
 
 eval:
 
   num_eval: 1 #1
-  eval_budget: 150 #50
+  eval_budget: 200 #50
   img_size: 64
-  dataset_name: franka/pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
+  dataset_name: franka/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push #franka/pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
 
   eval_tr_ds:
     execute: false
@@ -58,8 +61,8 @@ eval:
     # goal_offset_steps: 25 #25
     img_size: 64
     start_positions: [0.50, 0.05, 0.05] #[0.50, 0.07, 0.05]
-    goal_positions: [0.45, 0.13, 0.05] #[0.50, 0.15, 0.05]
-    init_ee_positions: [0.50, -0.02, 0.05] #[0.50, 0.00, 0.05]
+    goal_positions: [0.50, 0.15, 0.05] #[0.50, 0.15, 0.05]
+    init_ee_positions: [0.50, 0.0, 0.05] #[0.50, 0.00, 0.05]
 
 
   callables:

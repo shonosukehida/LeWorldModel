@@ -56,11 +56,14 @@ def run(cfg: DictConfig):
     ), "Planning horizon must be smaller than or equal to eval_budget"
     
 
+    # print("cfg.policy:", cfg.policy)
+    # print("swm.data.utils.get_cache_dir():", swm.data.utils.get_cache_dir())
     results_path = (
-        Path(swm.data.utils.get_cache_dir(), cfg.policy).parent
+        Path(swm.data.utils.get_cache_dir(), "eval", cfg.policy).parent
         if cfg.policy != "random"
         else Path(__file__).parent
-    ) #/home/shonosukehida/.stable_worldmodel/franka_push/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse
+    ) 
+    print("results_path:", results_path) #/home/shonosukehida/.stable_worldmodel/franka_push/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse
     
 
 
@@ -107,6 +110,7 @@ def run(cfg: DictConfig):
         config = swm.PlanConfig(**cfg.plan_config)
         solver = hydra.utils.instantiate(cfg.solver, model=model)
         # print("solver:", solver) #solver: <stable_worldmodel.solver.cem.CEMSolver object at 0x7f881e73a140>
+        # print("policy config:", config) #PlanConfig(horizon=5, receding_horizon=5, history_len=1, action_block=1, warm_start=True)
         policy = swm.policy.WorldModelPolicy(
             solver=solver, config=config, process=process, transform=transform
         )
@@ -114,7 +118,7 @@ def run(cfg: DictConfig):
     else:
         policy = swm.policy.RandomPolicy()
 
-
+    print("world.set_policy(policy)...")
     world.set_policy(policy)        
     if cfg.eval.eval_zeroshot.execute:
     

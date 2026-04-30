@@ -178,12 +178,23 @@ def run(cfg):
     ##       training       ##
     ##########################
 
+    dataset_name = cfg.data.dataset.name.split("/")[1]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = cfg.get("subdir") or ""
-    run_dir = Path(swm.data.utils.get_cache_dir(), run_id)
+    # run_dir = Path(swm.data.utils.get_cache_dir(), run_id)
+    run_dir = Path(
+        swm.data.utils.get_cache_dir(),
+        "checkpoints",
+        "franka_push",
+        dataset_name,
+        timestamp,
+    )
+    print("dataset_name:", dataset_name)
+    print("run_id:", run_id)
+    print("run_dir:", run_dir)
 
     logger = None
     if cfg.wandb.enabled:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         cfg.wandb.config.name = f"{cfg.output_model_name}_{timestamp}"
         cfg.wandb.config.id = cfg.wandb.config.name  
 

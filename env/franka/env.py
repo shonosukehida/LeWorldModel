@@ -160,6 +160,9 @@ class FrankaSimEnv:
 
     def step(self, action, max_dq=0.01):
         action = np.asarray(action, dtype=np.float32).reshape(-1)
+        
+        print("[env/franka/env.py] action.shape:", action.shape)
+        
         qpos = self.physics.data.qpos[:7].copy()
 
         dq_raw = action - qpos

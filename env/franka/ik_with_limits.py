@@ -179,6 +179,8 @@ def qpos_from_site_pose(
     if not success and steps == max_steps - 1:
         logging.warning('Failed to converge after %i steps: err_norm=%3g',
                         steps, err_norm)
+    else:
+        print("success to converge: err_norm:", err_norm)
 
     if not inplace:
         qpos = data.qpos.copy()
