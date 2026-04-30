@@ -187,7 +187,7 @@ def run(cfg):
         "checkpoints",
         "franka_push",
         dataset_name,
-        timestamp,
+        "lewm" + timestamp,
     )
     print("dataset_name:", dataset_name)
     print("run_id:", run_id)
