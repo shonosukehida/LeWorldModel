@@ -77,7 +77,9 @@ def run(cfg):
         for col in cfg.data.dataset.keys_to_load:
             if col.startswith("pixels"):
                 continue
-
+            
+            # print("col:", col)
+            
             normalizer = get_column_normalizer(dataset, col, col)
             transforms.append(normalizer)
             
@@ -91,7 +93,7 @@ def run(cfg):
                 
 
             if col == "action" or col == "action_joint" or col == "action_cartesian":
-                print("col:", col)
+                # print("col:", col)
                 setattr(cfg.wm, f"action_dim", dataset.get_dim(col))
 
     

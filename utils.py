@@ -18,9 +18,21 @@ def get_column_normalizer(dataset, source: str, target: str):
     data = data[~torch.isnan(data).any(dim=1)]
     mean = data.mean(0, keepdim=True).clone()
     std = data.std(0, keepdim=True).clone()
+    
+    # print("mean: ", mean)
+    # print("std: ", std)
+    eps = 1e-4
+    std_safe = torch.where(std < eps, torch.ones_like(std), std)
+    # print("std_safe:", std_safe)
 
     def norm_fn(x):
-        return ((x - mean) / std).float()
+        print("before norm:", x)
+        mean_ = mean.to(x.device)
+        std_ = std_safe.to(x.device)
+        
+        normed = ((x - mean_) / std_).float()
+        print("after norm:", normed) #z:0 になるべき
+        return normed
 
     normalizer = dt.transforms.WrapTorchTransform(norm_fn, source=source, target=target)
     return normalizer

@@ -47,6 +47,24 @@ def get_dataset(cfg, dataset_name):
     )
     return dataset
 
+class SafeStandardScaler:
+    def __init__(self, eps=1e-4):
+        self.eps = eps
+        self.mean_ = None
+        self.scale_ = None
+
+    def fit(self, x):
+        self.mean_ = np.mean(x, axis=0, keepdims=True)
+        std = np.std(x, axis=0, keepdims=True)
+        self.scale_ = np.where(std < self.eps, 1.0, std)
+        return self
+
+    def transform(self, x):
+        return (x - self.mean_) / self.scale_
+
+    def inverse_transform(self, x):
+        return x * self.scale_ + self.mean_
+
 @hydra.main(version_base=None, config_path="./config/eval", config_name="pusht")
 def run(cfg: DictConfig):
     """Run evaluation of dinowm vs random policy."""
@@ -88,7 +106,8 @@ def run(cfg: DictConfig):
     for col in cfg.dataset.keys_to_cache:
         if col in ["pixels"]:
             continue
-        processor = preprocessing.StandardScaler()
+        # processor = preprocessing.StandardScaler()
+        processor = SafeStandardScaler(eps=1e-4)
         col_data = stats_dataset.get_col_data(col)
         col_data = col_data[~np.isnan(col_data).any(axis=1)]
         processor.fit(col_data)

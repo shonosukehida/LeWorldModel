@@ -223,6 +223,10 @@ class FrankaPushEnv(gym.Env):
         self._step_count += 1
 
         action = np.asarray(action, dtype=np.float32).reshape(-1)
+        
+        target_xyz = None 
+        ik_success = None 
+        target_qpos = None
 
         if action.shape[0] == 3:
             print("accepted cartesian action")
@@ -233,9 +237,11 @@ class FrankaPushEnv(gym.Env):
                 joint_action = self.sim.physics.data.qpos[:7].copy()
             else:
                 joint_action = result.qpos[:7].copy()
+            target_qpos = joint_action.copy()
 
         elif action.shape[0] == 7:
             joint_action = action
+            target_qpos = joint_action.copy()
 
         else:
             raise ValueError(f"Unexpected action shape: {action.shape}")
@@ -253,6 +259,11 @@ class FrankaPushEnv(gym.Env):
             "ee_pos": obs["state"][-3:].copy(),
             "goal_pos": None if self.goal_pos is None else self.goal_pos.copy(),
             "is_success": terminated,
+            
+            "target_qpos": target_qpos.astype(np.float32),
+            "actual_qpos": self.sim.physics.data.qpos[:7].copy().astype(np.float32),
+            "target_xyz": None if target_xyz is None else target_xyz.astype(np.float32),
+            "ik_success": ik_success,
         }
 
         return obs, reward, terminated, truncated, info

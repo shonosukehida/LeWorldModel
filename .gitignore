@@ -11,3 +11,4 @@ env/franka/__pycache__/
 lightning_logs
 environment*
 requirements_frozen*
+*nohup*

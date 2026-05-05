@@ -15,7 +15,7 @@ box_start_pos: null #データセット生成時のbluebox のstart位置 #[0.50
 box_goal_pos: null #データセット生成時のbluebox のgoal位置 #[0.50, -0.10, 0.05]
 
 eval_only: true
-add_action_field: true
+add_action_field: false
 data_dir: /home/shonosukehida/.stable_worldmodel/datasets/franka/pairs_1_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse #pldm_envs/franka/presaved_datasets/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1_1 #null
 
 #データ確認するか
