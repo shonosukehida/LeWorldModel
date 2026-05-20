@@ -90,6 +90,8 @@ class FrankaDatasetGenerator:
         self.sample_tag = sample_tag
         
         # self.SAMPLE_METHOD = config['sample_method']
+        print("self.single_method:",self.single_method)
+        print("self.sample_method_list:", self.sample_method_list)
 
         self.specify_init_position = config['specify_init_position']
         self.init_joint_method = config['init_joint_method']

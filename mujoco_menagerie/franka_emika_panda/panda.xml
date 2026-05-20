@@ -316,6 +316,12 @@
             biasprm="0 -10000 -500"
             forcerange="-200 200"
             />
+    <general name="gripper"
+            tendon="split"
+            ctrlrange="0 255"
+            gainprm="10"
+            biasprm="0 -10 0"
+            forcerange="-100 100"/>
   </actuator>
 
 

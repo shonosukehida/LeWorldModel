@@ -186,7 +186,7 @@ class FrankaPushEnv(gym.Env):
     # Gymnasium API
     # -----------------------------
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
-        print("[env/franka/gym_env.py] options:", options)
+        # print("[env/franka/gym_env.py] options:", options)
         super().reset(seed=seed)
 
         self._step_count = 0

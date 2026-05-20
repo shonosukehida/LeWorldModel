@@ -283,3 +283,21 @@ class ARPredictor(nn.Module):
         x = self.dropout(x)
         x = self.transformer(x, c)
         return x
+
+
+class IDM(nn.Module):
+    def __init__(self, embed_dim, action_dim, hidden_dim=256):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(2 * embed_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, action_dim),
+        )
+
+    def forward(self, z_t, z_tp1):
+        x = torch.cat([z_t, z_tp1], dim=-1)
+        return self.net(x)

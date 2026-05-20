@@ -26,12 +26,12 @@ def get_column_normalizer(dataset, source: str, target: str):
     # print("std_safe:", std_safe)
 
     def norm_fn(x):
-        print("before norm:", x)
+        # print("before norm:", x)
         mean_ = mean.to(x.device)
         std_ = std_safe.to(x.device)
         
         normed = ((x - mean_) / std_).float()
-        print("after norm:", normed) #z:0 になるべき
+        # print("after norm:", normed) #z:0 になるべき
         return normed
 
     normalizer = dt.transforms.WrapTorchTransform(norm_fn, source=source, target=target)

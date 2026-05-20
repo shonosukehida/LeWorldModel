@@ -17,6 +17,7 @@ class JEPA(nn.Module):
         action_encoder,
         projector=None,
         pred_proj=None,
+        # action_space="",
     ):
         super().__init__()
 
@@ -25,6 +26,7 @@ class JEPA(nn.Module):
         self.action_encoder = action_encoder
         self.projector = projector or nn.Identity()
         self.pred_proj = pred_proj or nn.Identity()
+        # self.action_space = action_space
 
     def encode(self, info):
         """Encode observations and actions into embeddings.
@@ -39,13 +41,25 @@ class JEPA(nn.Module):
         emb = self.projector(pixels_emb)
         info["emb"] = rearrange(emb, "(b t) d -> b t d", b=b)
 
-        # print("type(info):", type(info)) #dict
+        # print("info.keys():", info.keys()) #dict
         if "action" in info:
             info["act_emb"] = self.action_encoder(info["action"])
-        if "action_joint" in info:
+        elif "action_joint" in info:
             info["act_emb"] = self.action_encoder(info["action_joint"])
-        if "action_cartesian" in info:
+        elif "action_cartesian" in info:
             info["act_emb"] = self.action_encoder(info["action_cartesian"])
+        
+        # print("[jepa.py]self.cfg.action_space:", self.cfg.action_space)
+        # if self.cfg.action_space == "joint":
+        #     action_key = "action"
+        # elif self.cfg.action_space == "cartesian":
+        #     action_key = "action_cartesian"
+        # else:
+        #     raise ValueError(f"Unknown action_space: {self.cfg.action_space}")
+
+        # if action_key in info:
+        #     info["act_emb"] = self.action_encoder(info[action_key])
+
         
 
         return info
@@ -71,12 +85,15 @@ class JEPA(nn.Module):
          - S is the number of action plan samples
          - T is the time horizon
         """
+        # print("(jepa.py) info.keys(): ", info.keys())
+        # print("(jepa.py) info(action): ", info["action"])
 
         assert "pixels" in info, "pixels not in info_dict"
         H = info["pixels"].size(2)
         B, S, T = action_sequence.shape[:3]
         act_0, act_future = torch.split(action_sequence, [H, T - H], dim=2)
-        info["action"] = act_0
+        info["action"] = act_0 #コメントアウトしても動作する --> 使われてない, info['action] が計算に使われていないぽいので、正常範囲内
+        # print("(jepa.py)(after input act_0) info(action): ", info["action"])
         n_steps = T - H
 
         # copy and encode initial info dict
@@ -119,6 +136,19 @@ class JEPA(nn.Module):
         """Compute the cost between predicted embeddings and goal embeddings."""
         pred_emb = info_dict["predicted_emb"]  # (B,S, T-1, dim)
         goal_emb = info_dict["goal_emb"]  # (B, S, T, dim)
+        
+        #pred_emb
+        # print("pred_emb.shape:", pred_emb.shape)
+        # print("pred_emb.min:", pred_emb.min())
+        # print("pred_emb.max:", pred_emb.max())
+        # print("pred_emb.mean:", pred_emb.mean())
+        
+        #goal_emb
+        # print("goal_emb.shape:", goal_emb.shape)
+        # print("goal_emb.min:", goal_emb.min())
+        # print("goal_emb.max:", goal_emb.max())
+        # print("goal_emb.mean:", goal_emb.mean())
+        
 
         goal_emb = goal_emb[..., -1:, :].expand_as(pred_emb)
 
@@ -148,7 +178,10 @@ class JEPA(nn.Module):
             if k.startswith("goal_"):
                 goal[k[len("goal_") :]] = goal.pop(k)
 
-        goal.pop("action")
+        for k in ["action", "action_joint", "action_cartesian"]:
+            goal.pop(k, None)
+            
+            
         goal = self.encode(goal)
 
         info_dict["goal_emb"] = goal["emb"]

@@ -1,8 +1,8 @@
-is_val: false
+is_val: true
 pairs: 1 #5
 min_dist: 0.15
 episodes_per_pair: 1 #2000
-steps_per_episode: 100 ##100
+steps_per_episode: 1000 ##100
 image_size: [64, 64] #[64, 64]
 model_path: mujoco_menagerie/franka_emika_panda/scene.xml
 camera_name: top_reverse #top_view, default, diagonal_view, top_reverse
@@ -14,15 +14,15 @@ goal_offset: [0.2, -0.2, 0.2]
 box_start_pos: null #データセット生成時のbluebox のstart位置 #[0.50, -0.05, 0.05]
 box_goal_pos: null #データセット生成時のbluebox のgoal位置 #[0.50, -0.10, 0.05]
 
-eval_only: true
+eval_only: false
 add_action_field: false
-data_dir: /home/shonosukehida/.stable_worldmodel/datasets/franka/pairs_1_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse #pldm_envs/franka/presaved_datasets/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1_1 #null
+data_dir: /home/shonosukehida/.stable_worldmodel/datasets/franka/val_pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse #pldm_envs/franka/presaved_datasets/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1_1 #null
 
 #データ確認するか
 confirm_ik_result: false
 confirm_dist: false
-make_video: false #false
-confirm_ee_trajectory: false
+make_video: true #false
+confirm_ee_trajectory: true
 confirm_ee_traj_xz: false #false
 confirm_data: false
 count_contact: false
@@ -32,9 +32,9 @@ plot_all_ee_traj: true #データセットのFranka手先の分布を可視化
 plot_all_bluebox_traj: true #データセットのblueboxの分布を可視化
 
 
-start_goal_x_range: [0.415, 0.615]
-start_goal_y_range: [-0.10, 0.10]
-start_goal_z_range: [0.05, 0.05]
+start_goal_x_range: [0.415, 0.615] #[0.415, 0.615]
+start_goal_y_range: [-0.10, 0.10] #[-0.10, 0.10]
+start_goal_z_range: [0.05, 0.05] #[0.05, 0.05]
 
 x_range: [0.315, 0.715] 
 y_range: [-0.2, 0.2] 

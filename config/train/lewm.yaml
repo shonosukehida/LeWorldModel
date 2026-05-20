@@ -62,3 +62,6 @@ loss:
     kwargs:
       knots: 17
       num_proj: 1024
+  idm:
+    use: true
+    weight: 0.01

@@ -11,18 +11,20 @@ from lightning.pytorch.loggers import WandbLogger
 from omegaconf import OmegaConf, open_dict
 
 from jepa import JEPA
-from module import ARPredictor, Embedder, MLP, SIGReg
+from module import ARPredictor, Embedder, MLP, SIGReg, IDM
 from utils import get_column_normalizer, get_img_preprocessor, ModelObjectCallBack
-
+import torch.nn.functional as F
 from datetime import datetime
 
 
 def lejepa_forward(self, batch, stage, cfg):
     """encode observations, predict next states, compute losses."""
+    #batch: dict_keys(['pixels', 'action', 'batch_idx'])
 
     ctx_len = cfg.wm.history_size
     n_preds = cfg.wm.num_preds
     lambd = cfg.loss.sigreg.weight
+    lambd_idm = cfg.loss.idm.weight if cfg.loss.idm.use else None
 
     # print("type(batch):", type(batch))
     action_key = ""
@@ -32,27 +34,44 @@ def lejepa_forward(self, batch, stage, cfg):
     # Replace NaN values with 0 (occurs at sequence boundaries)
     batch[action_key] = torch.nan_to_num(batch[action_key], 0.0)
 
+
     output = self.model.encode(batch)
 
     
 
     emb = output["emb"]  # (B, T, D)
-    act_emb = output["act_emb"]
+    act_emb = output["act_emb"] # (B, T, D)
 
-    ctx_emb = emb[:, :ctx_len]
-    ctx_act = act_emb[:, : ctx_len]
+    ctx_emb = emb[:, :ctx_len] # (B, T - 1, D)
+    ctx_act = act_emb[:, : ctx_len] # (B, T - 1, D)
 
     tgt_emb = emb[:, n_preds:] # label
     pred_emb = self.model.predict(ctx_emb, ctx_act) # pred
+
+    
+    if cfg.loss.idm.use:
+        z_t = emb[:, :-1]
+        z_tp1 = emb[:, 1:]
+        a_t = batch[action_key][:, :-1]
+        
+        a_pred = self.idm(z_t, z_tp1)
+        
+        output["idm_loss"] = F.mse_loss(a_pred, a_t)
+    
+    
+    
 
 
     # LeWM loss
     output["pred_loss"] = (pred_emb - tgt_emb).pow(2).mean()
     output["sigreg_loss"]= self.sigreg(emb.transpose(0, 1))
-    output["loss"] = output["pred_loss"] + lambd * output["sigreg_loss"]  
+    output["loss"] = output["pred_loss"] + lambd * output["sigreg_loss"]
+    
+    if cfg.loss.idm.use:
+        output["loss"] = output["loss"] + lambd_idm * output["idm_loss"]
 
     losses_dict = {f"{stage}/{k}": v.detach() for k, v in output.items() if "loss" in k}
-    self.log_dict(losses_dict, on_step=True, sync_dist=True)
+    self.log_dict(losses_dict, on_step=True, on_epoch=True, sync_dist=True)
     return output
 
 @hydra.main(version_base=None, config_path="./config/train", config_name="lewm")
@@ -165,14 +184,28 @@ def run(cfg):
             "interval": "epoch",
         },
     }
+    
+    
 
     data_module = spt.data.DataModule(train=train, val=val)
-    world_model = spt.Module(
-        model = world_model,
-        sigreg = SIGReg(**cfg.loss.sigreg.kwargs),
+    
+    module_kwargs = dict (
+        model=world_model,
+        sigreg=SIGReg(**cfg.loss.sigreg.kwargs),
         forward=partial(lejepa_forward, cfg=cfg),
         optim=optimizers,
     )
+    
+    if cfg.loss.idm.use:
+        idm = IDM(embed_dim=embed_dim, action_dim=effective_act_dim)
+
+        for p in idm.parameters():
+            p.requires_grad = False
+            
+        module_kwargs["idm"] = idm
+        
+    
+    world_model = spt.Module(**module_kwargs)
     # print("world_model:", world_model)
     
 
