@@ -131,6 +131,13 @@ class FrankaDatasetGenerator:
         else:
             ratio_tag = "_".join(f"{r:.2f}".replace(".", "p") for r in self.sample_method_ratio)
             prefix = f"{'val_' if self.IS_VAL else ''}pairs_{self.PAIRS}_ep_{self.EPISODES_PER_PAIR}_timestep_{self.STEPS_PER_EPISODE}_sample_{self.sample_tag}_{ratio_tag}_view_{self.CAMERA_NAME}"
+        
+        workspace_tag = (
+            f"x{self.X_RANGE[0]:.2f}_{self.X_RANGE[1]:.2f}"
+            f"_y{self.Y_RANGE[0]:.2f}_{self.Y_RANGE[1]:.2f}"
+            f"_z{self.Z_RANGE[0]:.2f}_{self.Z_RANGE[1]:.2f}"
+        ).replace(".", "p")
+        prefix += f"_ws_{workspace_tag}"
 
         self.SAVE_PATH = os.path.join(base, prefix)
         print("SAVE_PATH =", os.path.abspath(self.SAVE_PATH))
@@ -1024,6 +1031,20 @@ class FrankaDatasetGenerator:
             f.create_dataset("bluebox_pos", data=bluebox_pos_all)
             f.create_dataset("ep_idx", data=ep_idx_all)
             f.create_dataset("step_idx", data=step_idx_all)
+            
+            
+            # workspace metadata
+            f.attrs["x_range"] = np.asarray(self.X_RANGE, dtype=np.float32)
+            f.attrs["y_range"] = np.asarray(self.Y_RANGE, dtype=np.float32)
+            f.attrs["z_range"] = np.asarray(self.Z_RANGE, dtype=np.float32)
+
+            f.attrs["mgn_x_range"] = np.asarray(self.mgn_x_range, dtype=np.float32)
+            f.attrs["mgn_y_range"] = np.asarray(self.mgn_y_range, dtype=np.float32)
+            f.attrs["mgn_z_range"] = np.asarray(self.mgn_z_range, dtype=np.float32)
+
+            f.attrs["start_goal_x_range"] = np.asarray(self.START_GOAL_X_RANGE, dtype=np.float32)
+            f.attrs["start_goal_y_range"] = np.asarray(self.START_GOAL_Y_RANGE, dtype=np.float32)
+            f.attrs["start_goal_z_range"] = np.asarray(self.START_GOAL_Z_RANGE, dtype=np.float32)
 
         print("✅ Saved LeWM-style HDF5 dataset!")
         print(f"   path: {h5_path}")
@@ -1111,7 +1132,179 @@ class FrankaDatasetGenerator:
                 print("✅ created action_cartesian")
 
         print("✅ add_action_field finished")
-    
+        
+    def confirm_workspace_rectangle_loop(
+        self,
+        save_dir="dataset_gen/franka/push/check/workspace_loop",
+        n_per_edge=100,
+        axes="xy",
+    ):
+        os.makedirs(save_dir, exist_ok=True)
+
+        x0, x1 = self.X_RANGE
+        y0, y1 = self.Y_RANGE
+        z = (self.Z_RANGE[0] + self.Z_RANGE[1]) / 2.0
+
+        # 矩形を一周する target_xyz 列
+        bottom = np.stack([
+            np.linspace(x0, x1, n_per_edge),
+            np.full(n_per_edge, y0),
+            np.full(n_per_edge, z),
+        ], axis=1)
+
+        right = np.stack([
+            np.full(n_per_edge, x1),
+            np.linspace(y0, y1, n_per_edge),
+            np.full(n_per_edge, z),
+        ], axis=1)
+
+        top = np.stack([
+            np.linspace(x1, x0, n_per_edge),
+            np.full(n_per_edge, y1),
+            np.full(n_per_edge, z),
+        ], axis=1)
+
+        left = np.stack([
+            np.full(n_per_edge, x0),
+            np.linspace(y1, y0, n_per_edge),
+            np.full(n_per_edge, z),
+        ], axis=1)
+
+        targets = np.concatenate([bottom, right, top, left], axis=0)
+
+        # 初期位置へ移動
+        init_xyz = targets[0]
+        result = self.env.calc_inverse_kinematic(
+            init_xyz,
+            target_rotmat=self.target_rotmat,
+        )
+        init_joint = result.qpos[:7]
+
+        self.env.reset_and_place_all(
+            box_pos=np.array([x0, y0, 0.05]),
+            start_marker_pos=np.array([x0, y0, 0.05]),
+            goal_marker_pos=np.array([x1, y1, 0.05]),
+            init_position=init_joint,
+        )
+        self.env.physics.forward()
+
+        actual_ee = []
+        success_flags = []
+        frames = []
+
+        for target_xyz in tqdm(targets, desc="Checking workspace rectangle loop"):
+            try:
+                joint_angles, ee_pos, dist_steps, objective_reached = self.env.step_xyz(
+                    target_xyz,
+                    target_rotmat=self.target_rotmat,
+                    steps=self.mjc_steps,
+                    tol=0.02,
+                    rot_weight=self.rot_weight,
+                    max_dq=self.MAX_DQ,
+                )
+                actual_ee.append(ee_pos.copy())
+                success_flags.append(bool(objective_reached))
+                
+            except Exception as e:
+                print(f"[IK/step failed] target={target_xyz}, error={e}")
+                actual_ee.append([np.nan, np.nan, np.nan])
+                success_flags.append(False)
+            
+            img = self.env.physics.render(
+                    height=self.IMAGE_SIZE[0],
+                    width=self.IMAGE_SIZE[1],
+                    camera_id=self.camera_id,
+                )
+            frames.append(img)
+
+        actual_ee = np.asarray(actual_ee, dtype=np.float32)
+        success_flags = np.asarray(success_flags, dtype=bool)
+
+        # 保存
+        np.save(os.path.join(save_dir, "workspace_loop_targets.npy"), targets)
+        np.save(os.path.join(save_dir, "workspace_loop_actual_ee.npy"), actual_ee)
+        np.save(os.path.join(save_dir, "workspace_loop_success.npy"), success_flags)
+
+        # plot
+        axes_to_num = {"x": 0, "y": 1, "z": 2}
+        i0, i1 = axes_to_num[axes[0]], axes_to_num[axes[1]]
+
+        fig, ax = plt.subplots(figsize=(7, 7))
+
+        ax.plot(
+            targets[:, i0],
+            targets[:, i1],
+            "--",
+            linewidth=2,
+            label="Target rectangle",
+        )
+
+        ax.plot(
+            actual_ee[:, i0],
+            actual_ee[:, i1],
+            linewidth=2,
+            label="Actual EE trajectory",
+        )
+        
+        # ---- Start / End markers for actual EE trajectory ----
+        valid_idx = np.where(~np.isnan(actual_ee[:, i0]) & ~np.isnan(actual_ee[:, i1]))[0]
+
+        if len(valid_idx) > 0:
+            s_idx = valid_idx[0]
+            e_idx = valid_idx[-1]
+
+            ax.text(
+                actual_ee[s_idx, i0],
+                actual_ee[s_idx, i1],
+                "S",
+                fontsize=14,
+                fontweight="bold",
+                color="orange",
+                zorder=10,
+            )
+
+            ax.text(
+                actual_ee[e_idx, i0],
+                actual_ee[e_idx, i1],
+                "E",
+                fontsize=14,
+                fontweight="bold",
+                color="orange",
+                zorder=10,
+            )
+
+
+        rect = Rectangle(
+            (x0, y0),
+            x1 - x0,
+            y1 - y0,
+            linewidth=1.5,
+            edgecolor="black",
+            facecolor="none",
+            linestyle="--",
+            alpha=0.7,
+        )
+        ax.add_patch(rect)
+
+        ax.set_xlabel(axes[0].upper())
+        ax.set_ylabel(axes[1].upper())
+        ax.set_title("Workspace Rectangle Loop Check")
+        ax.set_aspect("equal", adjustable="box")
+        ax.grid(True, alpha=0.2)
+        ax.legend()
+
+        save_path = os.path.join(save_dir, f"workspace_loop_{axes}.png")
+        fig.savefig(save_path, dpi=300)
+        plt.close(fig)
+
+        print(f"✅ saved plot: {save_path}")
+        print(f"success rate: {success_flags.mean() * 100:.2f}%")
+        
+        if len(frames) > 0:
+            video_path = os.path.join(save_dir, "workspace_loop.mp4")
+            imageio.mimsave(video_path, frames, fps=int(self.actual_dataset_hz))
+            print(f"✅ saved video: {video_path}")
+        
     # def _test_fk(self, target_xyz):
         
     #     print("type(target_xyz): ", type(target_xyz))
@@ -1191,6 +1384,9 @@ if __name__ == "__main__":
 
 
     dataset_generator = FrankaDatasetGenerator(config)
+    
+    if config["confirm_follow_workspace"]:
+        dataset_generator. confirm_workspace_rectangle_loop()
     if not config['eval_only']:
         dataset_generator.generate()
 

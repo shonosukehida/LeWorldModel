@@ -184,7 +184,7 @@ class FrankaSimEnv:
         return ee_pos
 
     def step_xyz(self, target_pos, target_rotmat=None,
-                steps=200, tol=1e-3, rot_weight=1.0, max_dq=0.01):
+                steps=200, tol=0.02, rot_weight=1.0, max_dq=0.01):
         result = self.calc_inverse_kinematic(
             target_pos,
             target_rotmat=target_rotmat,
@@ -202,9 +202,8 @@ class FrankaSimEnv:
             dist_steps.append(np.abs(ee_pos - target_pos))
 
             dist = np.linalg.norm(ee_pos - target_pos)
-            # if dist < tol:
-            #     objective_reached = True
-            #     break
+            if dist < tol:
+                objective_reached = True
 
         site_pos = ee_pos.copy()
         return joint_angles, site_pos, dist_steps, objective_reached

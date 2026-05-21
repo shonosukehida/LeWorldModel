@@ -437,13 +437,13 @@ def run(cfg: DictConfig):
 
 
     # print("cfg.probing.dataset_name:", cfg.probing.dataset_name)
-    dataset = get_dataset(cfg, cfg.probing.dataset_name)
-    val_dataset = get_dataset(cfg, cfg.probing.val_dataset_name)
+    dataset = get_dataset(cfg, cfg.eval.probing.dataset_name)
+    val_dataset = get_dataset(cfg, cfg.eval.probing.val_dataset_name)
     
     
     # print("model:", model)
     # print("model.predictor:", model.predictor)
-    if cfg.probing.exe_probe:
+    if cfg.eval.probing.exe_probe:
         results_path = (
             Path(swm.data.utils.get_cache_dir(), "eval", cfg.policy).parent
         ) 
@@ -459,13 +459,13 @@ def run(cfg: DictConfig):
             process = process,
             results_path = results_path,
             val_dataset = val_dataset,
-            plot_all_train_data = cfg.probing.plot_all_train_data,
-            plot_all_val_data = cfg.probing.plot_all_val_data,
-            plot_closed_data = cfg.probing.plot_closed_data, 
-            plot_open_data = cfg.probing.plot_open_data,
-            closed_pred_step = cfg.probing.closed_pred_step,
-            max_samples = cfg.probing.max_samples,
-            plot_line = cfg.probing.plot_line,
+            plot_all_train_data = cfg.eval.probing.plot_all_train_data,
+            plot_all_val_data = cfg.eval.probing.plot_all_val_data,
+            plot_closed_data = cfg.eval.probing.plot_closed_data, 
+            plot_open_data = cfg.eval.probing.plot_open_data,
+            closed_pred_step = cfg.eval.probing.closed_pred_step,
+            max_samples = cfg.eval.probing.max_samples,
+            plot_line = cfg.eval.probing.plot_line,
             env = env
             
         )
@@ -566,31 +566,50 @@ def compute_action_costs(
 
         # random_action_seq = shuffle_action_seq.astype(np.float32)
         # print("random_action_seq:", random_action_seq)
-        
-        low = np.array([
-            -2.8973,
-            -1.7628,
-            -2.8973,
-            -3.0718,
-            -2.8973,
-            -0.0175,
-            -2.8973,
-        ], dtype=np.float32)
+        if action_key == "action" or action_key == "action_joint":
+            low = np.array([
+                -2.8973,
+                -1.7628,
+                -2.8973,
+                -3.0718,
+                -2.8973,
+                -0.0175,
+                -2.8973,
+            ], dtype=np.float32)
 
-        high = np.array([
-            2.8973,
-            1.7628,
-            2.8973,
-            -0.0698,
-            2.8973,
-            3.7525,
-            2.8973,
-        ], dtype=np.float32)
-        random_action_seq = np.random.uniform(
-            low=low,
-            high=high,
-            size=(horizon, low.shape[0]),
-        ).astype(np.float32)
+            high = np.array([
+                2.8973,
+                1.7628,
+                2.8973,
+                -0.0698,
+                2.8973,
+                3.7525,
+                2.8973,
+            ], dtype=np.float32)
+            random_action_seq = np.random.uniform(
+                low=low,
+                high=high,
+                size=(horizon, low.shape[0]),
+            ).astype(np.float32)
+        else:
+            low = np.array([
+                0.315,   # x
+               -0.2,     # y
+                0.1,     # z
+            ], dtype=np.float32)
+
+            high = np.array([
+                0.715,   # x
+                0.2,     # y
+                0.1,     # z
+            ], dtype=np.float32)
+
+            random_action_seq = np.random.uniform(
+                low=low,
+                high=high,
+                size=(horizon, low.shape[0]),
+            ).astype(np.float32)
+            
 
         # ============================================================
         # zero action

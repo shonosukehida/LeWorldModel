@@ -218,12 +218,6 @@ def confirm_endeffector_trajectory_from_h5(
     h5_path,
     axes: str = "xy",
     save_dir="dataset_gen/franka/push/check/endeffector_trajectory",
-    x_range=[0.315, 0.715],
-    y_range=[-0.2, 0.2],
-    z_range=[0.1, 0.1],
-    mgn_x_range=None,
-    mgn_y_range=None,
-    mgn_z_range=None,
 ):
     """
     HDF5 dataset から episode ごとの
@@ -242,31 +236,44 @@ def confirm_endeffector_trajectory_from_h5(
     assert len(axes) == 2, "axes must be like 'xy', 'xz', 'yz'"
     axis_num = [axes_to_num[axes[0]], axes_to_num[axes[1]]]
 
-    # 範囲指定
-    ranges = {
-        "x": x_range,
-        "y": y_range,
-        "z": z_range,
-    }
 
-    if ranges[axes[0]] is None or ranges[axes[1]] is None:
-        raise ValueError(f"x_range/y_range/z_range must be provided for axes='{axes}'")
 
-    xlim = list(ranges[axes[0]])
-    ylim = list(ranges[axes[1]])
-
-    if abs(xlim[0] - xlim[1]) < 1e-3:
-        xlim[0] -= 0.2
-        xlim[1] += 0.2
-    if abs(ylim[0] - ylim[1]) < 1e-3:
-        ylim[0] -= 0.2
-        ylim[1] += 0.2
 
     os.makedirs(os.path.join(save_dir, axes), exist_ok=True)
 
     print(f"📦 Loading HDF5 dataset from: {h5_path}")
 
+
     with h5py.File(h5_path, "r") as f:
+        ws = load_workspace_attrs(f)
+
+        x_range = ws["x_range"]
+        y_range = ws["y_range"]
+        z_range = ws["z_range"]
+
+        # 範囲指定
+        ranges = {
+            "x": x_range,
+            "y": y_range,
+            "z": z_range,
+        }
+        if ranges[axes[0]] is None or ranges[axes[1]] is None:
+            raise ValueError(f"x_range/y_range/z_range must be provided for axes='{axes}'")
+
+        xlim = list(ranges[axes[0]])
+        ylim = list(ranges[axes[1]])
+
+        if abs(xlim[0] - xlim[1]) < 1e-3:
+            xlim[0] -= 0.2
+            xlim[1] += 0.2
+        if abs(ylim[0] - ylim[1]) < 1e-3:
+            ylim[0] -= 0.2
+            ylim[1] += 0.2
+
+        mgn_x_range = ws["mgn_x_range"]
+        mgn_y_range = ws["mgn_y_range"]
+        mgn_z_range = ws["mgn_z_range"]
+        
         ee_all = f["ee_pos"][:]
         box_all = f["bluebox_pos"][:]
         ep_len = f["ep_len"][:]
@@ -402,9 +409,6 @@ def plot_all_endeffector_trajectories_from_h5(
     show_workspace: bool = True,
     save_dir: str = "dataset_gen/franka/push/check/endeffector_trajectory_all",
     filename: str | None = None,
-    mgn_x_range=[0.315, 0.715],
-    mgn_y_range=[-0.2, 0.2],
-    mgn_z_range=[0.1, 0.1],
 ):
 
     """
@@ -421,17 +425,7 @@ def plot_all_endeffector_trajectories_from_h5(
     a0, a1 = axes[0], axes[1]
     i0, i1 = axes_to_num[a0], axes_to_num[a1]
 
-    mgn_ranges = {"x": mgn_x_range, "y": mgn_y_range, "z": mgn_z_range}
-    if mgn_ranges[a0] is None or mgn_ranges[a1] is None:
-        raise ValueError(f"mgn range for axes '{axes}' must be provided.")
 
-    xlim = list(mgn_ranges[a0])
-    ylim = list(mgn_ranges[a1])
-
-    pad_x = 0.02 * (xlim[1] - xlim[0] + 1e-9)
-    pad_y = 0.02 * (ylim[1] - ylim[0] + 1e-9)
-    xlim = (xlim[0] - pad_x, xlim[1] + pad_x)
-    ylim = (ylim[0] - pad_y, ylim[1] + pad_y)
 
     with h5py.File(h5_path, "r") as f:
         ee_all = f["ee_pos"][:]
@@ -453,6 +447,28 @@ def plot_all_endeffector_trajectories_from_h5(
 
             seg = np.stack([pts[:-1], pts[1:]], axis=1)       # (K-1, 2, 2)
             segments.append(seg)
+            
+        ws = load_workspace_attrs(f)
+
+        x_range = ws["x_range"]
+        y_range = ws["y_range"]
+        z_range = ws["z_range"]
+
+        mgn_x_range = ws["mgn_x_range"]
+        mgn_y_range = ws["mgn_y_range"]
+        mgn_z_range = ws["mgn_z_range"]
+        
+        mgn_ranges = {"x": mgn_x_range, "y": mgn_y_range, "z": mgn_z_range}
+        if mgn_ranges[a0] is None or mgn_ranges[a1] is None:
+            raise ValueError(f"mgn range for axes '{axes}' must be provided.")
+
+        xlim = list(mgn_ranges[a0])
+        ylim = list(mgn_ranges[a1])
+
+        pad_x = 0.02 * (xlim[1] - xlim[0] + 1e-9)
+        pad_y = 0.02 * (ylim[1] - ylim[0] + 1e-9)
+        xlim = (xlim[0] - pad_x, xlim[1] + pad_x)
+        ylim = (ylim[0] - pad_y, ylim[1] + pad_y)
 
     if len(segments) == 0:
         print("[EE-ALL] No segments to plot.")
@@ -509,9 +525,6 @@ def plot_all_bluebox_trajectories_from_h5(
     show_workspace: bool = True,
     save_dir: str = "dataset_gen/franka/push/check/bluebox_trajectory_all",
     filename: str | None = None,
-    mgn_x_range=[0.315, 0.715],
-    mgn_y_range=[-0.2, 0.2],
-    mgn_z_range=[0.1, 0.1],
 ):
     """
     HDF5 の全エピソードについて bluebox 軌跡を1枚に重ね描きする。
@@ -527,17 +540,7 @@ def plot_all_bluebox_trajectories_from_h5(
     a0, a1 = axes[0], axes[1]
     i0, i1 = axes_to_num[a0], axes_to_num[a1]
 
-    mgn_ranges = {"x": mgn_x_range, "y": mgn_y_range, "z": mgn_z_range}
-    if mgn_ranges[a0] is None or mgn_ranges[a1] is None:
-        raise ValueError(f"mgn range for axes '{axes}' must be provided.")
 
-    xlim = list(mgn_ranges[a0])
-    ylim = list(mgn_ranges[a1])
-
-    pad_x = 0.02 * (xlim[1] - xlim[0] + 1e-9)
-    pad_y = 0.02 * (ylim[1] - ylim[0] + 1e-9)
-    xlim = (xlim[0] - pad_x, xlim[1] + pad_x)
-    ylim = (ylim[0] - pad_y, ylim[1] + pad_y)
 
     with h5py.File(h5_path, "r") as f:
         box_all = f["bluebox_pos"][:]
@@ -559,6 +562,32 @@ def plot_all_bluebox_trajectories_from_h5(
 
             seg = np.stack([pts[:-1], pts[1:]], axis=1)       # (K-1, 2, 2)
             segments.append(seg)
+        
+        ws = load_workspace_attrs(f)
+
+        x_range = ws["x_range"]
+        y_range = ws["y_range"]
+        z_range = ws["z_range"]
+
+        mgn_x_range = ws["mgn_x_range"]
+        mgn_y_range = ws["mgn_y_range"]
+        mgn_z_range = ws["mgn_z_range"]
+
+
+        mgn_ranges = {"x": mgn_x_range, "y": mgn_y_range, "z": mgn_z_range}
+        if mgn_ranges[a0] is None or mgn_ranges[a1] is None:
+            raise ValueError(f"mgn range for axes '{axes}' must be provided.")
+
+        xlim = list(mgn_ranges[a0])
+        ylim = list(mgn_ranges[a1])
+
+        pad_x = 0.02 * (xlim[1] - xlim[0] + 1e-9)
+        pad_y = 0.02 * (ylim[1] - ylim[0] + 1e-9)
+        xlim = (xlim[0] - pad_x, xlim[1] + pad_x)
+        ylim = (ylim[0] - pad_y, ylim[1] + pad_y)
+
+
+
 
     if len(segments) == 0:
         print("[BOX-ALL] No segments to plot.")
@@ -603,9 +632,27 @@ def plot_all_bluebox_trajectories_from_h5(
     print(f"[BOX-ALL] Saved: {save_path}")
 
 
+def load_workspace_attrs(f):
+    x_range = f.attrs.get("x_range", [0.315, 0.715])
+    y_range = f.attrs.get("y_range", [-0.2, 0.2])
+    z_range = f.attrs.get("z_range", [0.1, 0.1])
+
+    mgn_x_range = f.attrs.get("mgn_x_range", x_range)
+    mgn_y_range = f.attrs.get("mgn_y_range", y_range)
+    mgn_z_range = f.attrs.get("mgn_z_range", z_range)
+
+    return {
+        "x_range": np.asarray(x_range, dtype=np.float32),
+        "y_range": np.asarray(y_range, dtype=np.float32),
+        "z_range": np.asarray(z_range, dtype=np.float32),
+        "mgn_x_range": np.asarray(mgn_x_range, dtype=np.float32),
+        "mgn_y_range": np.asarray(mgn_y_range, dtype=np.float32),
+        "mgn_z_range": np.asarray(mgn_z_range, dtype=np.float32),
+    }
+
 
 if __name__ == "__main__":
-    DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/franka/val_cost_pairs_1_ep_1_timestep_1000_sample_towards_bluebox_view_top_reverse/push.h5"
+    DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/franka/val_pairs_1_ep_1_timestep_500_sample_towards_bluebox_view_top_reverse1_ws_x0p71_1p11_y-0p20_0p20_z0p10_0p10/push.h5"
     
     h5_path = os.path.expanduser(DATA_PATH)
     print("h5_path:", h5_path)
