@@ -316,6 +316,8 @@ class FrankaDatasetGenerator:
                 self.env.physics.forward()
                 for _ in range(10):
                     self.env.physics.forward()
+                print("[AFTER RESET] expected start_xyz:", start_xyz)
+                print("[AFTER RESET] actual bluebox:", self.env.physics.data.geom_xpos[self.bluebox_geom_id].copy())
 
                 episode_images = []
                 episode_obs = []
@@ -345,6 +347,8 @@ class FrankaDatasetGenerator:
                     img = self.env.render_image(size = self.IMAGE_SIZE)
                     # self.all_images.append(img)
                     episode_images.append(img)
+                    print("[FIRST FRAME] bluebox:", bluebox_pos)
+                    print("[FIRST FRAME] ee:", self.env.get_ee_position())
                     
                     episode_target_xyz.append(self.env.get_ee_position())
                 
@@ -386,6 +390,7 @@ class FrankaDatasetGenerator:
                                 step_range = tuple(tb_cfg.get('step_range', (0.0025, 0.0025)))
                                 near_threshold = tb_cfg.get('near_threshold', 0.05)
                                 lateral_noise_std = tb_cfg.get('lateral_noise_std', 0.0)
+        
 
                                 target_xyz = self.sample_towards_bluebox_xyz(
                                     current_pos,

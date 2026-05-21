@@ -652,7 +652,7 @@ def load_workspace_attrs(f):
 
 
 if __name__ == "__main__":
-    DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/franka/val_pairs_1_ep_1_timestep_500_sample_towards_bluebox_view_top_reverse1_ws_x0p71_1p11_y-0p20_0p20_z0p10_0p10/push.h5"
+    DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/franka/val_pairs_1_ep_1_timestep_500_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p10_0p10/push.h5"
     
     h5_path = os.path.expanduser(DATA_PATH)
     print("h5_path:", h5_path)

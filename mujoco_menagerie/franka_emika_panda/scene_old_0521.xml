@@ -38,10 +38,10 @@
 
 
     <!-- 柵（黒い壁） -->
-    <!-- <geom name="wall_bottom"  type="box" pos="-0.685 0.0 5" size="1 0.2 5" material="black_wall" contype="2" conaffinity="4"/>
+    <geom name="wall_bottom"  type="box" pos="-0.685 0.0 5" size="1 0.2 5" material="black_wall" contype="2" conaffinity="4"/>
     <geom name="wall_top" type="box" pos="1.715 0.0 5"  size="1 0.2 5" material="black_wall" contype="2" conaffinity="4"/>
     <geom name="wall_right" type="box" pos="0.0 -1.2 5" size="3 1 5" material="black_wall" contype="2" conaffinity="4"/>
-    <geom name="wall_left"    type="box" pos="0.0  1.2 5" size="3 1 5" material="black_wall" contype="2" conaffinity="4"/>  -->
+    <geom name="wall_left"    type="box" pos="0.0  1.2 5" size="3 1 5" material="black_wall" contype="2" conaffinity="4"/> 
 
     <!-- Start marker -->
     <geom name="start_marker" type="cylinder" size="0.06 0.000001" pos="0.0 -0.3 0.05" material="start_marker" contype="0" conaffinity="0"/>

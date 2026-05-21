@@ -83,16 +83,25 @@ class FrankaSimEnv:
         if init_ee_pos is not None:
             init_ee_ik = self.calc_inverse_kinematic(init_ee_pos)
             q = init_ee_ik.qpos[:7]
-            self.physics.data.qpos[:7] = q
+            self.physics.data.qpos[:7] = q 
             self.physics.data.qvel[:7] = 0.
             self.physics.data.ctrl[self.arm_actuator_ids] = q
     
 
+        # joint_id = self.physics.model.name2id("free_joint_blue_box", "joint")
+        # start_idx = self.physics.model.jnt_qposadr[joint_id]
+        # self.physics.data.qpos[start_idx:start_idx+3] = box_pos
+        # self.physics.data.qpos[start_idx+3:start_idx+7] = np.array([1, 0, 0, 0])
+        # self.physics.data.qvel[start_idx:start_idx+6] = 0
+        
         joint_id = self.physics.model.name2id("free_joint_blue_box", "joint")
-        start_idx = self.physics.model.jnt_qposadr[joint_id]
-        self.physics.data.qpos[start_idx:start_idx+3] = box_pos
-        self.physics.data.qpos[start_idx+3:start_idx+7] = np.array([1, 0, 0, 0])
-        self.physics.data.qvel[start_idx:start_idx+6] = 0
+
+        qadr = self.physics.model.jnt_qposadr[joint_id]
+        dadr = self.physics.model.jnt_dofadr[joint_id]
+
+        self.physics.data.qpos[qadr:qadr+3] = box_pos
+        self.physics.data.qpos[qadr+3:qadr+7] = np.array([1, 0, 0, 0])
+        self.physics.data.qvel[dadr:dadr+6] = 0.0
 
 
         # 3) セット直後の確認
