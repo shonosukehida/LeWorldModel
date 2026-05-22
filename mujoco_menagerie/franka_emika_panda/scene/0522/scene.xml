@@ -18,7 +18,7 @@
     <material name="brown_floor" rgba="0.302 0.161 0.102 1" reflectance="0.0" specular="0.05" shininess="0.1"/>
     <material name="start_marker" rgba="1 0 0 0"/>     <!-- 赤 -->
     <material name="goal_marker" rgba="0 1 0 0"/>      <!-- 緑 -->
-    <material name="wall" rgba="0.1 0.8 0.1 1."/> <!-- 壁 -->
+    <material name="black_wall" rgba="0 0 0 0"/> <!-- 透明の壁 -->
   </asset>
 
   <worldbody>
@@ -38,48 +38,33 @@
 
 
     <!-- 透明の壁 -->
+    <!-- <geom name="wall_bottom"  type="box" pos="-0.685 0.0 5" size="1 0.2 5" material="black_wall" contype="2" conaffinity="4"/>
+    <geom name="wall_top" type="box" pos="1.715 0.0 5"  size="1 0.2 5" material="black_wall" contype="2" conaffinity="4"/>
+    <geom name="wall_right" type="box" pos="0.0 -1.2 5" size="3 1 5" material="black_wall" contype="2" conaffinity="4"/>
+    <geom name="wall_left"    type="box" pos="0.0  1.2 5" size="3 1 5" material="black_wall" contype="2" conaffinity="4"/>  -->
+
 
     <!-- transparent workspace walls for x:[0.45,0.85], y:[-0.2,0.2] -->
 
-    <!-- <geom name="wall_x_min" type="box"
+    <geom name="wall_x_min" type="box"
           pos="0.43 0.0 0.05"
           size="0.02 0.25 0.05"
-          material="wall" contype="2" conaffinity="4"/>
+          material="black_wall" contype="2" conaffinity="4"/>
 
     <geom name="wall_x_max" type="box"
           pos="0.87 0.0 0.05"
           size="0.02 0.25 0.05"
-          material="wall" contype="2" conaffinity="4"/>
+          material="black_wall" contype="2" conaffinity="4"/>
 
     <geom name="wall_y_min" type="box"
           pos="0.65 -0.22 0.05"
           size="0.25 0.02 0.05"
-          material="wall" contype="2" conaffinity="4"/>
+          material="black_wall" contype="2" conaffinity="4"/>
 
     <geom name="wall_y_max" type="box"
           pos="0.65 0.22 0.05"
           size="0.25 0.02 0.05"
-          material="wall" contype="2" conaffinity="4"/> -->
-
-    <geom name="wall_x_min" type="box"
-          pos="0.38 0.0 0.05"
-          size="0.02 0.30 0.05"
-          material="wall" contype="2" conaffinity="4"/>
-
-    <geom name="wall_x_max" type="box"
-          pos="0.92 0.0 0.05"
-          size="0.02 0.30 0.05"
-          material="wall" contype="2" conaffinity="4"/>
-
-    <geom name="wall_y_min" type="box"
-          pos="0.65 -0.27 0.05"
-          size="0.30 0.02 0.05"
-          material="wall" contype="2" conaffinity="4"/>
-
-    <geom name="wall_y_max" type="box"
-          pos="0.65 0.27 0.05"
-          size="0.30 0.02 0.05"
-          material="wall" contype="2" conaffinity="4"/>
+          material="black_wall" contype="2" conaffinity="4"/>
 
     <!-- Start marker -->
     <geom name="start_marker" type="cylinder" size="0.06 0.000001" pos="0.0 -0.3 0.05" material="start_marker" contype="0" conaffinity="0"/>

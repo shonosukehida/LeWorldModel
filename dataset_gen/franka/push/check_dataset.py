@@ -651,9 +651,7 @@ def load_workspace_attrs(f):
     }
 
 
-if __name__ == "__main__":
-    DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/franka/val_pairs_1_ep_1_timestep_500_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05/push.h5"
-    
+def check_data_run(DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/franka/val_pairs_1_ep_1_timestep_500_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05/push.h5"):
     h5_path = os.path.expanduser(DATA_PATH)
     print("h5_path:", h5_path)
     check_h5_dataset(h5_path)
@@ -661,3 +659,10 @@ if __name__ == "__main__":
     confirm_endeffector_trajectory_from_h5(h5_path)
     plot_all_endeffector_trajectories_from_h5(h5_path)
     plot_all_bluebox_trajectories_from_h5(h5_path)
+
+
+
+if __name__ == "__main__":
+    DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/franka/val_pairs_1_ep_1_timestep_500_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05/push.h5"
+    check_data_run(DATA_PATH)
+    

@@ -31,6 +31,7 @@ import h5py
 
 from stable_worldmodel.data.utils import get_cache_dir
 
+from dataset_gen.franka.push.check_dataset import *
 
 
 
@@ -262,6 +263,17 @@ class FrankaDatasetGenerator:
         
         #順運動学計算用env
         self.env_for_fk = FrankaSimEnv(config)
+        
+
+    
+        self.wall_geom_ids = [
+            self.env.physics.model.name2id("wall_x_min", mujoco.mjtObj.mjOBJ_GEOM),
+            self.env.physics.model.name2id("wall_x_max", mujoco.mjtObj.mjOBJ_GEOM),
+            self.env.physics.model.name2id("wall_y_min", mujoco.mjtObj.mjOBJ_GEOM),
+            self.env.physics.model.name2id("wall_y_max", mujoco.mjtObj.mjOBJ_GEOM),
+        ]
+
+        
 
 
     def _get_center_of_cube(self):
@@ -329,6 +341,8 @@ class FrankaDatasetGenerator:
                 
                 episode_target_xyz = [] #指定直交座標を記録
                 bluebox_contact_count = 0 #blue-box との衝突回数
+                franka_wall_contact_count = 0
+                franka_wall_contact_log = []
                 
                 if ep_idx != 0:
                     self.env.physics.forward()
@@ -390,7 +404,7 @@ class FrankaDatasetGenerator:
                                 step_range = tuple(tb_cfg.get('step_range', (0.0025, 0.0025)))
                                 near_threshold = tb_cfg.get('near_threshold', 0.05)
                                 lateral_noise_std = tb_cfg.get('lateral_noise_std', 0.0)
-        
+                                
 
                                 target_xyz = self.sample_towards_bluebox_xyz(
                                     current_pos,
@@ -399,6 +413,7 @@ class FrankaDatasetGenerator:
                                     near_threshold=near_threshold,
                                     lateral_noise_std=lateral_noise_std,
                                 )
+                                    
                             else:
                                 raise ValueError(
                                     f"Unknown sampling method '{current_method}'. "
@@ -430,12 +445,32 @@ class FrankaDatasetGenerator:
                         geom1 = contact.geom1
                         geom2 = contact.geom2
 
-                        if (
-                            (geom1 == self.bluebox_geom_id and geom2 in self.franka_geom_ids) or
-                            (geom2 == self.bluebox_geom_id and geom1 in self.franka_geom_ids)
-                        ):
-                            bluebox_contact_count += 1
-                    
+                        is_franka_wall = (
+                            (geom1 in self.franka_geom_ids and geom2 in self.wall_geom_ids) or
+                            (geom2 in self.franka_geom_ids and geom1 in self.wall_geom_ids)
+                        )
+
+                        if is_franka_wall:
+                            franka_wall_contact_count += 1
+
+                            geom1_name = self.env.physics.model.id2name(
+                                geom1, mujoco.mjtObj.mjOBJ_GEOM
+                            )
+                            geom2_name = self.env.physics.model.id2name(
+                                geom2, mujoco.mjtObj.mjOBJ_GEOM
+                            )
+
+                            franka_wall_contact_log.append({
+                                "episode": ep_idx,
+                                "step": idx,
+                                "geom1": geom1_name,
+                                "geom2": geom2_name,
+                                "contact_x": contact.pos[0],
+                                "contact_y": contact.pos[1],
+                                "contact_z": contact.pos[2],
+                                "contact_dist": contact.dist,
+                            })
+                                            
 
                     
                     # 目標到達回数をカウント(/ 目標指示回数)
@@ -527,6 +562,17 @@ class FrankaDatasetGenerator:
                         self.confirm_target_actual_dist(dist_log, d_idx)
                         self.confirm_target_actual_dist_xyz(dist_xyz_log, d_idx)
                         d_idx += 1
+                        
+                    if len(franka_wall_contact_log) >= 0:
+                        save_dir = "dataset_gen/franka/push/check/franka_wall_contact"
+                        os.makedirs(save_dir, exist_ok=True)
+
+                        df = pd.DataFrame(franka_wall_contact_log)
+
+                        df.to_csv(
+                            f"{save_dir}/franka_wall_contact_ep{ep_idx}.csv",
+                            index=False,
+                        )
                 if ep_idx == 0: ep_idx += 1
                 else:
                     if valid_episode: 
@@ -751,6 +797,44 @@ class FrankaDatasetGenerator:
         target = np.array([x, y, z], dtype=np.float32)
 
         return target
+    
+    
+    # def is_bluebox_near_wall(self, bluebox_pos, margin=0.07):
+    #     x, y, _ = bluebox_pos
+
+    #     return (
+    #         x <= self.X_RANGE[0] + margin or
+    #         x >= self.X_RANGE[1] - margin or
+    #         y <= self.Y_RANGE[0] + margin or
+    #         y >= self.Y_RANGE[1] - margin
+    #     )
+        
+        
+    # def sample_behind_box(self, current_pos, bluebox_pos, margin=0.04, behind_dist=0.08):
+    #     center = self._get_center_of_cube()
+
+    #     box_xy = bluebox_pos[:2]
+    #     center_xy = center[:2]
+
+    #     # box -> center 方向
+    #     push_dir = center_xy - box_xy
+    #     norm = np.linalg.norm(push_dir)
+
+    #     if norm < 1e-6:
+    #         return current_pos.copy()
+
+    #     push_dir = push_dir / norm
+
+    #     # 押すために、EE は box の反対側へ行く
+    #     target_xy = box_xy - behind_dist * push_dir
+
+    #     x = np.clip(target_xy[0], *self.mgn_x_range)
+    #     y = np.clip(target_xy[1], *self.mgn_y_range)
+    #     # x = target_xy[0]
+    #     # y = target_xy[1]
+    #     z = self.Z_RANGE[0]
+
+    #     return np.array([x, y, z], dtype=np.float32)
 
     def _build_method_schedules(self):
         """
@@ -1058,6 +1142,8 @@ class FrankaDatasetGenerator:
         print(f"   action_joint: {action_joint_all.shape}, dtype={actions_all.dtype}")
         print(f"   action_cartesian: {action_cartesian_all.shape}, dtype={actions_all.dtype}")
         print(f"   ep_len: {ep_len.shape}, total episodes={len(ep_len)}")
+        
+        return h5_path
 
 
     def _resolve_h5_path(self, h5_name="push.h5"):
@@ -1186,7 +1272,7 @@ class FrankaDatasetGenerator:
         init_joint = result.qpos[:7]
 
         self.env.reset_and_place_all(
-            box_pos=np.array([x0, y0, 0.05]),
+            box_pos=np.array([x0 + 1000, y0 + 1000, 0.05]),
             start_marker_pos=np.array([x0, y0, 0.05]),
             goal_marker_pos=np.array([x1, y1, 0.05]),
             init_position=init_joint,
@@ -1207,6 +1293,21 @@ class FrankaDatasetGenerator:
                     rot_weight=self.rot_weight,
                     max_dq=self.MAX_DQ,
                 )
+                # print("ncon:", self.env.physics.data.ncon)
+
+                ##壁との接触があるかをログ
+                for i in range(self.env.physics.data.ncon):
+                    contact = self.env.physics.data.contact[i]
+                    geom1 = contact.geom1
+                    geom2 = contact.geom2
+
+                    geom1_name = self.env.physics.model.id2name(geom1, mujoco.mjtObj.mjOBJ_GEOM)
+                    geom2_name = self.env.physics.model.id2name(geom2, mujoco.mjtObj.mjOBJ_GEOM)
+
+                    if "wall" in geom1_name or "wall" in geom2_name:
+                        print("[WALL CONTACT]", geom1_name, "<->", geom2_name, "dist:", contact.dist)
+
+
                 actual_ee.append(ee_pos.copy())
                 success_flags.append(bool(objective_reached))
                 
@@ -1386,48 +1487,28 @@ if __name__ == "__main__":
     
     with open("dataset_gen/franka/push/config.yaml", "r") as f:
         config = yaml.safe_load(f)
+    
 
 
     dataset_generator = FrankaDatasetGenerator(config)
     
+    h5_path = None
     if config["confirm_follow_workspace"]:
-        dataset_generator. confirm_workspace_rectangle_loop()
+        dataset_generator.confirm_workspace_rectangle_loop()
+        
     if not config['eval_only']:
         dataset_generator.generate()
 
         if len(dataset_generator.data_list) > 0:
             dataset_generator._save_chunk()
-        dataset_generator.merge_chunks()
+        h5_path = dataset_generator.merge_chunks()
     
     if config['add_action_field']:
         dataset_generator.add_action_field()
     
     
-        
-    # dataset_generator.confirm_data_architecture()
-    # dataset_generator.confirm_data()
-    # if config['make_video']: 
-    #     dataset_generator.make_video()
-    # if config['confirm_ee_trajectory']:
-    #     vis_target_traj = (not config['eval_only']) and config['visualize_target_trajectory']
-    #     dataset_generator.confirm_endeffector_trajectory('xy', vis_target_traj)
-    #     if config['confirm_ee_traj_xz']: 
-    #         dataset_generator.confirm_endeffector_trajectory('xz', vis_target_traj)  
-    # if config.get("plot_all_ee_traj", False):
-    #     dataset_generator.plot_all_endeffector_trajectories(
-    #         axes="xy",
-    #         stride=1,         # 重いなら 5 や 10 に
-    #         max_episodes=None, # 重すぎるなら 2000 とか
-    #         alpha = 1.0,          # 重ね描きの濃さ
-    #         lw = 1.8,
-    #     )
+    if h5_path is not None:
+        check_data_run(DATA_PATH=h5_path)
     
-    # if config.get("plot_all_bluebox_traj", False):
-    #     dataset_generator.plot_all_bluebox_trajectories(
-    #         axes="xy", 
-    #         stride=1, 
-    #         alpha=1.0, 
-    #         lw=1.8,
-    #         )
  
     print("finished!!")

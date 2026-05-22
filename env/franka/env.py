@@ -67,6 +67,25 @@ class FrankaSimEnv:
         assert (init_ee_pos is None or init_position is None), "you specified both init_ee_pos and init_position..."
         
         
+        #グリッパーを閉じる
+        finger1_id = self.physics.model.name2id("finger_joint1", "joint")
+        finger2_id = self.physics.model.name2id("finger_joint2", "joint")
+
+        finger1_qadr = self.physics.model.jnt_qposadr[finger1_id]
+        finger2_qadr = self.physics.model.jnt_qposadr[finger2_id]
+
+        finger1_dadr = self.physics.model.jnt_dofadr[finger1_id]
+        finger2_dadr = self.physics.model.jnt_dofadr[finger2_id]
+
+        self.physics.data.qpos[finger1_qadr] = 0.0
+        self.physics.data.qpos[finger2_qadr] = 0.0
+        self.physics.data.qvel[finger1_dadr] = 0.0
+        self.physics.data.qvel[finger2_dadr] = 0.0
+        
+        gripper_id = self.physics.model.name2id("gripper", "actuator")
+        self.physics.data.ctrl[gripper_id] = 0.0
+        
+        
         ## reset直後
         blue = self.bluebox_geom_id
         self.physics.forward()
@@ -104,6 +123,13 @@ class FrankaSimEnv:
         self.physics.data.qvel[dadr:dadr+6] = 0.0
 
 
+        #念のためもう一度グリッパー閉じる
+        self.physics.data.qpos[finger1_qadr] = 0.0
+        self.physics.data.qpos[finger2_qadr] = 0.0
+        self.physics.data.qvel[finger1_dadr] = 0.0
+        self.physics.data.qvel[finger2_dadr] = 0.0
+        self.physics.data.ctrl[gripper_id] = 0.0
+        
         # 3) セット直後の確認
         self.physics.forward()
         p_set = self.physics.data.geom_xpos[blue].copy()

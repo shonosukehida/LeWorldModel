@@ -1,8 +1,8 @@
 is_val: false
-pairs: 100 #5
+pairs: 5 #5
 min_dist: 0.15
 episodes_per_pair: 1 #2000
-steps_per_episode: 500 ##100
+steps_per_episode: 100 ##100
 image_size: [64, 64] #[64, 64]
 model_path: mujoco_menagerie/franka_emika_panda/scene.xml
 camera_name: top_reverse1 #top_view, default, diagonal_view, top_reverse0, top_reverse1
@@ -21,11 +21,6 @@ data_dir: /home/shonosukehida/.stable_worldmodel/datasets/franka/val_pairs_1_ep_
 #データ確認するか
 confirm_ik_result: false
 confirm_dist: false
-make_video: true #false
-confirm_ee_trajectory: true
-confirm_ee_traj_xz: false #false
-confirm_data: false
-count_contact: false
 confirm_follow_workspace: true
 
 visualize_target_trajectory: false #target_xyz軌跡の可視化
@@ -46,13 +41,13 @@ z_range: [0.05, 0.05] #[0.1, 0.1]
 #uniform --> 一様分布
 #uniform_constrain --> 一様分布だが, 現在の位置との距離がmax_dist 未満になるまで繰り返す
 
-sample_method_list: ["direction", "towards_bluebox"] #["direction", "towards_bluebox"] #null 単一のsampleメソッド
+sample_method_list: null #["direction", "towards_bluebox"] #null 単一のsampleメソッド
 sample_method_ratio: [1, 1] #[1, 1]
 
 sample_method: 'towards_bluebox' #'direction' or 'uniform' or 'uniform_constrain' or 'towards_bluebox'
 margin_ratio: 0.80
 sample_direction:
-  dist_range: [0.0025, 0.0025] #出力距離の範囲 #[0.0025, 0.0025]
+  dist_range: [0.025, 0.025] #出力距離の範囲 #[0.0025, 0.0025]
   max_loop: 100
   freeze_z: true
   prob_dist: 'vonmises' # uniform, vonmises
@@ -62,7 +57,7 @@ sample_uniform_constrain: #距離制限つき一様分布
   max_dist: 0.01
   max_loop: 100
 sample_towards_bluebox:
-  step_range: [0.0020, 0.0020]   # 一ステップで近づく距離の範囲 [m] #[0.0020, 0.0020]
+  step_range: [0.020, 0.020]   # 一ステップで近づく距離の範囲 [m] #[0.0020, 0.0020]
   near_threshold: 0.0       # これ以下なら無理に詰めず，軽くノイズだけ #0.05
   lateral_noise_std: 0.0005   # 横方向ノイズの標準偏差（無し:0.0） #0.0005
 

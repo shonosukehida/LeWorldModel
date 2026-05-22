@@ -18,7 +18,7 @@
     <material name="brown_floor" rgba="0.302 0.161 0.102 1" reflectance="0.0" specular="0.05" shininess="0.1"/>
     <material name="start_marker" rgba="1 0 0 0"/>     <!-- 赤 -->
     <material name="goal_marker" rgba="0 1 0 0"/>      <!-- 緑 -->
-    <material name="black_wall" rgba="0 0 0 0"/> <!-- 黒い壁 -->
+    <material name="black_wall" rgba="0 0 0 0"/> <!-- 透明の壁 -->
   </asset>
 
   <worldbody>
@@ -37,7 +37,7 @@
     <geom name="floor" size="0 0 0.05" type="plane" material="brown_floor" friction="0.4 0.15 0.01" contype="7" conaffinity="7"/>
 
 
-    <!-- 柵（黒い壁） -->
+    <!-- 透明の壁 -->
     <geom name="wall_bottom"  type="box" pos="-0.685 0.0 5" size="1 0.2 5" material="black_wall" contype="2" conaffinity="4"/>
     <geom name="wall_top" type="box" pos="1.715 0.0 5"  size="1 0.2 5" material="black_wall" contype="2" conaffinity="4"/>
     <geom name="wall_right" type="box" pos="0.0 -1.2 5" size="3 1 5" material="black_wall" contype="2" conaffinity="4"/>
