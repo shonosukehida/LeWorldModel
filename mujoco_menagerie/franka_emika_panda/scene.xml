@@ -64,22 +64,22 @@
     <geom name="wall_x_min" type="box"
           pos="0.38 0.0 0.05"
           size="0.02 0.30 0.05"
-          material="wall" contype="2" conaffinity="4"/>
+          material="wall" contype="2" conaffinity="5"/>
 
     <geom name="wall_x_max" type="box"
           pos="0.92 0.0 0.05"
           size="0.02 0.30 0.05"
-          material="wall" contype="2" conaffinity="4"/>
+          material="wall" contype="2" conaffinity="5"/>
 
     <geom name="wall_y_min" type="box"
           pos="0.65 -0.27 0.05"
           size="0.30 0.02 0.05"
-          material="wall" contype="2" conaffinity="4"/>
+          material="wall" contype="2" conaffinity="5"/>
 
     <geom name="wall_y_max" type="box"
           pos="0.65 0.27 0.05"
           size="0.30 0.02 0.05"
-          material="wall" contype="2" conaffinity="4"/>
+          material="wall" contype="2" conaffinity="5"/>
 
     <!-- Start marker -->
     <geom name="start_marker" type="cylinder" size="0.06 0.000001" pos="0.0 -0.3 0.05" material="start_marker" contype="0" conaffinity="0"/>

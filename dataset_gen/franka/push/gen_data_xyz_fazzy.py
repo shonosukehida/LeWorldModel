@@ -368,6 +368,7 @@ class FrankaDatasetGenerator:
                 
                 cur_yaw = None #self.SAMPLE_METHOD == 'direction'でvonmises分布の場合の水平角の初期化
                 for idx in range(self.STEPS_PER_EPISODE):
+
                     if idx % self.target_sampling_step == 0:
                         self.count_command_robot += 1
                         if idx == 0: #初期IKの

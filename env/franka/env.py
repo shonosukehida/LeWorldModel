@@ -130,6 +130,15 @@ class FrankaSimEnv:
         self.physics.data.qvel[finger2_dadr] = 0.0
         self.physics.data.ctrl[gripper_id] = 0.0
         
+        
+        
+        finger1_q = self.physics.data.qpos[finger1_qadr]
+        finger2_q = self.physics.data.qpos[finger2_qadr]
+
+        print("[GRIPPER CHECK]")
+        print("finger1_q:", finger1_q)
+        print("finger2_q:", finger2_q)
+        
         # 3) セット直後の確認
         self.physics.forward()
         p_set = self.physics.data.geom_xpos[blue].copy()
@@ -214,8 +223,22 @@ class FrankaSimEnv:
 
         for _ in range(self.substeps):
             self.physics.step()
+            
+        finger1_id = self.physics.model.name2id("finger_joint1", "joint")
+        finger2_id = self.physics.model.name2id("finger_joint2", "joint")
+
+        finger1_qadr = self.physics.model.jnt_qposadr[finger1_id]
+        finger2_qadr = self.physics.model.jnt_qposadr[finger2_id]
+
+        finger1_q = self.physics.data.qpos[finger1_qadr]
+        finger2_q = self.physics.data.qpos[finger2_qadr]
+
+        # print("[STEP GRIPPER CHECK]")
+        # print("finger1_q:", finger1_q)
+        # print("finger2_q:", finger2_q)
 
         ee_pos = self.get_ee_position()
+
         return ee_pos
 
     def step_xyz(self, target_pos, target_rotmat=None,
