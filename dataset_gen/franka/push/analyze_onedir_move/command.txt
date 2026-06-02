@@ -1,0 +1,2 @@
+nohup uv run dataset_gen/franka/push/analyze_onedir_move/check_push_x_straight.py --config dataset_gen/franka/push/analyze_onedir_move/config.yaml --direction +x
+nohup uv run dataset_gen/franka/push/analyze_onedir_move/check_push_x_straight.py --config dataset_gen/franka/push/analyze_onedir_move/config.yaml --direction -x

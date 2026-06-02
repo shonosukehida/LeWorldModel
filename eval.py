@@ -17,6 +17,7 @@ import env.franka
 
 from stable_worldmodel.probing.probe_evaluator import ProbingEvaluator
 from env.franka.env import FrankaSimEnv
+import h5py
 
 
 def img_transform(cfg):
@@ -69,6 +70,40 @@ def get_dataset(cfg, dataset_name):
         cache_dir=dataset_path,
     )
     return dataset
+
+#影置き, 影なし置き, 置かずの画像を集めたデータセットを取得
+def get_shaded_dataset(cfg, dataset_name):
+    dataset_path = Path(cfg.cache_dir or swm.data.utils.get_cache_dir())
+
+    keys_to_load = [
+        "pixels",
+        "label",
+        "bluebox_pos",
+        "ee_pos",
+        "qpos",
+        "qvel",
+        "step_idx",
+        "ep_idx",
+        "action_cartesian",
+    ]
+
+    keys_to_cache = [
+        "label",
+        "bluebox_pos",
+        "ee_pos",
+        "qpos",
+        "qvel",
+        "action_cartesian",
+    ]
+
+    dataset = swm.data.HDF5Dataset(
+        dataset_name,
+        keys_to_load=keys_to_load,
+        keys_to_cache=keys_to_cache,
+        cache_dir=dataset_path,
+    )
+    return dataset
+
 
 class SafeStandardScaler:
     def __init__(self, eps=1e-4):
@@ -130,6 +165,20 @@ def run(cfg: DictConfig):
     dataset = get_dataset(cfg, cfg.eval.dataset_name)
     
     print("dataset.column_names:", dataset.column_names)
+
+    dataset_name = cfg.eval.dataset_name
+    cache_dir = Path(cfg.cache_dir or swm.data.utils.get_cache_dir())
+    h5_path = cache_dir / "datasets" / f"{dataset_name}.h5"
+    with h5py.File(h5_path, "r") as f:
+        x_range = f.attrs["x_range"]
+        y_range = f.attrs["y_range"]
+        z_range = f.attrs["z_range"]
+        
+    print("h5_path:", h5_path)
+    print("x_range:", x_range)
+    print("y_range:", y_range)
+    print("z_range:", z_range)
+    
     
     
     
@@ -163,57 +212,7 @@ def run(cfg: DictConfig):
             process[f"goal_{col}"] = process[col]
         else:
             action_key = col
-            
-        # if col in action_keys:
-        #     print(f"\n================ {col} =================")
-
-        #     print("raw mean:")
-        #     print(col_data.mean(axis=0))
-
-        #     print("raw std:")
-        #     print(col_data.std(axis=0))
-
-        #     print("raw min:")
-        #     print(col_data.min(axis=0))
-
-        #     print("raw max:")
-        #     print(col_data.max(axis=0))
-
-        #     # ============================================================
-        #     # normalized
-        #     # ============================================================
-        #     normed = processor.transform(col_data)
-
-        #     print("\n[normed]")
-
-        #     print("mean:")
-        #     print(normed.mean(axis=0))
-
-        #     print("std:")
-        #     print(normed.std(axis=0))
-
-        #     print("min:")
-        #     print(normed.min(axis=0))
-
-        #     print("max:")
-        #     print(normed.max(axis=0))
-
-        #     # ============================================================
-        #     # inverse transform check
-        #     # ============================================================
-        #     restored = processor.inverse_transform(normed)
-
-        #     print("\n[restored diff]")
-
-        #     print("mean abs diff:")
-        #     print(np.abs(restored - col_data).mean(axis=0))
-
-        #     print("max abs diff:")
-        #     print(np.abs(restored - col_data).max(axis=0))
-        # print("action_key:", action_key)
-            
-            
-                
+    print("action_key:", action_key) 
 
                         
 
@@ -290,6 +289,9 @@ def run(cfg: DictConfig):
             ],
             video_path=video_dir,
             plot_joint_compare_normed=cfg.eval.eval_zeroshot.plot_joint_compare_normed,
+            x_range=x_range, 
+            y_range=y_range, 
+            z_range=z_range,
         )
         end_time = time.time()
         
@@ -385,6 +387,7 @@ def run(cfg: DictConfig):
         eval_episodes_for_action_cost = dataset_for_action_cost.get_row_data(sampled_indices_cost)[col_name_cost]
         eval_start_idx_for_action_cost = dataset_for_action_cost.get_row_data(sampled_indices_cost)["step_idx"]
 
+
         cost_results = compute_action_costs(
             model=model,
             dataset=dataset_for_action_cost,
@@ -440,9 +443,10 @@ def run(cfg: DictConfig):
     dataset = get_dataset(cfg, cfg.eval.probing.dataset_name)
     val_dataset = get_dataset(cfg, cfg.eval.probing.val_dataset_name)
     
-    
-    # print("model:", model)
-    # print("model.predictor:", model.predictor)
+    if  cfg.eval.probing.check_shaded_images.check and cfg.eval.probing.check_shaded_images.shaded_dataset_name is not None:
+        shaded_dataset = get_shaded_dataset(cfg, cfg.eval.probing.check_shaded_images.shaded_dataset_name)
+
+
     if cfg.eval.probing.exe_probe:
         results_path = (
             Path(swm.data.utils.get_cache_dir(), "eval", cfg.policy).parent
@@ -466,7 +470,10 @@ def run(cfg: DictConfig):
             closed_pred_step = cfg.eval.probing.closed_pred_step,
             max_samples = cfg.eval.probing.max_samples,
             plot_line = cfg.eval.probing.plot_line,
-            env = env
+            env = env, 
+            check_isotropy = cfg.eval.probing.check_isotropy,
+            check_shaded_images = cfg.eval.probing.check_shaded_images.check,
+            shaded_dataset = shaded_dataset,
             
         )
         
@@ -500,12 +507,12 @@ def compute_action_costs(
     dataset_costs = []
     random_costs = []
     zero_costs = []
+    hold_costs = []
 
     # random action 用pool
     action_pool = dataset.get_col_data(action_key)
 
-    # print("type(data):", type(data))
-    # print("len(data):", len(data))
+
     for i, ep in enumerate(data):
 
         # ============================================================
@@ -593,15 +600,15 @@ def compute_action_costs(
             ).astype(np.float32)
         else:
             low = np.array([
-                0.315,   # x
+                0.45,   # x
                -0.2,     # y
-                0.1,     # z
+                0.05,     # z
             ], dtype=np.float32)
 
             high = np.array([
-                0.715,   # x
+                0.85,   # x
                 0.2,     # y
-                0.1,     # z
+                0.05,     # z
             ], dtype=np.float32)
 
             random_action_seq = np.random.uniform(
@@ -615,6 +622,13 @@ def compute_action_costs(
         # zero action
         # ============================================================
         zero_action_seq = np.zeros_like(dataset_action_seq)
+        
+        
+        # ============================================================
+        # hold action
+        # ============================================================
+        hold_action = 0.5
+        hold_action_seq = np.full_like(dataset_action_seq, hold_action)
 
         # ============================================================
         # normalize
@@ -624,9 +638,13 @@ def compute_action_costs(
                 return process[action_key].transform(action_seq)
             return action_seq
 
+        
         dataset_action_seq = normalize_action(dataset_action_seq)
         random_action_seq = normalize_action(random_action_seq)
         zero_action_seq = normalize_action(zero_action_seq)
+        hold_action_seq = normalize_action(hold_action_seq)
+
+
 
         # ============================================================
         # tensor helper
@@ -641,6 +659,7 @@ def compute_action_costs(
         dataset_candidates = to_action_candidates(dataset_action_seq)
         random_candidates = to_action_candidates(random_action_seq)
         zero_candidates = to_action_candidates(zero_action_seq)
+        hold_candidates = to_action_candidates(hold_action_seq)
 
         # ============================================================
         # cost
@@ -648,10 +667,12 @@ def compute_action_costs(
         dataset_cost = model.get_cost(info, dataset_candidates).item()
         random_cost = model.get_cost(info, random_candidates).item()
         zero_cost = model.get_cost(info, zero_candidates).item()
+        hold_cost = model.get_cost(info, hold_candidates).item()
 
         dataset_costs.append(dataset_cost)
         random_costs.append(random_cost)
         zero_costs.append(zero_cost)
+        hold_costs.append(hold_cost)
 
         # ============================================================
         # per-episode print
@@ -660,6 +681,7 @@ def compute_action_costs(
         print(f"dataset_cost : {dataset_cost:.6f}")
         print(f"random_cost  : {random_cost:.6f}")
         print(f"zero_cost    : {zero_cost:.6f}")
+        print(f"large_cost    : {hold_cost:.6f}", "hold_action:", hold_action)
 
     # ============================================================
     # summary
@@ -667,6 +689,7 @@ def compute_action_costs(
     dataset_costs = np.array(dataset_costs)
     random_costs = np.array(random_costs)
     zero_costs = np.array(zero_costs)
+    hold_costs = np.array(hold_costs)
 
     print("\n==================== SUMMARY ====================")
 
@@ -688,28 +711,34 @@ def compute_action_costs(
     print("max :", zero_costs.max())
     print("std :", zero_costs.std())
 
+    print("\n[LARGE ACTION COST] hold_action:", hold_action)
+    print("mean:", hold_costs.mean())
+    print("min :", hold_costs.min())
+    print("max :", hold_costs.max())
+    print("std :", hold_costs.std())
+
     # ============================================================
     # comparison
     # ============================================================
-    dataset_better_than_random = np.mean(dataset_costs < random_costs)
-    dataset_better_than_zero = np.mean(dataset_costs < zero_costs)
+    # dataset_better_than_random = np.mean(dataset_costs < random_costs)
+    # dataset_better_than_zero = np.mean(dataset_costs < zero_costs)
 
-    print("\n==================== COMPARISON ====================")
-    print(
-        f"dataset < random : "
-        f"{dataset_better_than_random * 100:.2f}%"
-    )
+    # print("\n==================== COMPARISON ====================")
+    # print(
+    #     f"dataset < random : "
+    #     f"{dataset_better_than_random * 100:.2f}%"
+    # )
 
-    print(
-        f"dataset < zero   : "
-        f"{dataset_better_than_zero * 100:.2f}%"
-    )
+    # print(
+    #     f"dataset < zero   : "
+    #     f"{dataset_better_than_zero * 100:.2f}%"
+    # )
 
-    return {
-        "dataset": dataset_costs,
-        "random": random_costs,
-        "zero": zero_costs,
-    }
+    # return {
+    #     "dataset": dataset_costs,
+    #     "random": random_costs,
+    #     "zero": zero_costs,
+    # }
 
         
         

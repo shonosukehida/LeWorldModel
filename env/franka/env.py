@@ -135,9 +135,9 @@ class FrankaSimEnv:
         finger1_q = self.physics.data.qpos[finger1_qadr]
         finger2_q = self.physics.data.qpos[finger2_qadr]
 
-        print("[GRIPPER CHECK]")
-        print("finger1_q:", finger1_q)
-        print("finger2_q:", finger2_q)
+        # print("[GRIPPER CHECK]")
+        # print("finger1_q:", finger1_q)
+        # print("finger2_q:", finger2_q)
         
         # 3) セット直後の確認
         self.physics.forward()
@@ -202,7 +202,7 @@ class FrankaSimEnv:
         return self.physics.data.xpos[bid].copy()
 
 
-    def step(self, action, max_dq=0.01):
+    def step(self, action, max_dq=0.01): #0.01
         action = np.asarray(action, dtype=np.float32).reshape(-1)
         
         # print("[env/franka/env.py] action.shape:", action.shape)

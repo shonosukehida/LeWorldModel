@@ -18,7 +18,7 @@ world:
   terminate_at_goal: True
   config:
     model_path: mujoco_menagerie/franka_emika_panda/scene.xml
-    camera_name: top_reverse
+    camera_name: top_reverse1
     image_size: [64, 64]
     confirm_ik_result: False
     tol: 0.05
@@ -28,9 +28,9 @@ world:
 dataset:
   stats: ${eval.dataset_name}
   keys_to_cache:
-    - action
+    # - action
     # - action_joint
-    # - action_cartesian
+    - action_cartesian
     - qpos
     - qvel
     - bluebox_pos
@@ -42,7 +42,7 @@ plan_config:
   horizon: 5 #CEMの計算horizon
   receding_horizon: 5
   action_block: 1
-  action_space: "joint" #cartesian / joint
+  action_space: "cartesian" #cartesian / joint
   warm_start: false
   clip_action: true
 
@@ -51,7 +51,7 @@ eval:
   num_eval: 1 #1
   eval_budget: 50 #50
   img_size: 64
-  dataset_name: franka/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push #franka/pairs_500_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push #franka/pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
+  dataset_name: franka/pairs_500_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05/push #franka/pairs_500_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push #franka/pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
   ac_cost_dataset_name: franka/val_cost_pairs_1_ep_1_timestep_1000_sample_towards_bluebox_view_top_reverse/push
 
   eval_tr_ds:
@@ -63,13 +63,13 @@ eval:
     num_eval: 1 #1
     # goal_offset_steps: 25 #25
     img_size: 64
-    start_positions: [0.50, 0.05, 0.05] #[0.50, 0.05, 0.05]
-    goal_positions: [0.50, 0.15, 0.05] #[0.50, 0.15, 0.05]
-    init_ee_positions: [0.50, 0.0, 0.05] #[0.50, 0.00, 0.05]
+    start_positions: [0.75, 0.0, 0.05] #[0.65, 0.05, 0.05], [0.50, 0.05, 0.05]
+    goal_positions: [0.85, 0.0, 0.05] #[0.65, 0.15, 0.05], [0.50, 0.15, 0.05]
+    init_ee_positions: [0.65, 0.00, 0.05] #[0.65, 0.00, 0.05], [0.50, 0.00, 0.05]
     plot_joint_compare_normed: true
   
   compute_opt_action_cost:
-    execute: true
+    execute: false
     horizon: 5
 
 
@@ -77,13 +77,18 @@ eval:
     exe_probe: false
     dataset_name: ${eval.dataset_name}
     val_dataset_name: franka/val_pairs_1_ep_2_timestep_200_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
-    plot_all_train_data: true
-    plot_all_val_data: true
-    plot_open_data: true
-    plot_closed_data: true
+    plot_all_train_data: false
+    plot_all_val_data: false
+    plot_open_data: false
+    plot_closed_data: false
     closed_pred_step: 1
     max_samples: 1000 #pcaで可視化する際に集める潜在列のステップ数
     plot_line: true #pca でclosed forward を可視化するときに１本線にするか否か
+    check_isotropy: false
+    check_shaded_images:
+      check: true 
+      shaded_dataset_name: franka/shadow_occlusion_probe/push
+
 
 
   callables:

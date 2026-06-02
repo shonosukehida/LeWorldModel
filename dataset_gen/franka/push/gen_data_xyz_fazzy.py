@@ -33,7 +33,7 @@ from stable_worldmodel.data.utils import get_cache_dir
 
 from dataset_gen.franka.push.check_dataset import *
 
-
+import xml.etree.ElementTree as ET
 
 
 class FrankaDatasetGenerator:
@@ -139,6 +139,13 @@ class FrankaDatasetGenerator:
             f"_z{self.Z_RANGE[0]:.2f}_{self.Z_RANGE[1]:.2f}"
         ).replace(".", "p")
         prefix += f"_ws_{workspace_tag}"
+        
+        self.BLUEBOX_SIZE = self.get_bluebox_size_from_xml()
+        bluebox_size_tag = (
+            f"box{self.BLUEBOX_SIZE[0]:.3f}"
+        ).replace(".", "p")
+        prefix += f"_{bluebox_size_tag}"
+        
 
         self.SAVE_PATH = os.path.join(base, prefix)
         print("SAVE_PATH =", os.path.abspath(self.SAVE_PATH))
@@ -1411,6 +1418,20 @@ class FrankaDatasetGenerator:
             video_path = os.path.join(save_dir, "workspace_loop.mp4")
             imageio.mimsave(video_path, frames, fps=int(self.actual_dataset_hz))
             print(f"✅ saved video: {video_path}")
+            
+    def get_bluebox_size_from_xml(self):
+        tree = ET.parse(self.MODEL_PATH)
+        root = tree.getroot()
+
+        for geom in root.iter("geom"):
+            if geom.get("name") == "blue_box":
+                size_str = geom.get("size")
+                if size_str is None:
+                    raise ValueError("blue_box geom has no size attribute")
+                size = tuple(float(x) for x in size_str.split())
+                return size
+
+        raise ValueError("geom name='blue_box' not found in XML")
         
     # def _test_fk(self, target_xyz):
         

@@ -58,10 +58,10 @@ predictor:
 
 loss:
   sigreg:
-    weight: 0.09
+    weight: 0.5 #0.09
     kwargs:
       knots: 17
       num_proj: 1024
   idm:
-    use: true
-    weight: 0.01
+    use: false
+    weight: 0.09
