@@ -113,6 +113,7 @@ class FrankaSimEnv:
         # self.physics.data.qpos[start_idx+3:start_idx+7] = np.array([1, 0, 0, 0])
         # self.physics.data.qvel[start_idx:start_idx+6] = 0
         
+        #bluebox 回転ありreset
         joint_id = self.physics.model.name2id("free_joint_blue_box", "joint")
 
         qadr = self.physics.model.jnt_qposadr[joint_id]
@@ -121,6 +122,23 @@ class FrankaSimEnv:
         self.physics.data.qpos[qadr:qadr+3] = box_pos
         self.physics.data.qpos[qadr+3:qadr+7] = np.array([1, 0, 0, 0])
         self.physics.data.qvel[dadr:dadr+6] = 0.0
+        
+        #bluebox 回転なしreset
+        # box_x_id = self.physics.model.name2id("blue_box_x", "joint")
+        # box_y_id = self.physics.model.name2id("blue_box_y", "joint")
+
+        # box_x_qadr = self.physics.model.jnt_qposadr[box_x_id]
+        # box_y_qadr = self.physics.model.jnt_qposadr[box_y_id]
+
+        # box_x_dadr = self.physics.model.jnt_dofadr[box_x_id]
+        # box_y_dadr = self.physics.model.jnt_dofadr[box_y_id]
+
+        # # XML の body pos を <body name="blue_box" pos="0 0 0.05"> にしている前提
+        # self.physics.data.qpos[box_x_qadr] = box_pos[0]
+        # self.physics.data.qpos[box_y_qadr] = box_pos[1]
+
+        # self.physics.data.qvel[box_x_dadr] = 0.0
+        # self.physics.data.qvel[box_y_dadr] = 0.0
 
 
         #念のためもう一度グリッパー閉じる

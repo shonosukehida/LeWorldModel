@@ -13,6 +13,7 @@ init_joint_method: random #Franka初期位置の取得方法, random/center
 goal_offset: [0.2, -0.2, 0.2]
 box_start_pos: [0.75, 0.00, 0.05] #bluebox のstart位置 #[0.50, -0.05, 0.05]
 box_goal_pos: [0.80, 0.00, 0.05] #bluebox のgoal位置 #[0.50, -0.10, 0.05]
+ee_start_pos: [0.55, 0.00, 0.05]
 
 eval_only: false
 add_action_field: false

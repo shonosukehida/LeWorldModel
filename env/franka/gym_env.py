@@ -203,6 +203,7 @@ class FrankaPushEnv(gym.Env):
         start_marker_pos = options.get("start_marker_pos", None)
         goal_marker_pos = options.get("goal_marker_pos", None)
         init_ee_pos = options.get("init_ee_pos", None)
+        goal_ee_pos = options.get("goal_ee_pos", None)
         
         
         # init_position = options.get("init_position", None)

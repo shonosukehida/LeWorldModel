@@ -249,10 +249,12 @@ def run(cfg: DictConfig):
         st_ps = list(cfg.eval.eval_zeroshot.start_positions)
         gl_ps = list(cfg.eval.eval_zeroshot.goal_positions)
         init_ee_ps = list(cfg.eval.eval_zeroshot.init_ee_positions)
+        goal_ee_ps = list(cfg.eval.eval_zeroshot.goal_ee_positions)
         
         start_positions = np.repeat([st_ps], cfg.eval.num_eval, axis=0)
         goal_positions = np.repeat([gl_ps], cfg.eval.num_eval, axis=0)
         init_ee_positions = np.repeat([init_ee_ps], cfg.eval.num_eval, axis=0)
+        goal_ee_positions = np.repeat([goal_ee_ps], cfg.eval.num_eval, axis=0)
         
         video_dir = results_path / "zeroshot"
         video_dir.mkdir(parents=True, exist_ok=True)
@@ -262,6 +264,7 @@ def run(cfg: DictConfig):
             start_positions=start_positions,
             goal_positions=goal_positions,
             init_ee_poses=init_ee_positions,
+            goal_ee_poses=goal_ee_positions,
             eval_budget=cfg.eval.eval_budget,
             start_option_name="box_pos",
             goal_option_name="goal_marker_pos",
@@ -443,6 +446,7 @@ def run(cfg: DictConfig):
     dataset = get_dataset(cfg, cfg.eval.probing.dataset_name)
     val_dataset = get_dataset(cfg, cfg.eval.probing.val_dataset_name)
     
+    shaded_dataset = None
     if  cfg.eval.probing.check_shaded_images.check and cfg.eval.probing.check_shaded_images.shaded_dataset_name is not None:
         shaded_dataset = get_shaded_dataset(cfg, cfg.eval.probing.check_shaded_images.shaded_dataset_name)
 

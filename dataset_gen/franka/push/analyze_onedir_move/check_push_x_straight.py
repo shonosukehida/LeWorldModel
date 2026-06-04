@@ -213,6 +213,7 @@ def run_straight_x_push(config, direction="+x"):
 
     # ---- 検証用パラメータ ----
     box_start = np.array(config.get("box_start_pos", [0.65, 0.00, 0.05]), dtype=np.float32)
+    ee_start = np.array(config.get("ee_start_pos", [0.55, 0.00, 0.05]), dtype=np.float32)
 
     push_sign = 1.0 if direction == "+x" else -1.0
 
@@ -221,8 +222,8 @@ def run_straight_x_push(config, direction="+x"):
     push_dist = config.get("check_push_dist", 0.18)
     z = config.get("check_ee_z", 0.05)
 
-    ee_start = box_start.copy()
-    ee_start[0] -= push_sign * behind_dist
+
+    # ee_start[0] -= push_sign * behind_dist
     ee_start[2] = z
 
     ee_goal = ee_start.copy()

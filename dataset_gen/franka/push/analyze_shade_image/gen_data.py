@@ -29,7 +29,7 @@ def get_center_xyz(config):
 
 def render_fixed_box_dataset(
     config,
-    save_name="shadow_occlusion_probe",
+    save_name="shadow_occlusion_probe_box0p03",
     n_shadow=100,
     n_clear=100,
     n_nobox=100,
@@ -271,7 +271,7 @@ if __name__ == "__main__":
 
     render_fixed_box_dataset(
         config,
-        save_name="shadow_occlusion_probe",
+        save_name="shadow_occlusion_probe_box0p05",
         n_shadow=config["num_data"],
         n_clear=config["num_data"],
         n_nobox=config["num_data"],

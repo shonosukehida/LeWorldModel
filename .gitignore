@@ -12,3 +12,4 @@ lightning_logs
 environment*
 requirements_frozen*
 *nohup*
+dataset_gen/franka/push/analyze_shade_image/images/*
