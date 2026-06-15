@@ -214,10 +214,15 @@ class FrankaPushEnv(gym.Env):
             start_marker_pos=start_marker_pos,
             goal_marker_pos=goal_marker_pos,
             init_ee_pos=init_ee_pos,
+            for_task=False,
         )
 
         obs = self._get_obs()
-        info = {}
+        info = {
+            "bluebox_pos": self._get_bluebox_pos(),
+            "bluebox_quat": self._get_bluebox_quat(),
+            "ee_pos": obs["state"][-3:].copy(),
+        }
         return obs, info
 
     def step(self, action: np.ndarray):
@@ -257,6 +262,7 @@ class FrankaPushEnv(gym.Env):
         info = {
             "step_count": self._step_count,
             "bluebox_pos": self._get_bluebox_pos(),
+            "bluebox_quat": self._get_bluebox_quat(),
             "ee_pos": obs["state"][-3:].copy(),
             "goal_pos": None if self.goal_pos is None else self.goal_pos.copy(),
             "is_success": terminated,
@@ -333,3 +339,10 @@ class FrankaPushEnv(gym.Env):
             self.sim.physics.forward()
         except Exception:
             pass
+        
+    def _get_bluebox_quat(self) -> np.ndarray:
+        joint_id = self.sim.physics.model.name2id("free_joint_blue_box", "joint")
+        qadr = self.sim.physics.model.jnt_qposadr[joint_id]
+
+        quat = self.sim.physics.data.qpos[qadr + 3:qadr + 7].copy()
+        return quat.astype(np.float32)

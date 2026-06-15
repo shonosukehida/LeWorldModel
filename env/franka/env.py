@@ -61,7 +61,7 @@ class FrankaSimEnv:
 
 
 
-    def reset_and_place_all(self, box_pos, start_marker_pos=None, goal_marker_pos=None, init_ee_pos=None, init_position=None):
+    def reset_and_place_all(self, box_pos, start_marker_pos=None, goal_marker_pos=None, init_ee_pos=None, init_position=None, for_task=False):
         self.physics.reset()
         
         assert (init_ee_pos is None or init_position is None), "you specified both init_ee_pos and init_position..."
@@ -107,39 +107,39 @@ class FrankaSimEnv:
             self.physics.data.ctrl[self.arm_actuator_ids] = q
     
 
-        # joint_id = self.physics.model.name2id("free_joint_blue_box", "joint")
-        # start_idx = self.physics.model.jnt_qposadr[joint_id]
-        # self.physics.data.qpos[start_idx:start_idx+3] = box_pos
-        # self.physics.data.qpos[start_idx+3:start_idx+7] = np.array([1, 0, 0, 0])
-        # self.physics.data.qvel[start_idx:start_idx+6] = 0
         
+
         #bluebox 回転ありreset
+        box_quat = None
+        if for_task:
+            def yaw_to_mujoco_quat(theta):
+                return np.array([
+                    np.cos(theta / 2),
+                    0.0,
+                    0.0,
+                    np.sin(theta / 2),
+                ], dtype=np.float32)
+                
+            x0 = np.asarray(init_ee_pos[:2], dtype=np.float32)
+            y0 = np.asarray(box_pos[:2], dtype=np.float32)
+
+            direction = y0 - x0
+            theta = np.arctan2(direction[1], direction[0])
+            box_quat = yaw_to_mujoco_quat(theta)
+
+        
+        
         joint_id = self.physics.model.name2id("free_joint_blue_box", "joint")
 
         qadr = self.physics.model.jnt_qposadr[joint_id]
         dadr = self.physics.model.jnt_dofadr[joint_id]
 
         self.physics.data.qpos[qadr:qadr+3] = box_pos
-        self.physics.data.qpos[qadr+3:qadr+7] = np.array([1, 0, 0, 0])
         self.physics.data.qvel[dadr:dadr+6] = 0.0
         
-        #bluebox 回転なしreset
-        # box_x_id = self.physics.model.name2id("blue_box_x", "joint")
-        # box_y_id = self.physics.model.name2id("blue_box_y", "joint")
-
-        # box_x_qadr = self.physics.model.jnt_qposadr[box_x_id]
-        # box_y_qadr = self.physics.model.jnt_qposadr[box_y_id]
-
-        # box_x_dadr = self.physics.model.jnt_dofadr[box_x_id]
-        # box_y_dadr = self.physics.model.jnt_dofadr[box_y_id]
-
-        # # XML の body pos を <body name="blue_box" pos="0 0 0.05"> にしている前提
-        # self.physics.data.qpos[box_x_qadr] = box_pos[0]
-        # self.physics.data.qpos[box_y_qadr] = box_pos[1]
-
-        # self.physics.data.qvel[box_x_dadr] = 0.0
-        # self.physics.data.qvel[box_y_dadr] = 0.0
-
+        if box_quat is not None: self.physics.data.qpos[qadr+3:qadr+7] = box_quat
+        else: self.physics.data.qpos[qadr+3:qadr+7] = np.array([1, 0, 0, 0])
+        
 
         #念のためもう一度グリッパー閉じる
         self.physics.data.qpos[finger1_qadr] = 0.0

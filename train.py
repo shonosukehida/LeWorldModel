@@ -77,6 +77,9 @@ def lejepa_forward(self, batch, stage, cfg):
 @hydra.main(version_base=None, config_path="./config/train", config_name="lewm")
 def run(cfg):
     
+    print("torch.initial_seed()", torch.initial_seed())
+    pl.seed_everything(cfg.learning_seed, workers = True)
+    print("torch.initial_seed()", torch.initial_seed())
     
     #########################
     ##       dataset       ##
@@ -119,6 +122,7 @@ def run(cfg):
     transform = spt.data.transforms.Compose(*transforms)
     dataset.transform = transform
 
+    print("cfg.seed:", cfg.seed)
     rnd_gen = torch.Generator().manual_seed(cfg.seed)
     train_set, val_set = spt.data.random_split(
         dataset, lengths=[cfg.train_split, 1 - cfg.train_split], generator=rnd_gen

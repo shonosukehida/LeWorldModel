@@ -12,6 +12,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from sklearn import preprocessing
 from torchvision.transforms import v2 as transforms
+from stable_worldmodel.data.utils import get_cache_dir
 import stable_worldmodel as swm
 import env.franka
 
@@ -105,6 +106,44 @@ def get_shaded_dataset(cfg, dataset_name):
     return dataset
 
 
+def get_workspace_center_from_h5(dataset_name):
+    h5_path = os.path.join(
+        get_cache_dir(sub_folder="datasets"),
+        f"{dataset_name}.h5"
+    )
+
+    with h5py.File(h5_path, "r") as f:
+        x_range = np.asarray(f.attrs["x_range"], dtype=np.float32)
+        y_range = np.asarray(f.attrs["y_range"], dtype=np.float32)
+        z_range = np.asarray(f.attrs["z_range"], dtype=np.float32)
+
+    center = np.array([
+        (x_range[0] + x_range[1]) / 2,
+        (y_range[0] + y_range[1]) / 2,
+        (z_range[0] + z_range[1]) / 2,
+    ], dtype=np.float32)
+
+    return center
+
+def polar_to_xyz(polar, center):
+    """
+    polar: [r, theta, z]
+    theta は radian 想定
+    center: workspace center [cx, cy, cz]
+    """
+    r, theta_deg, z = polar
+    theta_deg = - (theta_deg - 90.)
+    
+    theta = np.deg2rad(theta_deg)
+    
+    return np.array([
+        center[0] + r * np.cos(theta),
+        center[1] + r * np.sin(theta),
+        z,
+    ], dtype=np.float32)
+
+
+
 class SafeStandardScaler:
     def __init__(self, eps=1e-4):
         self.eps = eps
@@ -160,11 +199,10 @@ def run(cfg: DictConfig):
         "goal": img_transform(cfg),
     }
 
-    # print("cfg:", cfg)
-    # print("cfg(keys_to_cache): ", cfg["dataset"]["keys_to_cache"])
+
     dataset = get_dataset(cfg, cfg.eval.dataset_name)
     
-    print("dataset.column_names:", dataset.column_names)
+
 
     dataset_name = cfg.eval.dataset_name
     cache_dir = Path(cfg.cache_dir or swm.data.utils.get_cache_dir())
@@ -244,17 +282,64 @@ def run(cfg: DictConfig):
 
 
     world.set_policy(policy, results_path)        
+    print("cfg.eval.eval_zeroshot.execute:", cfg.eval.eval_zeroshot.execute)
     if cfg.eval.eval_zeroshot.execute:
-    
-        st_ps = list(cfg.eval.eval_zeroshot.start_positions)
-        gl_ps = list(cfg.eval.eval_zeroshot.goal_positions)
-        init_ee_ps = list(cfg.eval.eval_zeroshot.init_ee_positions)
-        goal_ee_ps = list(cfg.eval.eval_zeroshot.goal_ee_positions)
+        task_env_cfg = cfg.world.config
+        # env_model_path = task_env_cfg.model_path
         
-        start_positions = np.repeat([st_ps], cfg.eval.num_eval, axis=0)
-        goal_positions = np.repeat([gl_ps], cfg.eval.num_eval, axis=0)
-        init_ee_positions = np.repeat([init_ee_ps], cfg.eval.num_eval, axis=0)
-        goal_ee_positions = np.repeat([goal_ee_ps], cfg.eval.num_eval, axis=0)
+        condition_type = cfg.eval.eval_zeroshot.condition_type
+        center = get_workspace_center_from_h5(cfg.eval.dataset_name)
+
+        if condition_type == "fixed":
+            if cfg.eval.eval_zeroshot.fixed.coordinate_type == "cartesian":
+                st_ps = list(cfg.eval.eval_zeroshot.fixed.cartesian.start_positions)
+                gl_ps = list(cfg.eval.eval_zeroshot.fixed.cartesian.goal_positions)
+                init_ee_ps = list(cfg.eval.eval_zeroshot.fixed.cartesian.init_ee_positions)
+                goal_ee_ps = list(cfg.eval.eval_zeroshot.fixed.cartesian.goal_ee_positions)
+            elif cfg.eval.eval_zeroshot.fixed.coordinate_type == "polar":
+                center = get_workspace_center_from_h5(cfg.eval.dataset_name)
+
+                st_ps = polar_to_xyz(list(cfg.eval.eval_zeroshot.fixed.polar.start_positions), center)
+                gl_ps = polar_to_xyz(list(cfg.eval.eval_zeroshot.fixed.polar.goal_positions), center)
+                init_ee_ps = polar_to_xyz(list(cfg.eval.eval_zeroshot.fixed.polar.init_ee_positions), center)
+                goal_ee_ps = polar_to_xyz(list(cfg.eval.eval_zeroshot.fixed.polar.goal_ee_positions), center)
+                
+            start_positions = np.repeat([st_ps], cfg.eval.num_eval, axis=0)
+            goal_positions = np.repeat([gl_ps], cfg.eval.num_eval, axis=0)
+            init_ee_positions = np.repeat([init_ee_ps], cfg.eval.num_eval, axis=0)
+            goal_ee_positions = np.repeat([goal_ee_ps], cfg.eval.num_eval, axis=0)
+            
+            
+        elif condition_type == "random":
+            if cfg.eval.eval_zeroshot.random.coordinate_type == "cartesian":
+                pass
+            elif cfg.eval.eval_zeroshot.random.coordinate_type == "polar":
+                start_positions, goal_positions = sample_radial_start_goal(
+                    cfg=cfg,
+                    center=center,
+                    x_range=x_range,
+                    y_range=y_range,
+                    z_range=z_range,
+                )
+
+                random_cfg = cfg.eval.eval_zeroshot.random
+
+                init_ee_ps = polar_to_xyz(
+                    list(random_cfg.polar.init_ee_positions),
+                    center,
+                )
+
+
+                goal_ee_ps = polar_to_xyz(
+                    list(cfg.eval.eval_zeroshot.random.polar.goal_ee_positions),
+                    center,
+                )
+
+                init_ee_positions = np.repeat([init_ee_ps], cfg.eval.num_eval, axis=0)
+                goal_ee_positions = np.repeat([goal_ee_ps], cfg.eval.num_eval, axis=0)
+            
+        
+
         
         video_dir = results_path / "zeroshot"
         video_dir.mkdir(parents=True, exist_ok=True)
@@ -744,7 +829,52 @@ def compute_action_costs(
     #     "zero": zero_costs,
     # }
 
-        
+
+
+def sample_radial_start_goal(
+    cfg,
+    center,
+    x_range,
+    y_range,
+    z_range,
+):
+    random_cfg = cfg.eval.eval_zeroshot.random
+    g = np.random.default_rng()
+
+    r_low, r_high = random_cfg.polar.start_position.r_range
+    th_low, th_high = random_cfg.polar.start_position.theta_range
+    d = float(random_cfg.polar.start_goal_distance)
+
+    z = float(random_cfg.polar.init_ee_positions[2])
+
+    start_positions = []
+    goal_positions = []
+
+    for _ in range(cfg.eval.num_eval):
+        r = g.uniform(r_low, r_high)
+        theta_deg = g.uniform(th_low, th_high)
+
+        start = polar_to_xyz([r, theta_deg, z], center)
+
+        direction = start[:2] - center[:2]
+        norm = np.linalg.norm(direction)
+
+        if norm < 1e-8:
+            theta = np.deg2rad(-(theta_deg - 90.0))
+            direction = np.array([np.cos(theta), np.sin(theta)], dtype=np.float32)
+        else:
+            direction = direction / norm
+
+        goal = start.copy()
+        goal[:2] = start[:2] + d * direction
+        goal[0] = np.clip(goal[0], x_range[0], x_range[1])
+        goal[1] = np.clip(goal[1], y_range[0], y_range[1])
+        goal[2] = z
+
+        start_positions.append(start.astype(np.float32))
+        goal_positions.append(goal.astype(np.float32))
+
+    return np.stack(start_positions), np.stack(goal_positions)
         
 
 

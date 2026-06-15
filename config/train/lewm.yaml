@@ -12,6 +12,7 @@ img_size: 224
 patch_size: 14
 encoder_scale: tiny
 dump_object: True
+learning_seed: 41
 
 trainer:
   max_epochs: 10
@@ -33,7 +34,7 @@ optimizer:
   weight_decay: 1e-3
 
 wandb:
-  enabled: True
+  enabled: False
   config:
     entity: shonosukehida
     project: lewm

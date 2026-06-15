@@ -49,10 +49,10 @@ plan_config:
 eval:
 
   num_eval: 1 #1
-  eval_budget: 100 #50
+  eval_budget: 50 #50
   img_size: 64
   dataset_name: franka/pairs_500_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05/push #franka/pairs_500_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push #franka/pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
-  ac_cost_dataset_name: franka/val_cost_pairs_1_ep_1_timestep_500_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p030/push
+  ac_cost_dataset_name: franka/val_cost_pairs_1_ep_1_timestep_500_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p050/push
 
   eval_tr_ds:
     execute: false
@@ -63,10 +63,33 @@ eval:
     num_eval: 1 #1
     # goal_offset_steps: 25 #25
     img_size: 64
-    start_positions: [0.70, 0.0 , 0.05] #[0.65, 0.05, 0.05], [0.50, 0.05, 0.05]
-    goal_positions: [0.80, 0.0 , 0.05] #[0.65, 0.15, 0.05], [0.50, 0.15, 0.05]
-    init_ee_positions: [0.65, 0., 0.05] #[0.65, 0.00, 0.05], [0.50, 0.00, 0.05] //ゴール画像のFrankaの位置を指定
-    goal_ee_positions: [0.75, 0.0, 0.05] #ゴール画像のFrankaの位置を指定
+    condition_type: "random" # "fixed"/"random"
+
+    random:
+      coordinate_type: "polar"
+      polar: 
+        start_position:
+          r_range: [0.02, 0.05]
+          theta_range: [0., 180.]
+        start_goal_distance: 0.1
+
+        init_ee_positions: [0.0, 0.0, 0.05]
+        goal_ee_positions: [0.0 , 0.0, 0.05] 
+
+     
+
+    fixed:
+      coordinate_type: "polar" # "cartesian" or "polar"
+      cartesian:
+        start_positions: [0.75, -0.10 , 0.05] #[0.65, 0.05, 0.05], [0.50, 0.05, 0.05]
+        goal_positions: [0.75, 0.05 , 0.05] #[0.65, 0.15, 0.05], [0.50, 0.15, 0.05]
+        init_ee_positions: [0.65, 0.0, 0.05] #[0.65, 0.00, 0.05], [0.50, 0.00, 0.05] //ゴール画像のFrankaの位置を指定
+        goal_ee_positions: [0.55, 0.15, 0.05] #ゴール画像のFrankaの位置を指定
+      polar: #0.0が右、反時計回り、degree想定
+        start_positions: [0.05, 90., 0.05] #(r, theta, z)
+        goal_positions: [0.15, 90., 0.05] 
+        init_ee_positions: [0.0, 0.0, 0.05] 
+        goal_ee_positions: [0.10 , 90.0, 0.05] 
     plot_joint_compare_normed: true
   
   compute_opt_action_cost:
@@ -77,7 +100,7 @@ eval:
   probing:
     exe_probe: false
     dataset_name: ${eval.dataset_name}
-    val_dataset_name: franka/pairs_500_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05/push
+    val_dataset_name: franka/val_pairs_1_ep_3_timestep_200_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p050/push
     plot_all_train_data: true
     plot_all_val_data: true
     plot_open_data: true
