@@ -12,10 +12,10 @@ img_size: 224
 patch_size: 14
 encoder_scale: tiny
 dump_object: True
-learning_seed: 41
+learning_seed: 51 #0~18,446,744,073,709,551,615
 
 trainer:
-  max_epochs: 10
+  max_epochs: 10 
   devices: 1
   accelerator: gpu
   precision: bf16

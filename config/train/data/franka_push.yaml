@@ -1,5 +1,5 @@
 dataset:
-  name: franka/pairs_500_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05/push
+  name: franka/pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p050/push #franka/pairs_500_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05/push
   num_steps: ${eval:'${wm.num_preds} + ${wm.history_size}'}
   frameskip: 1
 

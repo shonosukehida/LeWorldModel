@@ -1,4 +1,4 @@
-is_val: true
+is_val: false
 pairs: 1 #5
 min_dist: 0.15
 episodes_per_pair: 1 #2000
@@ -41,7 +41,7 @@ z_range: [0.05, 0.05] #[0.1, 0.1]
 #uniform --> 一様分布
 #uniform_constrain --> 一様分布だが, 現在の位置との距離がmax_dist 未満になるまで繰り返す
 
-sample_method_list: null #["direction", "towards_bluebox"] #null 単一のsampleメソッド
+sample_method_list: ["direction", "towards_bluebox"] #["direction", "towards_bluebox"] #null 単一のsampleメソッド
 sample_method_ratio: [1, 1] #[1, 1]
 
 sample_method: 'towards_bluebox' #'direction' or 'uniform' or 'uniform_constrain' or 'towards_bluebox'
