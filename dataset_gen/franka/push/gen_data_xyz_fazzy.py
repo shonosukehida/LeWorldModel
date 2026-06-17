@@ -145,6 +145,7 @@ class FrankaDatasetGenerator:
             f"box{self.BLUEBOX_SIZE[0]:.3f}"
         ).replace(".", "p")
         prefix += f"_{bluebox_size_tag}"
+        prefix += f"_imagesize_{self.IMAGE_SIZE[0]}"
         
 
         self.SAVE_PATH = os.path.join(base, prefix)

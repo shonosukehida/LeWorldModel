@@ -90,7 +90,7 @@ class FrankaSimEnv:
         blue = self.bluebox_geom_id
         self.physics.forward()
         p0 = self.physics.data.geom_xpos[blue].copy()
-        print("box pos after reset:", p0)
+        # print("box pos after reset:", p0)
         ###
         
         if init_position is not None:

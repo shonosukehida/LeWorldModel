@@ -39,8 +39,8 @@ seed: 42
 policy: lewm_weights 
 
 plan_config:
-  horizon: 5 #CEMの計算horizon
-  receding_horizon: 5 #buffer にためておくaction step, 貯められたaction は毎ステップ取り出され環境に投入される
+  horizon: 1 #CEMの計算horizon #5
+  receding_horizon: 1 #buffer にためておくaction step, 貯められたaction は毎ステップ取り出され環境に投入される #5
   action_block: 1
   action_space: "cartesian" #cartesian / joint
   warm_start: false
@@ -59,11 +59,11 @@ eval:
     goal_offset_steps: 25 #25
 
   eval_zeroshot:
-    execute: true
+    execute: false
     num_eval: 1 #1
     # goal_offset_steps: 25 #25
     img_size: 64
-    condition_type: "random" # "fixed"/"random"
+    condition_type: "fixed" # "fixed"/"random"
 
     random:
       coordinate_type: "polar"
@@ -86,10 +86,10 @@ eval:
         init_ee_positions: [0.65, 0.0, 0.05] #[0.65, 0.00, 0.05], [0.50, 0.00, 0.05] //ゴール画像のFrankaの位置を指定
         goal_ee_positions: [0.55, 0.15, 0.05] #ゴール画像のFrankaの位置を指定
       polar: #0.0が右、反時計回り、degree想定
-        start_positions: [0.05, 90., 0.05] #(r, theta, z)
-        goal_positions: [0.15, 90., 0.05] 
+        start_positions: [0.05, 180., 0.05] #(r, theta, z)
+        goal_positions: [0.15, 180., 0.05] 
         init_ee_positions: [0.0, 0.0, 0.05] 
-        goal_ee_positions: [0.10 , 90.0, 0.05] 
+        goal_ee_positions: [0.0 , 0.0, 0.05] 
     plot_joint_compare_normed: true
   
   compute_opt_action_cost:
@@ -98,20 +98,51 @@ eval:
 
 
   probing:
-    exe_probe: false
+    exe_probe: true
     dataset_name: ${eval.dataset_name}
     val_dataset_name: franka/val_pairs_1_ep_3_timestep_200_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p050/push
-    plot_all_train_data: true
-    plot_all_val_data: true
-    plot_open_data: true
-    plot_closed_data: true
+    plot_all_train_data: false
+    plot_all_val_data: false
+    plot_open_data: false
+    plot_closed_data: false
     closed_pred_step: 1
     max_samples: 1000 #pcaで可視化する際に集める潜在列のステップ数
     plot_line: true #pca でclosed forward を可視化するときに１本線にするか否か
-    check_isotropy: true
+    check_isotropy: false
     check_shaded_images:
-      check: true
+      check: false
       shaded_dataset_name: franka/shadow_occlusion_probe_box0p05/push
+    check_ee_cost_map:
+      check: false
+      goal_ee_pos: [0.65, 0.0, 0.05]
+      goal_bluebox_pos: [0.65, 0.15, 0.05]
+      fixed_bluebox_pos: null #cost map計算中に固定するbox位置
+      image_size: [64, 64]
+      cost_type: "l2"
+      num_x: 50
+      num_y: 50
+
+    check_box_cost_map:
+      check: false
+      goal_ee_pos: [0.65, 0.0, 0.05]
+      goal_bluebox_pos: [0.65, 0.15, 0.05]
+      fixed_ee_pos: null #cost map計算中に固定するbox位置
+      image_size: [64, 64]
+      cost_type: "l2"
+      num_x: 50
+      num_y: 50
+
+    check_ee_box_cost_map:
+      check: false
+      goal_ee_pos: [0.65, 0.0, 0.05]
+      goal_bluebox_pos: [0.65, 0.15, 0.05]
+      fixed_ee_pos: null #cost map計算中に固定するbox位置
+      image_size: [64, 64]
+      cost_type: "l2"
+      num_x: 50
+      num_y: 50
+      show_task_initial: true
+      task_initial_box_pos: [0.65, 0.05, 0.05]
 
 
 

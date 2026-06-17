@@ -548,20 +548,12 @@ def run(cfg: DictConfig):
         prober = ProbingEvaluator(
             dataset,
             model,
+            config = cfg.eval.probing, 
             transform = transform,
             process = process,
             results_path = results_path,
             val_dataset = val_dataset,
-            plot_all_train_data = cfg.eval.probing.plot_all_train_data,
-            plot_all_val_data = cfg.eval.probing.plot_all_val_data,
-            plot_closed_data = cfg.eval.probing.plot_closed_data, 
-            plot_open_data = cfg.eval.probing.plot_open_data,
-            closed_pred_step = cfg.eval.probing.closed_pred_step,
-            max_samples = cfg.eval.probing.max_samples,
-            plot_line = cfg.eval.probing.plot_line,
             env = env, 
-            check_isotropy = cfg.eval.probing.check_isotropy,
-            check_shaded_images = cfg.eval.probing.check_shaded_images.check,
             shaded_dataset = shaded_dataset,
             
         )
