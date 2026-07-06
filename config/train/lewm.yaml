@@ -34,7 +34,7 @@ optimizer:
   weight_decay: 1e-3
 
 wandb:
-  enabled: True 
+  enabled: False
   config:
     entity: shonosukehida
     project: lewm
@@ -65,4 +65,5 @@ loss:
       num_proj: 1024
   idm:
     use: true
+    hidden_dim: 256 #256
     weight: 0.0

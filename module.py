@@ -287,6 +287,7 @@ class ARPredictor(nn.Module):
 
 class IDM(nn.Module):
     def __init__(self, embed_dim, action_dim, hidden_dim=256):
+        
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(2 * embed_dim, hidden_dim),

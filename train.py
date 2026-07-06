@@ -204,7 +204,8 @@ def run(cfg):
     )
     
     if cfg.loss.idm.use:
-        idm = IDM(embed_dim=embed_dim, action_dim=effective_act_dim)
+        
+        idm = IDM(embed_dim=embed_dim, action_dim=effective_act_dim, hidden_dim = cfg.loss.idm.hidden_dim)
 
         for p in idm.parameters():
             p.requires_grad = False
