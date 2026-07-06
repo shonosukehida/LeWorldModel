@@ -214,7 +214,7 @@ class FrankaPushEnv(gym.Env):
             start_marker_pos=start_marker_pos,
             goal_marker_pos=goal_marker_pos,
             init_ee_pos=init_ee_pos,
-            for_task=False,
+            for_task=True,
         )
 
         obs = self._get_obs()

@@ -62,6 +62,7 @@ class FrankaSimEnv:
 
 
     def reset_and_place_all(self, box_pos, start_marker_pos=None, goal_marker_pos=None, init_ee_pos=None, init_position=None, for_task=False):
+        print("(env/franka/env.py) for_task:", for_task)
         self.physics.reset()
         
         assert (init_ee_pos is None or init_position is None), "you specified both init_ee_pos and init_position..."

@@ -282,7 +282,7 @@ def run(cfg: DictConfig):
 
 
     world.set_policy(policy, results_path)        
-    print("cfg.eval.eval_zeroshot.execute:", cfg.eval.eval_zeroshot.execute)
+
     if cfg.eval.eval_zeroshot.execute:
         task_env_cfg = cfg.world.config
         # env_model_path = task_env_cfg.model_path
@@ -304,8 +304,29 @@ def run(cfg: DictConfig):
                 init_ee_ps = polar_to_xyz(list(cfg.eval.eval_zeroshot.fixed.polar.init_ee_positions), center)
                 goal_ee_ps = polar_to_xyz(list(cfg.eval.eval_zeroshot.fixed.polar.goal_ee_positions), center)
                 
-            start_positions = np.repeat([st_ps], cfg.eval.num_eval, axis=0)
-            goal_positions = np.repeat([gl_ps], cfg.eval.num_eval, axis=0)
+            print("cfg.eval.eval_zeroshot.fixed.noise_std:", cfg.eval.eval_zeroshot.fixed.noise_std)
+            print("cfg.eval.eval_zeroshot.fixed.noise_clip:", cfg.eval.eval_zeroshot.fixed.noise_clip)
+            start_positions = add_xy_noise(
+                st_ps,
+                cfg.eval.num_eval,
+                x_range=x_range,
+                y_range=y_range,
+                noise_std=cfg.eval.eval_zeroshot.fixed.noise_std,
+                noise_clip=cfg.eval.eval_zeroshot.fixed.noise_clip,
+                seed=cfg.eval.eval_zeroshot.fixed.noise_seed,
+                box_size=0.05,
+            )
+
+            goal_positions = add_xy_noise(
+                gl_ps,
+                cfg.eval.num_eval,
+                x_range=x_range,
+                y_range=y_range,
+                noise_std=cfg.eval.eval_zeroshot.fixed.noise_std,
+                noise_clip=cfg.eval.eval_zeroshot.fixed.noise_clip,
+                seed=cfg.eval.eval_zeroshot.fixed.noise_seed,
+                box_size=0.05,
+            )
             init_ee_positions = np.repeat([init_ee_ps], cfg.eval.num_eval, axis=0)
             goal_ee_positions = np.repeat([goal_ee_ps], cfg.eval.num_eval, axis=0)
             
@@ -544,7 +565,7 @@ def run(cfg: DictConfig):
         task_env_cfg = cfg.world.config 
         env = FrankaSimEnv(task_env_cfg)
 
-
+        # print("(eval.py) transform:", transform)
         prober = ProbingEvaluator(
             dataset,
             model,
@@ -869,6 +890,79 @@ def sample_radial_start_goal(
     return np.stack(start_positions), np.stack(goal_positions)
         
 
+def add_xy_noise(
+    positions,
+    num_eval,
+    x_range,
+    y_range,
+    noise_std=0.0,
+    noise_clip=0.0,
+    seed=0,
+    box_size=0.05,
+    center=None,
+    max_tries=1000,
+):
+    if seed is not None:
+        rng = np.random.default_rng(seed)
+    else:
+        rng = np.random.default_rng()
+
+    positions = np.asarray(positions, dtype=np.float32)
+    positions = np.repeat(positions[None, :], num_eval, axis=0)
+
+    if center is None:
+        center = np.array(
+            [
+                (x_range[0] + x_range[1]) / 2.0,
+                (y_range[0] + y_range[1]) / 2.0,
+            ],
+            dtype=np.float32,
+        )
+    else:
+        center = np.asarray(center, dtype=np.float32)[:2]
+
+    def box_contains_center(pos_xy):
+        return (
+            abs(pos_xy[0] - center[0]) <= box_size
+            and abs(pos_xy[1] - center[1]) <= box_size
+        )
+
+    for i in range(num_eval):
+        base = positions[i].copy()
+
+        for _ in range(max_tries):
+            noise = rng.normal(0.0, noise_std, size=2).astype(np.float32)
+            noise = np.clip(noise, -noise_clip, noise_clip)
+            
+
+            cand = base.copy()
+            cand[:2] += noise
+
+            cand[0] = np.clip(cand[0], x_range[0], x_range[1])
+            cand[1] = np.clip(cand[1], y_range[0], y_range[1])
+
+            if not box_contains_center(cand[:2]):
+                print("noise in add_xy_noise:", noise)
+                positions[i] = cand
+                break
+        else:
+            # どうしても中心を含む場合は、中心から遠ざかる方向へ押し出す
+            cand = base.copy()
+            direction = cand[:2] - center
+
+            if np.linalg.norm(direction) < 1e-8:
+                direction = np.array([1.0, 0.0], dtype=np.float32)
+            else:
+                direction = direction / np.linalg.norm(direction)
+
+            cand[:2] = center + direction * (box_size + 1e-3)
+
+            cand[0] = np.clip(cand[0], x_range[0], x_range[1])
+            cand[1] = np.clip(cand[1], y_range[0], y_range[1])
+
+            positions[i] = cand
+
+    return positions
 
 if __name__ == "__main__":
     run()

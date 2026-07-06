@@ -2,7 +2,7 @@ is_val: true
 pairs: 1 #5
 min_dist: 0.15
 episodes_per_pair: 1 #2000
-steps_per_episode: 200 ##100
+steps_per_episode: 100 ##100
 image_size: [64, 64] #[64, 64]
 model_path: mujoco_menagerie/franka_emika_panda/scene.xml
 camera_name: top_reverse1 #top_view, default, diagonal_view, top_reverse0, top_reverse1

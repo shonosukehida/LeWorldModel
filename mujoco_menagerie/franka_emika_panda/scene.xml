@@ -93,5 +93,41 @@
       <geom name="blue_box" type="box" size="0.05 0.05 0.05" rgba="0 0 0.7 1" contype="4" conaffinity="3" friction="0.4 0.15 0.01"/> 
       <joint name="free_joint_blue_box" type="free"/>
     </body>
+
+    <!-- obstacles box -->
+    <!-- <body name="obstacles_box1" pos="0.75 0. 0.03">
+    <inertial pos="0 0 0" mass="10" diaginertia="0.05 0.05 0.05"/>
+    <geom name="obstacles_box1" type="box"
+            size="0.03 0.03 0.03"
+            rgba="0.8 0. 0. 1." 
+            contype="3" conaffinity="4"
+            friction="0.4 0.15 0.01"/>
+    <joint name="free_joint_obstacles_box1" type="free"/>
+    </body>
+
+    <body name="obstacles_box2" pos="0.75 0.1 0.03">
+    <inertial pos="0 0 0" mass="10" diaginertia="0.05 0.05 0.05"/>
+    <geom name="obstacles_box2" type="box"
+            size="0.03 0.03 0.03"
+            rgba="0.1 0.8 0.1 1." 
+            contype="3" conaffinity="4"
+            friction="0.4 0.15 0.01"/>
+    <joint name="free_joint_obstacles_box2" type="free"/>
+    </body>
+
+    <body name="obstacles_box3" pos="0.75 -0.1 0.03">
+    <inertial pos="0 0 0" mass="10" diaginertia="0.05 0.05 0.05"/>
+    <geom name="obstacles_box3" type="box"
+            size="0.03 0.03 0.03"
+            rgba="0.8 0.8 0. 1." 
+            contype="3" conaffinity="4"
+            friction="0.4 0.15 0.01"/>
+    <joint name="free_joint_obstacles_box3" type="free"/>
+    </body> -->
+
+
+    
+
+
   </worldbody>
 </mujoco>

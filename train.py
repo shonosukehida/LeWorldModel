@@ -20,6 +20,8 @@ from datetime import datetime
 def lejepa_forward(self, batch, stage, cfg):
     """encode observations, predict next states, compute losses."""
     #batch: dict_keys(['pixels', 'action', 'batch_idx'])
+    
+    # print("(train batch pixels)", batch["pixels"].shape)
 
     ctx_len = cfg.wm.history_size
     n_preds = cfg.wm.num_preds
@@ -85,11 +87,12 @@ def run(cfg):
     print("cfg:", cfg)
     # print("cfg.wm.action_dim:", cfg.wm.action_dim)
 
-    print("cfg.data.dataset:", cfg.data.dataset)
+    # print("cfg.data.dataset:", cfg.data.dataset)
     dataset = swm.data.HDF5Dataset(**cfg.data.dataset, transform=None)
-    print("dataset path: ", dataset.h5_path)
-    print("dataset name:", cfg.data.dataset.name)
+    # print("dataset path: ", dataset.h5_path)
+    # print("dataset name:", cfg.data.dataset.name)
    
+    print("cfg.image_size:", cfg.img_size)
     transforms = [get_img_preprocessor(source='pixels', target='pixels', img_size=cfg.img_size)]
     
     #この中でaction_dimを決定している
@@ -119,6 +122,8 @@ def run(cfg):
     
     transform = spt.data.transforms.Compose(*transforms)
     dataset.transform = transform
+    
+    print("(train) transform:", transform)
 
 
     rnd_gen = torch.Generator().manual_seed(cfg.seed)

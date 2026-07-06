@@ -39,8 +39,8 @@ seed: 42
 policy: lewm_weights 
 
 plan_config:
-  horizon: 1 #CEMの計算horizon #5
-  receding_horizon: 1 #buffer にためておくaction step, 貯められたaction は毎ステップ取り出され環境に投入される #5
+  horizon: 5 #CEMの計算horizon #5
+  receding_horizon: 5 #buffer にためておくaction step, 貯められたaction は毎ステップ取り出され環境に投入される #5
   action_block: 1
   action_space: "cartesian" #cartesian / joint
   warm_start: false
@@ -50,7 +50,7 @@ eval:
 
   num_eval: 1 #1
   eval_budget: 50 #50
-  img_size: 64
+  img_size: 224 #!元々64でやってた
   dataset_name: franka/pairs_500_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05/push #franka/pairs_500_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push #franka/pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
   ac_cost_dataset_name: franka/val_cost_pairs_1_ep_1_timestep_500_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p050/push
 
@@ -59,19 +59,19 @@ eval:
     goal_offset_steps: 25 #25
 
   eval_zeroshot:
-    execute: false
+    execute: true
     num_eval: 1 #1
     # goal_offset_steps: 25 #25
-    img_size: 64
+    # img_size: 64
     condition_type: "fixed" # "fixed"/"random"
 
     random:
       coordinate_type: "polar"
       polar: 
         start_position:
-          r_range: [0.02, 0.05]
+          r_range: [0.06, 0.06]
           theta_range: [0., 180.]
-        start_goal_distance: 0.1
+        start_goal_distance: 0.08
 
         init_ee_positions: [0.0, 0.0, 0.05]
         goal_ee_positions: [0.0 , 0.0, 0.05] 
@@ -80,14 +80,17 @@ eval:
 
     fixed:
       coordinate_type: "polar" # "cartesian" or "polar"
+      noise_seed: null
+      noise_std: 0.01 #0.01
+      noise_clip: 0.02 #0.02 #ノイズの最大値
       cartesian:
         start_positions: [0.75, -0.10 , 0.05] #[0.65, 0.05, 0.05], [0.50, 0.05, 0.05]
         goal_positions: [0.75, 0.05 , 0.05] #[0.65, 0.15, 0.05], [0.50, 0.15, 0.05]
         init_ee_positions: [0.65, 0.0, 0.05] #[0.65, 0.00, 0.05], [0.50, 0.00, 0.05] //ゴール画像のFrankaの位置を指定
         goal_ee_positions: [0.55, 0.15, 0.05] #ゴール画像のFrankaの位置を指定
       polar: #0.0が右、反時計回り、degree想定
-        start_positions: [0.05, 180., 0.05] #(r, theta, z)
-        goal_positions: [0.15, 180., 0.05] 
+        start_positions: [0.05, 90., 0.05] #(r, theta, z)
+        goal_positions: [0.15, 90., 0.05] 
         init_ee_positions: [0.0, 0.0, 0.05] 
         goal_ee_positions: [0.0 , 0.0, 0.05] 
     plot_joint_compare_normed: true
@@ -98,7 +101,7 @@ eval:
 
 
   probing:
-    exe_probe: true
+    exe_probe: false
     dataset_name: ${eval.dataset_name}
     val_dataset_name: franka/val_pairs_1_ep_3_timestep_200_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p050/push
     plot_all_train_data: false
@@ -115,8 +118,8 @@ eval:
     check_ee_cost_map:
       check: false
       goal_ee_pos: [0.65, 0.0, 0.05]
-      goal_bluebox_pos: [0.65, 0.15, 0.05]
-      fixed_bluebox_pos: null #cost map計算中に固定するbox位置
+      goal_bluebox_pos: [0.65, -0.15, 0.05]
+      fixed_bluebox_pos: [0.65, -0.05, 0.05] #cost map計算中に固定するbox位置
       image_size: [64, 64]
       cost_type: "l2"
       num_x: 50
@@ -125,7 +128,7 @@ eval:
     check_box_cost_map:
       check: false
       goal_ee_pos: [0.65, 0.0, 0.05]
-      goal_bluebox_pos: [0.65, 0.15, 0.05]
+      goal_bluebox_pos: [0.65, -0.15, 0.05]
       fixed_ee_pos: null #cost map計算中に固定するbox位置
       image_size: [64, 64]
       cost_type: "l2"
@@ -143,6 +146,19 @@ eval:
       num_y: 50
       show_task_initial: true
       task_initial_box_pos: [0.65, 0.05, 0.05]
+
+    check_ac_pred_cost_map: #1step predictor 出力とgoal状態とのコストをマップ
+      check: true
+      init_ee_pos: [0.65, 0.0, 0.05]
+      init_bluebox_pos: [0.65, 0.05, 0.05]
+      goal_ee_pos: [0.65, 0.0, 0.05]
+      goal_bluebox_pos: [0.65, 0.15, 0.05]
+      num_x: 50
+      num_y: 50
+      image_size: [64, 64]
+
+    encoder_rgb_pca:
+      check: false
 
 
 
