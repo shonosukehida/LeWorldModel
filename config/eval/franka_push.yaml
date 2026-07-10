@@ -63,7 +63,7 @@ eval:
     num_eval: 1 #1
     # goal_offset_steps: 25 #25
     # img_size: 64
-    condition_type: "fixed" # "fixed"/"random"
+    condition_type: "random" # "fixed"/"random"
 
     random:
       coordinate_type: "polar"
@@ -148,7 +148,7 @@ eval:
       task_initial_box_pos: [0.65, 0.05, 0.05]
 
     check_ac_pred_cost_map: #1step predictor 出力とgoal状態とのコストをマップ
-      check: true
+      check: false
       init_ee_pos: [0.65, 0.0, 0.05]
       init_bluebox_pos: [0.65, 0.05, 0.05]
       goal_ee_pos: [0.65, 0.0, 0.05]
@@ -159,6 +159,9 @@ eval:
 
     encoder_rgb_pca:
       check: false
+
+    plot_cross_position_latent_pca:
+      check: true
 
 
 
