@@ -16,7 +16,7 @@ from stable_worldmodel.data.utils import get_cache_dir
 import stable_worldmodel as swm
 import env.franka
 
-from stable_worldmodel.probing.probe_evaluator import ProbingEvaluator
+from stable_worldmodel.probing.franka_push.probe_evaluator import ProbingEvaluator
 from env.franka.env import FrankaSimEnv
 import h5py
 

@@ -1,0 +1,27 @@
+robot:
+  follower_ip: "192.168.1.240"
+  leader_port: null
+
+  start_joints:
+    - 0
+    - -90
+    - 90
+    - -90
+    - -90
+    - 0
+    - 0
+  
+  camera:
+    name: "main"
+    width: 64
+    height: 64
+    fps: 10
+    index: 0
+
+# max_seconds: 30.0
+
+dataset:
+  episode: 200
+  fps: 10
+  max_frames: 300
+  teleop_hz: 50

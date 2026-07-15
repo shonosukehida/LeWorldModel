@@ -59,7 +59,7 @@ eval:
     goal_offset_steps: 25 #25
 
   eval_zeroshot:
-    execute: true
+    execute: false
     num_eval: 1 #1
     # goal_offset_steps: 25 #25
     # img_size: 64
@@ -101,7 +101,7 @@ eval:
 
 
   probing:
-    exe_probe: false
+    exe_probe: true
     dataset_name: ${eval.dataset_name}
     val_dataset_name: franka/val_pairs_1_ep_3_timestep_200_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p050/push
     plot_all_train_data: false
@@ -158,7 +158,7 @@ eval:
       image_size: [64, 64]
 
     encoder_rgb_pca:
-      check: false
+      check: true
 
     plot_cross_position_latent_pca:
       check: true

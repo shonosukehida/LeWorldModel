@@ -1,9 +1,17 @@
 import h5py
 
-path = "/home/shonosukehida/.stable_worldmodel/datasets/ogbench/cube_single_expert.h5"
+file_path = "/home/shonosukehida/.stable_worldmodel/datasets/franka/pairs_500_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p030/push.h5"
 
-with h5py.File(path, "r") as f:
-    def print_structure(name, obj):
-        if isinstance(obj, h5py.Dataset):
-            print(f"{name}: shape={obj.shape}, dtype={obj.dtype}")
-    f.visititems(print_structure)
+def print_h5_structure(name, obj):
+    indent = "  " * name.count("/")
+    if isinstance(obj, h5py.Group):
+        print(f"{indent}[Group] {name}")
+    elif isinstance(obj, h5py.Dataset):
+        print(
+            f"{indent}[Dataset] {name} "
+            f"shape={obj.shape}, dtype={obj.dtype}"
+        )
+
+with h5py.File(file_path, "r") as f:
+    print("=== HDF5 Structure ===")
+    f.visititems(print_h5_structure)
