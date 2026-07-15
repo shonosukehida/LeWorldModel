@@ -41,12 +41,16 @@ def xarm_teleoperate() -> None:
     from robopy.robots.xarm import XArmRobot
     
     cfg = load_robot_config()
+    
+    print("cfg.robot.follower_ip:", cfg.robot.follower_ip)
+    print("cfg .robot.leader_port:", cfg .robot.leader_port)
+    print("cfg.robot.start_joints:", cfg.robot.start_joints)
 
     config = XArmConfig(
-        follower_ip=cfg.robot.follower_ip,
-        leader_port=cfg .robot.leader_port,  # auto-detect
+        follower_ip=cfg.robot.follower_ip, #cfg.robot.follower_ip
+        leader_port=cfg .robot.leader_port,  # auto-detect #cfg.robot.leader_port
         workspace_bounds=XArmWorkspaceBounds(),
-        start_joints=np.deg2rad(cfg.robot.start_joints).astype(np.float32),
+        start_joints=np.deg2rad(cfg.robot.start_joints).astype(np.float32), #[0, -90, 90, -90, -90, 0, 0] #cfg.robot.start_joints
     )
     robot = XArmRobot(config)
     try:

@@ -13,10 +13,10 @@ robot:
   
   camera:
     name: "main"
-    width: 64
-    height: 64
-    fps: 10
-    index: 0
+    width: 640
+    height: 480
+    fps: 30
+    index: 1
 
 # max_seconds: 30.0
 

@@ -88,7 +88,13 @@ def xarm_collect() -> None:
     save_path = save_dir / f"episode_{timestamp}.h5"
 
     try:
-        robot.connect()
+        logger.info("Connecting robot...")
+        robot.connect() #XArm, GELLO, realsense を接続
+        logger.info("Robot and sensors connected")
+
+        
+        
+        input("GELLO と xArm の姿勢を確認し、Enter で収集開始...")
 
         logger.info(
             "Recording started: fps=%d, max_frames=%d",
@@ -101,6 +107,10 @@ def xarm_collect() -> None:
             fps=fps,
             teleop_hz=teleop_hz,
         )
+        
+        logger.info("leader shape: %s", observation.arms.leader.shape)
+        logger.info("follower shape: %s", observation.arms.follower.shape)
+        logger.info("ee shape: %s", observation.arms.ee_pos_quat.shape)
 
         data = asdict(observation)
 
