@@ -658,7 +658,7 @@ def check_data_run(DATA_PATH = "/home/shonosukehida/.stable_worldmodel/datasets/
     # confirm_endeffector_trajectory_from_h5(h5_path)
     plot_all_endeffector_trajectories_from_h5(h5_path)
     plot_all_bluebox_trajectories_from_h5(h5_path)
-    make_video_from_h5(h5_path)
+    # make_video_from_h5(h5_path)
 
 
 

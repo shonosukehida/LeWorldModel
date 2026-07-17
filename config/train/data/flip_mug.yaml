@@ -1,0 +1,20 @@
+dataset:
+  name: flip_mug/ep200_tm300/push
+  num_steps: ${eval:'${wm.num_preds} + ${wm.history_size}'}
+  frameskip: 1
+
+  keys_to_load:
+    - pixels
+    # - action
+    # - action_joint
+    - action_cartesian
+    # - observation
+
+  keys_to_cache:
+    # - action
+    # - action_joint
+    - action_cartesian
+    # - observation
+
+  keys_to_merge:
+    # proprio: proprio

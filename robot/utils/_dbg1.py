@@ -1,15 +1,8 @@
 from xarm.wrapper import XArmAPI
-import numpy as np
 
 arm = XArmAPI("192.168.1.240", is_radian=True)
-
-# 適当な7関節角
-joints = np.zeros(7, dtype=np.float32)
 
 code, pose = arm.get_forward_kinematics(
     joints.tolist(),
     input_is_radian=True,
 )
-
-print(code)
-print(pose)

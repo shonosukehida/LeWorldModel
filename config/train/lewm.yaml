@@ -66,4 +66,4 @@ loss:
   idm:
     use: true
     hidden_dim: 256 #256
-    weight: 0.0
+    weight: 0.1
