@@ -16,7 +16,7 @@ robot:
     width: 640
     height: 480
     fps: 30
-    index: 1
+    index: 0
 
 # max_seconds: 30.0
 

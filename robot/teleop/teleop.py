@@ -42,9 +42,9 @@ def xarm_teleoperate() -> None:
     
     cfg = load_robot_config()
     
-    print("cfg.robot.follower_ip:", cfg.robot.follower_ip)
-    print("cfg .robot.leader_port:", cfg .robot.leader_port)
-    print("cfg.robot.start_joints:", cfg.robot.start_joints)
+    # print("cfg.robot.follower_ip:", cfg.robot.follower_ip)
+    # print("cfg .robot.leader_port:", cfg .robot.leader_port)
+    # print("cfg.robot.start_joints:", cfg.robot.start_joints)
 
     config = XArmConfig(
         follower_ip=cfg.robot.follower_ip, #cfg.robot.follower_ip
