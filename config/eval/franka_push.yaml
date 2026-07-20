@@ -59,11 +59,11 @@ eval:
     goal_offset_steps: 25 #25
 
   eval_zeroshot:
-    execute: false
+    execute: true
     num_eval: 1 #1
     # goal_offset_steps: 25 #25
     # img_size: 64
-    condition_type: "random" # "fixed"/"random"
+    condition_type: "fixed" # "fixed"/"random"
 
     random:
       coordinate_type: "polar"
@@ -81,7 +81,7 @@ eval:
     fixed:
       coordinate_type: "polar" # "cartesian" or "polar"
       noise_seed: null
-      noise_std: 0.01 #0.01
+      noise_std: 0.0 #0.01
       noise_clip: 0.02 #0.02 #ノイズの最大値
       cartesian:
         start_positions: [0.75, -0.10 , 0.05] #[0.65, 0.05, 0.05], [0.50, 0.05, 0.05]
@@ -89,8 +89,8 @@ eval:
         init_ee_positions: [0.65, 0.0, 0.05] #[0.65, 0.00, 0.05], [0.50, 0.00, 0.05] //ゴール画像のFrankaの位置を指定
         goal_ee_positions: [0.55, 0.15, 0.05] #ゴール画像のFrankaの位置を指定
       polar: #0.0が右、反時計回り、degree想定
-        start_positions: [0.05, 90., 0.05] #(r, theta, z)
-        goal_positions: [0.15, 90., 0.05] 
+        start_positions: [0.05, 0., 0.05] #(r, theta, z)
+        goal_positions: [0.15, 0., 0.05] 
         init_ee_positions: [0.0, 0.0, 0.05] 
         goal_ee_positions: [0.0 , 0.0, 0.05] 
     plot_joint_compare_normed: true
@@ -101,7 +101,7 @@ eval:
 
 
   probing:
-    exe_probe: true
+    exe_probe: false
     dataset_name: ${eval.dataset_name}
     val_dataset_name: franka/val_pairs_1_ep_3_timestep_200_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p050/push
     plot_all_train_data: false

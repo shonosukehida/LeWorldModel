@@ -440,7 +440,7 @@ def visualize_arm_trajectories(
 if __name__ == "__main__":
     visualize_arm_trajectories(
         h5_path=(
-            "/home/hida/workspace/.stable_worldmodel/datasets/flip_mug/ep200_tm300/per_episode/episode_20260717_104254.h5"
+            "/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300/per_episode/episode_0.h5"
         ),
         fps=10.0,
     )

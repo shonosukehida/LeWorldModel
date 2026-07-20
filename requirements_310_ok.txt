@@ -41,7 +41,6 @@ dm-control==1.0.38
 dm-env==1.6
 dm-tree==0.1.10
 docstring-parser==0.18.0
--e file:///home/shonosukehida/work/LeWorldModel/third_party/gello_software/third_party/DynamixelSDK/python
 easyhid-ng==0.1.0
 eigenpy==3.10.3
 einops==0.8.2
@@ -54,7 +53,6 @@ fonttools==4.62.1
 frozenlist==1.8.0
 fsspec==2024.6.1
 gdown==5.2.1
--e file:///home/shonosukehida/work/LeWorldModel/third_party/gello_software
 gitdb==4.0.12
 gitpython==3.1.46
 glfw==2.10.0
