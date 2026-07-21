@@ -84,7 +84,7 @@ def run(cfg):
     #########################
     ##       dataset       ##
     #########################
-    print("cfg:", cfg)
+    # print("cfg:", cfg)
     # print("cfg.wm.action_dim:", cfg.wm.action_dim)
 
     # print("cfg.data.dataset:", cfg.data.dataset)
@@ -225,14 +225,20 @@ def run(cfg):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = cfg.get("subdir") or ""
     # run_dir = Path(swm.data.utils.get_cache_dir(), run_id)
+    
+    task_name = (cfg.data.dataset.name).split('/')[0]
+    if task_name == "franka": task_name = "franka_push"
     run_dir = Path(
         swm.data.utils.get_cache_dir(),
         "checkpoints",
-        "franka_push",
+        task_name,
         dataset_name,
         f"seed_{cfg.learning_seed}",
         "lewm" + timestamp,
     )
+    # print("data:", cfg.data.dataset.name)
+    
+    print("task_name: ", task_name)
     print("dataset_name:", dataset_name)
     print("run_id:", run_id)
     print("run_dir:", run_dir)
