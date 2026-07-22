@@ -21,7 +21,7 @@ robot:
 # max_seconds: 30.0
 
 dataset:
-  episode: 200
+  episode: 11
   fps: 10
   max_frames: 300
   teleop_hz: 50
