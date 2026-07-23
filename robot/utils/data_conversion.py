@@ -336,13 +336,32 @@ def merge_episodes(
     input_dir: Path,
     output_path: Path,
     robot_ip: str,
+    num_episodes: int | None = None,
     compression: str | None = "gzip",
 ) -> None:
-    """Merge all per-episode files into one HDF5 file."""
+    """Merge selected per-episode files into one HDF5 file."""
     episode_files = get_episode_files(input_dir)
-    num_episodes = len(episode_files)
+    available_episodes = len(episode_files)
 
-    print(f"Found {num_episodes} episodes")
+    if num_episodes is None:
+        num_episodes = available_episodes
+
+    if num_episodes <= 0:
+        raise ValueError(
+            f"num_episodes must be positive, got {num_episodes}"
+        )
+
+    if num_episodes > available_episodes:
+        raise ValueError(
+            "Requested more episodes than available.\n"
+            f"  requested: {num_episodes}\n"
+            f"  available: {available_episodes}"
+        )
+
+    episode_files = episode_files[:num_episodes]
+
+    print(f"Found {available_episodes} episodes")
+    print(f"Using {num_episodes} episodes")
     print(f"First episode: {episode_files[0].name}")
     print(f"Last episode : {episode_files[-1].name}")
 
@@ -534,14 +553,29 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--dataset-dir",
+        "--input-dir",
         type=Path,
         default=Path(
-            "/home/shonosukehida/.stable_worldmodel/"
-            "datasets/flip_mug/ep200_tm300"
+            "/home/hida/.stable_worldmodel/datasets/flip_mug/ep200_tm300/per_episode"
         ),
-        help="Dataset directory containing per_episode/.",
+        help="Directory containing episode_*.h5 files.",
     )
+
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path(
+            "/home/hida/.stable_worldmodel/datasets/flip_mug/ep200_tm300"
+        ),
+        help="Directory where push.h5 will be created.",
+    )
+
+    parser.add_argument(
+        "--num_episodes",
+        type=int,
+        default=None,
+        help="Number of episodes to merge. Uses all episodes if omitted.",
+    ) 
 
     parser.add_argument(
         "--robot-ip",
@@ -569,13 +603,15 @@ def main() -> None:
         else args.compression
     )
 
-    input_dir = args.dataset_dir / "per_episode"
-    output_path = args.dataset_dir / "push.h5"
+    input_dir = args.input_dir
+    output_path = args.output_dir / "push.h5"
+    num_episodes = args.num_episodes
 
     merge_episodes(
         input_dir=input_dir,
         output_path=output_path,
         robot_ip=args.robot_ip,
+        num_episodes=num_episodes,
         compression=compression,
     )
 
@@ -586,7 +622,8 @@ if __name__ == "__main__":
     # 実行例:
     #
     # uv run robot/utils/data_conversion.py \
-    #   --dataset-dir \
-    #   /home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300
+    #     --input-dir /path/to/per_episode \
+    #     --output-dir /path/to/output \
+    #.    --num_episodes None
     #
     main()
