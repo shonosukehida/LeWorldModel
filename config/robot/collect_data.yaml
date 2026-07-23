@@ -11,17 +11,25 @@ robot:
     - 0
     - 0
   
+  workspace_bound:
+    min_x: 499.5
+    max_x: 100000.0
+    min_y: -216.8
+    max_y: 207.3
+    min_z: 0.0
+    max_z: 475.2
+  
   camera:
     name: "main"
     width: 640
     height: 480
     fps: 30
-    index: 0
+    index: 2
 
 # max_seconds: 30.0
 
 dataset:
-  episode: 11
+  episode: 200
   fps: 10
   max_frames: 300
   teleop_hz: 50

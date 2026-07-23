@@ -72,7 +72,15 @@ def xarm_collect() -> None:
     robot_config = XArmConfig(
         follower_ip=cfg.robot.follower_ip,
         leader_port=cfg.robot.leader_port,
-        workspace_bounds=XArmWorkspaceBounds(),
+        workspace_bounds=XArmWorkspaceBounds(
+            min_x = cfg.robot.workspace_bound.min_x,
+            max_x = cfg.robot.workspace_bound.max_x,
+            min_y = cfg.robot.workspace_bound.min_y,
+            max_y = cfg.robot.workspace_bound.max_y,
+            min_z = cfg.robot.workspace_bound.min_z,
+            max_z = cfg.robot.workspace_bound.max_z,
+            
+            ),
         start_joints=np.deg2rad(
             cfg.robot.start_joints
         ).astype(np.float32),
