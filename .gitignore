@@ -14,3 +14,4 @@ requirements_frozen*
 *nohup*
 dataset_gen/franka/push/analyze_shade_image/images/*
 robot/teleop/plots/figures/
+robot/utils/plots/figures/

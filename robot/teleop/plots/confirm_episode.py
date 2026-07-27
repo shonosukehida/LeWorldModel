@@ -1,6 +1,6 @@
 import h5py
 
-path = "/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300/per_episode/episode_20260715_162509.h5"
+path = "/data/hida/flip_mug/ep200_tm300/per_episode/episode_166.h5"
 
 
 def print_h5_tree(g, indent=0):

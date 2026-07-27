@@ -12,7 +12,7 @@ import numpy as np
 # ============================================================
 
 DATASET_PATH = Path(
-    "/home/hida/.stable_worldmodel/datasets/flip_mug/ep25_tm300/push.h5"
+    "/home/hida/.stable_worldmodel/datasets/flip_mug/ep200_tm300/push.h5"
 )
 
 # joints.png を保存するディレクトリ
@@ -156,11 +156,8 @@ def plot_leader_joint_angles(
         figsize=(12, 16),
         sharex=True,
     )
-
-    # 関節ごとに異なる色を設定
-    joint_colors = plt.cm.tab10(
-        np.linspace(0.0, 1.0, NUM_JOINTS)
-    )
+    
+    joint_color = "tab:blue"
 
     for episode_index, (offset, length) in enumerate(
         zip(ep_offset, ep_len)
@@ -187,7 +184,7 @@ def plot_leader_joint_angles(
             axis.plot(
                 timesteps,
                 episode_joints[:, joint_index],
-                color=joint_colors[joint_index],
+                color=joint_color,
                 alpha=0.35,
                 linewidth=1.0,
             )
