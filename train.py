@@ -27,6 +27,9 @@ def lejepa_forward(self, batch, stage, cfg):
     n_preds = cfg.wm.num_preds
     lambd = cfg.loss.sigreg.weight
     lambd_idm = cfg.loss.idm.weight if cfg.loss.idm.use else None
+    
+    print("sigreg.coeff: ", lambd)
+    print("idm.coeff: ", lambd_idm)
 
     # print("type(batch):", type(batch))
     action_key = ""

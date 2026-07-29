@@ -1,0 +1,190 @@
+defaults:
+  - launcher: local
+  - solver: cem
+  - _self_
+
+world:
+  env_name: swm/FrankaPush-v0
+  num_envs: ${eval.num_eval}
+  max_episode_steps: 50
+  history_size: 1
+  frame_skip: 1
+  env_type: single
+  ob_type: pixels
+  multiview: False
+  width: 640
+  height: 480
+  visualize_info: False
+  terminate_at_goal: True
+  config:
+    model_path: mujoco_menagerie/franka_emika_panda/scene.xml
+    camera_name: top_reverse1
+    image_size: [64, 64]
+    confirm_ik_result: False
+    tol: 0.05
+    target_sampling_step: 1
+    substeps: 200
+
+dataset:
+  stats: ${eval.dataset_name}
+  keys_to_cache:
+    # - action
+    # - action_joint
+    - action_cartesian
+    # - qpos
+    # - qvel
+    # - bluebox_pos
+
+seed: 42
+policy: lewm_weights 
+
+plan_config:
+  horizon: 5 #CEMの計算horizon #5
+  receding_horizon: 5 #buffer にためておくaction step, 貯められたaction は毎ステップ取り出され環境に投入される #5
+  action_block: 1
+  action_space: "cartesian" #cartesian / joint
+  warm_start: false
+  clip_action: true
+
+eval:
+
+  num_eval: 1 #1
+  eval_budget: 50 #50
+  img_size: 224 
+  dataset_name: flip_mug/ep200_tm300_gripper/push
+  ac_cost_dataset_name: null
+
+  eval_tr_ds:
+    execute: false
+    goal_offset_steps: 25 #25
+
+  eval_zeroshot:
+    execute: false
+    num_eval: 1 #1
+    # goal_offset_steps: 25 #25
+    # img_size: 64
+    condition_type: "fixed" # "fixed"/"random"
+
+    random:
+      coordinate_type: "polar"
+      polar: 
+        start_position:
+          r_range: [0.06, 0.06]
+          theta_range: [0., 180.]
+        start_goal_distance: 0.08
+
+        init_ee_positions: [0.0, 0.0, 0.05]
+        goal_ee_positions: [0.0 , 0.0, 0.05] 
+
+     
+
+    fixed:
+      coordinate_type: "polar" # "cartesian" or "polar"
+      noise_seed: null
+      noise_std: 0.0 #0.01
+      noise_clip: 0.02 #0.02 #ノイズの最大値
+      cartesian:
+        start_positions: [0.75, -0.10 , 0.05] #[0.65, 0.05, 0.05], [0.50, 0.05, 0.05]
+        goal_positions: [0.75, 0.05 , 0.05] #[0.65, 0.15, 0.05], [0.50, 0.15, 0.05]
+        init_ee_positions: [0.65, 0.0, 0.05] #[0.65, 0.00, 0.05], [0.50, 0.00, 0.05] //ゴール画像のFrankaの位置を指定
+        goal_ee_positions: [0.55, 0.15, 0.05] #ゴール画像のFrankaの位置を指定
+      polar: #0.0が右、反時計回り、degree想定
+        start_positions: [0.05, 0., 0.05] #(r, theta, z)
+        goal_positions: [0.15, 0., 0.05] 
+        init_ee_positions: [0.0, 0.0, 0.05] 
+        goal_ee_positions: [0.0 , 0.0, 0.05] 
+    plot_joint_compare_normed: true
+  
+  compute_opt_action_cost:
+    execute: false
+    horizon: 5
+
+
+  probing:
+    exe_probe: true
+    dataset_name: ${eval.dataset_name}
+    val_dataset_name: flip_mug/val_ep10_tm300/push
+    plot_all_train_data: true
+    plot_all_val_data: false
+    plot_open_data: false
+    plot_closed_data: false
+    closed_pred_step: 1
+    max_samples: 1000 #pcaで可視化する際に集める潜在列のステップ数
+    plot_line: true #pca でclosed forward を可視化するときに１本線にするか否か
+    check_isotropy: false
+    check_shaded_images:
+      check: false
+      shaded_dataset_name: franka/shadow_occlusion_probe_box0p05/push
+    check_ee_cost_map:
+      check: false
+      goal_ee_pos: [0.65, 0.0, 0.05]
+      goal_bluebox_pos: [0.65, -0.15, 0.05]
+      fixed_bluebox_pos: [0.65, -0.05, 0.05] #cost map計算中に固定するbox位置
+      image_size: [64, 64]
+      cost_type: "l2"
+      num_x: 50
+      num_y: 50
+
+    check_box_cost_map:
+      check: false
+      goal_ee_pos: [0.65, 0.0, 0.05]
+      goal_bluebox_pos: [0.65, -0.15, 0.05]
+      fixed_ee_pos: null #cost map計算中に固定するbox位置
+      image_size: [64, 64]
+      cost_type: "l2"
+      num_x: 50
+      num_y: 50
+
+    check_ee_box_cost_map:
+      check: false
+      goal_ee_pos: [0.65, 0.0, 0.05]
+      goal_bluebox_pos: [0.65, 0.15, 0.05]
+      fixed_ee_pos: null #cost map計算中に固定するbox位置
+      image_size: [64, 64]
+      cost_type: "l2"
+      num_x: 50
+      num_y: 50
+      show_task_initial: true
+      task_initial_box_pos: [0.65, 0.05, 0.05]
+
+    check_ac_pred_cost_map: #1step predictor 出力とgoal状態とのコストをマップ
+      check: false
+      init_ee_pos: [0.65, 0.0, 0.05]
+      init_bluebox_pos: [0.65, 0.05, 0.05]
+      goal_ee_pos: [0.65, 0.0, 0.05]
+      goal_bluebox_pos: [0.65, 0.15, 0.05]
+      num_x: 50
+      num_y: 50
+      image_size: [64, 64]
+
+    encoder_rgb_pca:
+      check: false
+
+    plot_cross_position_latent_pca:
+      check: false
+
+
+
+  callables:
+    - method: set_state
+      args:
+        qpos:
+          value: qpos
+        qvel:
+          value: qvel
+
+    - method: set_bluebox_pos
+      args:
+        bluebox_pos:
+          value: bluebox_pos
+
+    - method: set_goal_pos
+      args:
+        goal_pos:
+          value: bluebox_pos
+          offset: ${eval.eval_tr_ds.goal_offset_steps}
+
+output:
+  filename: franka_push_results.txt
+
+

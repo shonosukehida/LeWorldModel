@@ -49,7 +49,7 @@ plan_config:
 eval:
 
   num_eval: 1 #1
-  eval_budget: 50 #50
+  eval_budget: 50 #50 #タスクtimestep
   img_size: 224 
   dataset_name: franka/pairs_500_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05/push #franka/pairs_500_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push #franka/pairs_1_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push
   ac_cost_dataset_name: franka/val_cost_pairs_1_ep_1_timestep_500_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p050/push

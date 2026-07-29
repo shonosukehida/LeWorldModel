@@ -1,5 +1,5 @@
 dataset:
-  name: flip_mug/ep200_tm300/push
+  name: flip_mug/ep200_tm300_gripper/push
   num_steps: ${eval:'${wm.num_preds} + ${wm.history_size}'}
   frameskip: 1
 

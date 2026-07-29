@@ -1,3 +1,5 @@
+#行動にグリッパーが入っていない
+
 """Merge per-episode xArm HDF5 files into a single LeWM dataset.
 
 The output additionally contains ``leader_ee_pos_quat``, calculated from
@@ -7,8 +9,6 @@ forward kinematics.
 Output:
     ee_pos_quat          : follower EE pose [x, y, z, qx, qy, qz, qw]
     leader_ee_pos_quat   : leader target EE pose [x, y, z, qx, qy, qz, qw]
-    action_cartesian     : target EE pose + gripper
-                           [x, y, z, qx, qy, qz, qw, gripper]
     follower             : follower joint state
     leader               : leader target joint state
     pixels               : camera observations
@@ -79,14 +79,8 @@ def inspect_episode(
         np.dtype(np.float32),
     )
     
-    if leader_shape[1] < 8:
-        raise ValueError(
-            "Leader dataset must contain 7 joints and 1 gripper value, "
-            f"but got shape={leader_shape} in {episode_path}"
-        )
-
     result[ACTION_CARTESIAN_KEY] = (
-        (leader_shape[0], 8),
+        (leader_shape[0], 7),
         np.dtype(np.float32),
     )
 
@@ -194,29 +188,6 @@ def create_output_datasets(
         data=ep_offset,
         dtype=np.int64,
     )
-    
-    
-    episode_idx = np.repeat(
-        np.arange(num_episodes, dtype=np.int32),
-        episode_length,
-    )
-
-    step_idx = np.tile(
-        np.arange(episode_length, dtype=np.int32),
-        num_episodes,
-    )
-
-    output_file.create_dataset(
-        "episode_idx",
-        data=episode_idx,
-        dtype=np.int32,
-    )
-
-    output_file.create_dataset(
-        "step_idx",
-        data=step_idx,
-        dtype=np.int32,
-    )
 
 
 def fk_pose_to_pos_quat(
@@ -321,25 +292,19 @@ def calculate_leader_ee_trajectory(
 
 def calculate_action_cartesian(
     leader_ee_pos_quat: np.ndarray,
-    leader: np.ndarray,
 ) -> np.ndarray:
-    """Create Cartesian actions with gripper.
-
-    Each target is:
-        [x, y, z, qx, qy, qz, qw, gripper]
+    """Create a T-step Cartesian action sequence.
 
     For t < T - 1:
-        action[t] = target[t + 1]
+        action[t] = leader_ee_pos_quat[t + 1]
 
     For t = T - 1:
-        action[t] = target[T - 1]
+        action[t] = leader_ee_pos_quat[T - 1]
+
+    The final target is repeated because there is no next observation.
     """
     leader_ee_pos_quat = np.asarray(
         leader_ee_pos_quat,
-        dtype=np.float32,
-    )
-    leader = np.asarray(
-        leader,
         dtype=np.float32,
     )
 
@@ -355,37 +320,16 @@ def calculate_action_cartesian(
             f"got shape={leader_ee_pos_quat.shape}"
         )
 
-    if leader.ndim != 2 or leader.shape[1] < 8:
-        raise ValueError(
-            "leader must have shape (T, >=8), "
-            f"got shape={leader.shape}"
-        )
-
-    if leader.shape[0] != leader_ee_pos_quat.shape[0]:
-        raise ValueError(
-            "leader and leader_ee_pos_quat must have the same T dimension, "
-            f"got {leader.shape[0]} and {leader_ee_pos_quat.shape[0]}"
-        )
-
     if leader_ee_pos_quat.shape[0] == 0:
         raise ValueError("leader_ee_pos_quat must not be empty")
 
-    # leaderの8列目をグリッパー値として使用
-    gripper = leader[:, 7:8]
-
-    # Shape: (T, 8)
-    cartesian_target = np.concatenate(
-        [leader_ee_pos_quat, gripper],
-        axis=1,
-    ).astype(np.float32)
-
     action_cartesian = np.empty_like(
-        cartesian_target,
+        leader_ee_pos_quat,
         dtype=np.float32,
     )
 
-    action_cartesian[:-1] = cartesian_target[1:]
-    action_cartesian[-1] = cartesian_target[-1]
+    action_cartesian[:-1] = leader_ee_pos_quat[1:]
+    action_cartesian[-1] = leader_ee_pos_quat[-1]
 
     return action_cartesian
 
@@ -480,11 +424,6 @@ def merge_episodes(
             output_file.attrs["leader_fk_orientation_input"] = (
                 "roll_pitch_yaw_xyz_radians"
             )
-            output_file.attrs["action_cartesian_layout"] = (
-                "x_y_z_qx_qy_qz_qw_gripper"
-            )
-            output_file.attrs["action_cartesian_dimension"] = 8
-            output_file.attrs["action_cartesian_gripper_source"] = "leader_column_7"
 
             string_dtype = h5py.string_dtype(encoding="utf-8")
             episode_names = output_file.create_dataset(
@@ -529,8 +468,7 @@ def merge_episodes(
                     )
 
                     action_cartesian = calculate_action_cartesian(
-                        leader_ee_pos_quat=leader_ee_pos_quat,
-                        leader=leader,
+                        leader_ee_pos_quat
                     )
 
                     if leader_ee_pos_quat.shape[0] != episode_length:
