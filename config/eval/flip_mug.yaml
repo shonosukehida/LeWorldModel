@@ -104,14 +104,25 @@ eval:
     exe_probe: true
     dataset_name: ${eval.dataset_name}
     val_dataset_name: flip_mug/val_ep10_tm300/push
-    plot_all_train_data: true
+    plot_all_train_data: false
     plot_all_val_data: false
     plot_open_data: false
-    plot_closed_data: false
+    plot_closed_data: 
+      plot_whisker:  #closed forward をひげ状にプロット
+        plot: false
+        pred_step: 5
+        plot_interval: 1
+      plot_pred_horizon: #pred horizon 分の予測をプロット
+        plot: false
+        pred_horizon: 300
     closed_pred_step: 1
     max_samples: 1000 #pcaで可視化する際に集める潜在列のステップ数
     plot_line: true #pca でclosed forward を可視化するときに１本線にするか否か
-    check_isotropy: false
+    encoder_isotropy: 
+      check: true
+      max_samples: 1000
+      sample_interval: 1
+
     check_shaded_images:
       check: false
       shaded_dataset_name: franka/shadow_occlusion_probe_box0p05/push
@@ -159,6 +170,7 @@ eval:
 
     encoder_rgb_pca:
       check: false
+      horizon: 300
 
     plot_cross_position_latent_pca:
       check: false
