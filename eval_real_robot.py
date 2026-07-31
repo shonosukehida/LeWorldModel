@@ -19,6 +19,7 @@ import env.franka
 from stable_worldmodel.probing.flip_mug.probe_evaluator import ProbingEvaluator
 from env.franka.env import FrankaSimEnv
 import h5py
+from transformers import ViTModel
 
 
 def img_transform(cfg):
@@ -252,6 +253,21 @@ def run(cfg: DictConfig):
     policy = cfg.get("policy", "random") #franka_push/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/lewm
     if policy != "random":
         model = swm.policy.AutoCostModel(cfg.policy)
+        
+        if cfg.eval.probing.get("use_random_encoder", False):
+            print("Using a randomly reinitialized encoder")
+            old_encoder = model.encoder
+            device = next(old_encoder.parameters()).device
+            dtype = next(old_encoder.parameters()).dtype
+
+            torch.manual_seed(0)
+
+            model.encoder = ViTModel(old_encoder.config)
+            model.encoder = model.encoder.to(device=device, dtype=dtype)
+            model.encoder.eval()
+            print("set random encoder")
+            
+                
         model = model.to("cuda")
         model = model.eval()
         model.requires_grad_(False)
