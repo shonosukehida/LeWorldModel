@@ -279,10 +279,6 @@ def run(cfg: DictConfig):
             solver=solver, config=config, process=process, transform=transform
         )
         
-        # print("process.raw_min_:", policy.process["action"].raw_min_)
-        # print("process.raw_max_:", policy.process["action"].raw_max_)
-        # print("process.normed_min_:", policy.process["action"].normed_min_)
-        # print("process.normed_max_:", policy.process["action"].normed_max_)
 
     else:
         policy = swm.policy.RandomPolicy()
@@ -294,81 +290,7 @@ def run(cfg: DictConfig):
     world.set_policy(policy, results_path)        
 
     if cfg.eval.eval_zeroshot.execute:
-        task_env_cfg = cfg.world.config
-        # env_model_path = task_env_cfg.model_path
-        
-        condition_type = cfg.eval.eval_zeroshot.condition_type
-        center = get_workspace_center_from_h5(cfg.eval.dataset_name)
-
-        if condition_type == "fixed":
-            if cfg.eval.eval_zeroshot.fixed.coordinate_type == "cartesian":
-                st_ps = list(cfg.eval.eval_zeroshot.fixed.cartesian.start_positions)
-                gl_ps = list(cfg.eval.eval_zeroshot.fixed.cartesian.goal_positions)
-                init_ee_ps = list(cfg.eval.eval_zeroshot.fixed.cartesian.init_ee_positions)
-                goal_ee_ps = list(cfg.eval.eval_zeroshot.fixed.cartesian.goal_ee_positions)
-            elif cfg.eval.eval_zeroshot.fixed.coordinate_type == "polar":
-                center = get_workspace_center_from_h5(cfg.eval.dataset_name)
-
-                st_ps = polar_to_xyz(list(cfg.eval.eval_zeroshot.fixed.polar.start_positions), center)
-                gl_ps = polar_to_xyz(list(cfg.eval.eval_zeroshot.fixed.polar.goal_positions), center)
-                init_ee_ps = polar_to_xyz(list(cfg.eval.eval_zeroshot.fixed.polar.init_ee_positions), center)
-                goal_ee_ps = polar_to_xyz(list(cfg.eval.eval_zeroshot.fixed.polar.goal_ee_positions), center)
-                
-            print("cfg.eval.eval_zeroshot.fixed.noise_std:", cfg.eval.eval_zeroshot.fixed.noise_std)
-            print("cfg.eval.eval_zeroshot.fixed.noise_clip:", cfg.eval.eval_zeroshot.fixed.noise_clip)
-            start_positions = add_xy_noise(
-                st_ps,
-                cfg.eval.num_eval,
-                x_range=x_range,
-                y_range=y_range,
-                noise_std=cfg.eval.eval_zeroshot.fixed.noise_std,
-                noise_clip=cfg.eval.eval_zeroshot.fixed.noise_clip,
-                seed=cfg.eval.eval_zeroshot.fixed.noise_seed,
-                box_size=0.05,
-            )
-
-            goal_positions = add_xy_noise(
-                gl_ps,
-                cfg.eval.num_eval,
-                x_range=x_range,
-                y_range=y_range,
-                noise_std=cfg.eval.eval_zeroshot.fixed.noise_std,
-                noise_clip=cfg.eval.eval_zeroshot.fixed.noise_clip,
-                seed=cfg.eval.eval_zeroshot.fixed.noise_seed,
-                box_size=0.05,
-            )
-            init_ee_positions = np.repeat([init_ee_ps], cfg.eval.num_eval, axis=0)
-            goal_ee_positions = np.repeat([goal_ee_ps], cfg.eval.num_eval, axis=0)
-            
-            
-        elif condition_type == "random":
-            if cfg.eval.eval_zeroshot.random.coordinate_type == "cartesian":
-                pass
-            elif cfg.eval.eval_zeroshot.random.coordinate_type == "polar":
-                start_positions, goal_positions = sample_radial_start_goal(
-                    cfg=cfg,
-                    center=center,
-                    x_range=x_range,
-                    y_range=y_range,
-                    z_range=z_range,
-                )
-
-                random_cfg = cfg.eval.eval_zeroshot.random
-
-                init_ee_ps = polar_to_xyz(
-                    list(random_cfg.polar.init_ee_positions),
-                    center,
-                )
-
-
-                goal_ee_ps = polar_to_xyz(
-                    list(cfg.eval.eval_zeroshot.random.polar.goal_ee_positions),
-                    center,
-                )
-
-                init_ee_positions = np.repeat([init_ee_ps], cfg.eval.num_eval, axis=0)
-                goal_ee_positions = np.repeat([goal_ee_ps], cfg.eval.num_eval, axis=0)
-            
+        pass
         
 
         
