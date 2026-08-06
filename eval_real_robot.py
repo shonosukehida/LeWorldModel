@@ -1071,11 +1071,9 @@ def run(cfg: DictConfig):
     )
 
 
-    stats_path = (
-        Path(swm.data.utils.get_cache_dir(), "datasets", cfg.policy).parent
-        if cfg.policy != "random"
-        else Path(__file__).parent
-    ) / "process_stats.npz"
+    stats_path = Path(
+        cfg.eval.normalization_stats_path
+    ).expanduser()
     print("stats_path:", stats_path) #/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300_gripper
 
 
