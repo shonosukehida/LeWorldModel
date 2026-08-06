@@ -51,6 +51,7 @@ eval:
   eval_budget: 50 #50
   img_size: 224 
   dataset_name: flip_mug/ep200_tm300_gripper/push
+  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/stats/flip_mug_ep200_tm300_gripper.npz
   ac_cost_dataset_name: null
 
 
