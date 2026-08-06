@@ -53,54 +53,44 @@ eval:
   dataset_name: flip_mug/ep200_tm300_gripper/push
   ac_cost_dataset_name: null
 
-  eval_tr_ds:
-    execute: false
-    goal_offset_steps: 25 #25
 
-  eval_zeroshot:
-    execute: false
-    num_eval: 1 #1
-    # goal_offset_steps: 25 #25
-    # img_size: 64
-    condition_type: "fixed" # "fixed"/"random"
-
-    random:
-      coordinate_type: "polar"
-      polar: 
-        start_position:
-          r_range: [0.06, 0.06]
-          theta_range: [0., 180.]
-        start_goal_distance: 0.08
-
-        init_ee_positions: [0.0, 0.0, 0.05]
-        goal_ee_positions: [0.0 , 0.0, 0.05] 
-
-     
-
-    fixed:
-      coordinate_type: "polar" # "cartesian" or "polar"
-      noise_seed: null
-      noise_std: 0.0 #0.01
-      noise_clip: 0.02 #0.02 #ノイズの最大値
-      cartesian:
-        start_positions: [0.75, -0.10 , 0.05] #[0.65, 0.05, 0.05], [0.50, 0.05, 0.05]
-        goal_positions: [0.75, 0.05 , 0.05] #[0.65, 0.15, 0.05], [0.50, 0.15, 0.05]
-        init_ee_positions: [0.65, 0.0, 0.05] #[0.65, 0.00, 0.05], [0.50, 0.00, 0.05] //ゴール画像のFrankaの位置を指定
-        goal_ee_positions: [0.55, 0.15, 0.05] #ゴール画像のFrankaの位置を指定
-      polar: #0.0が右、反時計回り、degree想定
-        start_positions: [0.05, 0., 0.05] #(r, theta, z)
-        goal_positions: [0.15, 0., 0.05] 
-        init_ee_positions: [0.0, 0.0, 0.05] 
-        goal_ee_positions: [0.0 , 0.0, 0.05] 
-    plot_joint_compare_normed: true
-  
-  compute_opt_action_cost:
-    execute: false
-    horizon: 5
+  # Real xArm flip-mug rollout. action_cartesian follows the training-data
+  # layout: [x, y, z, qx, qy, qz, qw, gripper], where gripper is normalized
+  # to 0=open and 1=closed.
+  real_robot:
+    execute: true
+    dry_run: true #ハードは動かさずにソフトだけをテストする
+    dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
+    follower_ip: "192.168.1.240"
+    max_steps: 300
+    control_hz: 5.0
+    non_interactive: false
+    goal_image_path: config/eval/goal_state/flip_mug/goal_state_0.png #ゴール画像のパス
+    output_dir: ${hydra:runtime.cwd}/real_robot_rollouts/flip_mug
+    max_cartesian_delta_m: 0.02 #現在位置との差分 [m]
+    max_orientation_delta_rad: 0.0872665  # 5 degrees per policy step
+    max_joint_delta_rad: 0.01
+    cartesian_speed_mm_s: 50.0
+    joint_speed: 0.15
+    workspace_bounds_m:
+      - [0.4995, 100]
+      - [-0.2168, 0.2073]
+      - [0.00, 0.4752]
+    gripper:
+      open_position: 850
+      closed_position: 0
+      speed: 2000
+      max_delta: 0.10
+      command_threshold: 0.03
+    camera:
+      serial: 937622072182
+      width: 640
+      height: 480
+      fps: 30
 
 
   probing:
-    exe_probe: true
+    exe_probe: false
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
     val_dataset_name: flip_mug/ep1_tm300_redpen/push #flip_mug/val_ep10_tm300/push

@@ -124,8 +124,8 @@ sentry-sdk==2.66.0
 setuptools==83.0.0
 shellingham==1.5.4
 six==1.17.0
--e file:////home/hida/workspace/stable-pretraining
--e file:////home/hida/workspace/stable-worldmodel
+-e file:///home/shonosukehida/work/stable-pretraining
+-e file:///home/shonosukehida/work/stable-worldmodel
 submitit==1.5.4
 sympy==1.13.1
 tabulate==0.10.0

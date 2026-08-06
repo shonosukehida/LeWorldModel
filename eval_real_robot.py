@@ -21,6 +21,16 @@ from env.franka.env import FrankaSimEnv
 import h5py
 from transformers import ViTModel
 
+import signal
+
+import cv2
+import gymnasium as gym
+from scipy.spatial.transform import Rotation
+import ctypes
+
+import matplotlib.pyplot as plt
+
+
 
 def img_transform(cfg):
     transform = transforms.Compose(
@@ -169,6 +179,531 @@ class SafeStandardScaler:
     def inverse_transform(self, x):
         return x * self.scale_ + self.mean_
 
+
+
+class XArm7IK:
+    def __init__(self, lib_path: str):
+        self.lib = ctypes.CDLL(str(Path(lib_path).resolve()))
+
+        double_ptr = ctypes.POINTER(ctypes.c_double)
+
+        self.lib.xarm7_init.argtypes = [
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+        ]
+        self.lib.xarm7_init.restype = ctypes.c_int
+
+        self.lib.xarm7_ik.argtypes = [
+            double_ptr,
+            double_ptr,
+            double_ptr,
+        ]
+        self.lib.xarm7_ik.restype = ctypes.c_int
+
+        code = self.lib.xarm7_init(None, None, None, None)
+        if code != 0:
+            raise RuntimeError(f"xarm7_init failed: {code}")
+
+    def solve(
+        self,
+        pose_rpy: np.ndarray,
+        q_pre: np.ndarray,
+    ) -> np.ndarray:
+        pose = np.ascontiguousarray(pose_rpy, dtype=np.float64)
+        seed = np.ascontiguousarray(q_pre, dtype=np.float64)
+        theta = np.empty(7, dtype=np.float64)
+
+        code = self.lib.xarm7_ik(
+            pose.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+            seed.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+            theta.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        )
+
+        if code != 0:
+            raise RuntimeError(f"xarm7_ik failed: {code}")
+
+        return theta.astype(np.float32)
+
+
+class XArmInferenceEnv:
+    """Minimal xArm7/RealSense adapter used only by the real-robot rollout.
+
+    Robot positions are exposed in metres/radians, while xArm SDK Cartesian
+    commands are converted to millimetres at the SDK boundary.
+    """
+
+    def __init__(self, robot_cfg, plan_cfg):
+        self.cfg = robot_cfg
+        self.num_envs = 1
+        self.dry_run = bool(robot_cfg.dry_run)
+        bounds = np.asarray(robot_cfg.workspace_bounds_m, dtype=np.float32)
+        self.action_space = gym.spaces.Box(
+            low=np.array([[
+                bounds[0, 0], bounds[1, 0], bounds[2, 0],
+                -1.0, -1.0, -1.0, -1.0, 0.0,
+            ]], dtype=np.float32),
+            high=np.array([[
+                bounds[0, 1], bounds[1, 1], bounds[2, 1],
+                1.0, 1.0, 1.0, 1.0, 1.0,
+            ]], dtype=np.float32),
+            dtype=np.float32,
+        )
+        self._last_qpos = np.zeros(7, dtype=np.float32)
+        self._last_qvel = np.zeros(7, dtype=np.float32)
+        self._last_ee = np.array(
+            [0.5, 0.0, 0.3, 0.0, 0.0, 0.0, 1.0], dtype=np.float32
+        )
+        self._last_gripper = np.float32(0.0)
+        self._robot = None
+        self._pipeline = None
+        
+        self._ik_solver = XArm7IK(
+            "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
+            "libxarm7_capi.so"
+        )
+
+        if not self.dry_run:
+            try:
+                import pyrealsense2 as rs
+                from xarm.wrapper import XArmAPI
+            except ImportError as exc:
+                raise ImportError(
+                    "Real execution requires xarm-python-sdk and pyrealsense2"
+                ) from exc
+
+            self._robot = XArmAPI(str(robot_cfg.follower_ip))
+            self._robot.connect()
+            self._robot.motion_enable(enable=True)
+            self._robot.set_mode(0)
+            self._robot.set_state(state=0)
+            self._robot.set_gripper_enable(True)
+            self._robot.set_gripper_mode(0)
+            self._robot.set_gripper_speed(int(robot_cfg.gripper.speed))
+
+            pipeline = rs.pipeline()
+            rs_cfg = rs.config()
+            if robot_cfg.camera.serial:
+                rs_cfg.enable_device(str(robot_cfg.camera.serial))
+            rs_cfg.enable_stream(
+                rs.stream.color,
+                int(robot_cfg.camera.width),
+                int(robot_cfg.camera.height),
+                rs.format.bgr8,
+                int(robot_cfg.camera.fps),
+            )
+            pipeline.start(rs_cfg)
+            self._pipeline = pipeline
+            # Discard auto-exposure warm-up frames.
+            for _ in range(15):
+                pipeline.wait_for_frames()
+
+
+        self._dry_run_image = None
+        if self.dry_run:
+            image_path = str(self.cfg.dry_run_image_path or "")
+
+            if image_path:
+                bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
+
+                if bgr is None:
+                    raise FileNotFoundError(
+                        f"Could not read dry-run image: {image_path}"
+                    )
+
+                rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+                width = int(self.cfg.camera.width)
+                height = int(self.cfg.camera.height)
+
+                self._dry_run_image = cv2.resize(
+                    rgb,
+                    (width, height),
+                )
+
+
+
+
+        if plan_cfg.action_space == "joint":
+            self.action_space = gym.spaces.Box(
+                low=np.full(7, -np.pi, dtype=np.float32),
+                high=np.full(7, np.pi, dtype=np.float32),
+                dtype=np.float32,
+            )
+
+    def close(self):
+        if self._pipeline is not None:
+            self._pipeline.stop()
+        if self._robot is not None:
+            # Stop the current trajectory before disconnecting. This does not
+            # disable the arm, so an operator can still use the pendant.
+            self._robot.set_state(state=4)
+            self._robot.disconnect()
+
+
+    def get_image(self):
+        if self.dry_run:
+            if self._dry_run_image is not None:
+                return self._dry_run_image.copy()
+
+            h = int(self.cfg.camera.height)
+            w = int(self.cfg.camera.width)
+            return np.zeros((h, w, 3), dtype=np.uint8)
+
+        frames = self._pipeline.wait_for_frames(timeout_ms=3000)
+        frame = frames.get_color_frame()
+
+        if not frame:
+            raise RuntimeError(
+                "RealSense did not return a color frame"
+            )
+
+        return cv2.cvtColor(
+            np.asanyarray(frame.get_data()),
+            cv2.COLOR_BGR2RGB,
+        )
+
+
+
+    @staticmethod
+    def _sdk_value(result, name):
+        code, value = result
+        if code != 0:
+            raise RuntimeError(f"xArm {name} failed with SDK code {code}")
+        return np.asarray(value, dtype=np.float32)
+
+    def get_robot_state(self):
+        if self.dry_run:
+            return self._last_qpos, self._last_qvel, self._last_ee
+        qpos = self._sdk_value(
+            self._robot.get_servo_angle(is_radian=True), "get_servo_angle"
+        )[:7]
+        try:
+            code, joint_states = self._robot.get_joint_states(is_radian=True)
+            if code != 0:
+                raise RuntimeError(
+                    f"xArm get_joint_states failed with SDK code {code}"
+                )
+            qvel = np.asarray(joint_states[1], dtype=np.float32)[:7]
+        except (AttributeError, IndexError, TypeError, RuntimeError):
+            qvel = np.zeros(7, dtype=np.float32)
+        ee_rpy = self._sdk_value(
+            self._robot.get_position(is_radian=True), "get_position"
+        )[:6]
+        ee = np.concatenate([
+            ee_rpy[:3] / 1000.0,
+            Rotation.from_euler("xyz", ee_rpy[3:6]).as_quat(),
+        ]).astype(np.float32)
+        try:
+            code, gripper_position = self._robot.get_gripper_position()
+            if code == 0:
+                open_pos = float(self.cfg.gripper.open_position)
+                closed_pos = float(self.cfg.gripper.closed_position)
+                denominator = closed_pos - open_pos
+                if abs(denominator) > 1e-6:
+                    self._last_gripper = np.float32(np.clip(
+                        (float(gripper_position) - open_pos) / denominator,
+                        0.0,
+                        1.0,
+                    ))
+        except (AttributeError, TypeError, ValueError):
+            pass
+        self._last_qpos, self._last_qvel, self._last_ee = qpos, qvel, ee
+        return qpos, qvel, ee
+
+    def execute(self, action, action_space):
+        action = np.asarray(action, dtype=np.float32).reshape(-1)
+        if action_space == "joint":
+            if action.size < 7:
+                raise ValueError(f"joint action needs 7 values, got {action.size}")
+            current_qpos, _, _ = self.get_robot_state()
+            max_delta = float(self.cfg.max_joint_delta_rad)
+            target = current_qpos + np.clip(
+                action[:7] - current_qpos, -max_delta, max_delta
+            )
+            if not self.dry_run:
+                code = self._robot.set_servo_angle(
+                    angle=target.tolist(), is_radian=True,
+                    speed=float(self.cfg.joint_speed), wait=False,
+                )
+        else:
+            if action.size < 8:
+                raise ValueError(
+                    "flip-mug Cartesian action must be "
+                    "[x,y,z,qx,qy,qz,qw,gripper] (8 values), "
+                    f"got {action.size}"
+                )
+            _, _, current_ee = self.get_robot_state()
+            target_xyz = action[:3].copy()
+            current_xyz = current_ee[:3]
+            delta = np.clip(
+                target_xyz - current_xyz,
+                -float(self.cfg.max_cartesian_delta_m),
+                float(self.cfg.max_cartesian_delta_m),
+            )
+            target_xyz = current_xyz + delta
+            bounds = np.asarray(self.cfg.workspace_bounds_m, dtype=np.float32)
+            target_xyz = np.clip(target_xyz, bounds[:, 0], bounds[:, 1])
+
+            current_rotation = Rotation.from_quat(current_ee[3:7])
+            target_quat = action[3:7]
+            quat_norm = float(np.linalg.norm(target_quat))
+            if quat_norm < 1e-6:
+                raise ValueError("Predicted flip-mug quaternion has near-zero norm")
+            target_rotation = Rotation.from_quat(target_quat / quat_norm)
+            relative = target_rotation * current_rotation.inv()
+            rotation_vector = relative.as_rotvec()
+            angle = float(np.linalg.norm(rotation_vector))
+            max_angle = float(self.cfg.max_orientation_delta_rad)
+            if angle > max_angle:
+                relative = Rotation.from_rotvec(rotation_vector * (max_angle / angle))
+                target_rotation = relative * current_rotation
+            target_quat = target_rotation.as_quat().astype(np.float32)
+            target_rpy = target_rotation.as_euler("xyz")
+            pose = np.concatenate([target_xyz * 1000.0, target_rpy])
+
+            target_gripper = float(np.clip(action[7], 0.0, 1.0))
+            target_gripper = float(np.clip(
+                target_gripper,
+                float(self._last_gripper) - float(self.cfg.gripper.max_delta),
+                float(self._last_gripper) + float(self.cfg.gripper.max_delta),
+            ))
+            if not self.dry_run:
+                # code = self._robot.set_position(
+                #     *pose.tolist(), is_radian=True,
+                #     speed=float(self.cfg.cartesian_speed_mm_s), wait=False,
+                # )
+                current_qpos, _, _ = self.get_robot_state()
+
+                target_qpos = self._ik_solver.solve(
+                    pose_rpy=pose,
+                    q_pre=current_qpos,
+                )
+                
+                # 関節角の1ステップ変化量を制限
+                max_delta = float(self.cfg.max_joint_delta_rad)
+                safe_qpos = current_qpos + np.clip(
+                    target_qpos - current_qpos,
+                    -max_delta,
+                    max_delta,
+                )
+
+                code = self._robot.set_servo_angle(
+                    angle=target_qpos.tolist(),
+                    is_radian=True,
+                    speed=float(self.cfg.joint_speed),
+                    wait=False,
+                )
+                if abs(target_gripper - float(self._last_gripper)) >= float(
+                    self.cfg.gripper.command_threshold
+                ):
+                    sdk_gripper = (
+                        float(self.cfg.gripper.open_position)
+                        + target_gripper
+                        * (
+                            float(self.cfg.gripper.closed_position)
+                            - float(self.cfg.gripper.open_position)
+                        )
+                    )
+                    gripper_code = self._robot.set_gripper_position(
+                        int(round(sdk_gripper)), wait=False
+                    )
+                    if gripper_code != 0:
+                        raise RuntimeError(
+                            "xArm gripper command failed with SDK code "
+                            f"{gripper_code}"
+                        )
+            self._last_gripper = np.float32(target_gripper)
+            action = np.concatenate([
+                target_xyz, target_quat, [target_gripper]
+            ]).astype(np.float32)
+        if not self.dry_run and (code[0] if isinstance(code, tuple) else code) != 0:
+            raise RuntimeError(f"xArm motion command failed with SDK code {code}")
+        return action.astype(np.float32)
+
+
+
+class XArm7IK:
+    def __init__(self, lib_path: str):
+        self.lib = ctypes.CDLL(str(Path(lib_path).resolve()))
+
+        double_ptr = ctypes.POINTER(ctypes.c_double)
+
+        self.lib.xarm7_init.argtypes = [
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+        ]
+        self.lib.xarm7_init.restype = ctypes.c_int
+
+        self.lib.xarm7_ik.argtypes = [
+            double_ptr,
+            double_ptr,
+            double_ptr,
+        ]
+        self.lib.xarm7_ik.restype = ctypes.c_int
+
+        code = self.lib.xarm7_init(None, None, None, None)
+        if code != 0:
+            raise RuntimeError(f"xarm7_init failed: {code}")
+
+    def solve(
+        self,
+        pose_rpy: np.ndarray,
+        q_pre: np.ndarray,
+    ) -> np.ndarray:
+        pose = np.ascontiguousarray(pose_rpy, dtype=np.float64)
+        seed = np.ascontiguousarray(q_pre, dtype=np.float64)
+        theta = np.empty(7, dtype=np.float64)
+
+        code = self.lib.xarm7_ik(
+            pose.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+            seed.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+            theta.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        )
+
+        if code != 0:
+            raise RuntimeError(f"xarm7_ik failed: {code}")
+
+        return theta.astype(np.float32)
+
+def _load_or_capture_goal(env, real_cfg):
+    goal_path = str(real_cfg.goal_image_path or "")
+    print("real_cfg:", real_cfg)
+    print("goal_path:", goal_path)
+    if goal_path:
+        bgr = cv2.imread(goal_path, cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise FileNotFoundError(f"Could not read goal image: {goal_path}")
+        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    if not real_cfg.non_interactive:
+        input("Place the scene in the GOAL state, then press Enter to capture it: ")
+    return env.get_image()
+
+
+def _policy_observation(image, goal, qpos, qvel, ee, step_idx, process):
+    """Build the (environment, history, ...) layout expected by policy."""
+    obs = {
+        "pixels": image[None, None],
+        "goal": goal[None, None],
+        "step_idx": np.asarray([[step_idx]], dtype=np.int64),
+        "qpos": qpos[None, None],
+        "qvel": qvel[None, None],
+        "ee_pos": ee[:3][None, None],
+    }
+    # Do not pass untrained auxiliary keys to models that do not use them.
+    keep = {"pixels", "goal", "step_idx"} | set(process.keys())
+    return {key: value for key, value in obs.items() if key in keep}
+
+
+def run_xarm_task(cfg, policy, process, results_path):
+    print("results_path: ", results_path)
+
+    """Run MPC against xArm and persist synchronized observations/actions."""
+    real_cfg = cfg.eval.real_robot
+    env = XArmInferenceEnv(real_cfg, cfg.plan_config) # <__main__.XArmInferenceEnv object at 0x7f94ec6751b0>
+    policy.set_env(env)
+    if str(cfg.plan_config.action_space) == "cartesian":
+        # WorldModelPolicy currently contains a Push-specific 3-D Cartesian
+        # Box. Flip-mug was trained with the 8-D pose+gripper action above,
+        # so reconfigure only the solver boundary while retaining the same
+        # loaded policy/model and action normalizer.
+        
+        
+        policy.action_space = env.action_space #ここで workspace_bounds_m が入る
+        policy.solver.configure(
+            n_envs=env.num_envs,
+            config=policy.cfg,
+            action_processor=policy.action_processor,
+            action_space=env.action_space,
+        )
+    policy.results_path = results_path
+    if hasattr(policy, "_action_buffer") and policy._action_buffer is not None:
+        policy._action_buffer.clear()
+    if hasattr(policy, "_next_init"):
+        policy._next_init = None
+
+
+    # run_dir = Path(real_cfg.output_dir).expanduser() / time.strftime("%Y%m%d_%H%M%S")
+    run_dir = results_path
+    run_dir.mkdir(parents=True, exist_ok=True)
+    stop_requested = False
+
+    def request_stop(_signum, _frame):
+        nonlocal stop_requested
+        stop_requested = True
+
+    previous_sigint = signal.signal(signal.SIGINT, request_stop)
+    records = {key: [] for key in (
+        "pixels", "commanded_action", "qpos", "qvel", "ee_pos_quat",
+        "gripper", "timestamp"
+    )}
+    try:
+        goal = _load_or_capture_goal(env, real_cfg)
+        cv2.imwrite(
+            str(run_dir / "goal.png"), cv2.cvtColor(goal, cv2.COLOR_RGB2BGR)
+        )
+        if not real_cfg.non_interactive:
+            input("Place the scene in the START state, then press Enter to run: ")
+
+        started = time.monotonic()
+        period = 1.0 / float(real_cfg.control_hz)
+        for step_idx in range(int(real_cfg.max_steps)):
+            if stop_requested:
+                break
+            tick = time.monotonic()
+            image = env.get_image()
+            qpos, qvel, ee = env.get_robot_state()
+            info = _policy_observation(
+                image, goal, qpos, qvel, ee, step_idx, process
+            )
+            action_result = policy.get_action(info)
+            if isinstance(action_result, tuple):
+                action, outputs = action_result
+            else:
+                action = action_result
+                outputs = None
+                
+            # print("run_dir:", run_dir)
+            if outputs is not None:
+                visualize_cem_raw_actions(
+                    outputs=outputs,
+                    action_processor=policy.action_processor,
+                    save_dir=run_dir / "cem" / "cem_raw_actions",
+                    step_idx=step_idx,
+                    receding_horizon=int(policy.cfg.receding_horizon),
+                )
+                
+            # action = action_result[0] if isinstance(action_result, tuple) else action_result 
+            commanded = env.execute(action, str(cfg.plan_config.action_space))
+
+            records["pixels"].append(image)
+            records["commanded_action"].append(commanded)
+            records["qpos"].append(qpos)
+            records["qvel"].append(qvel)
+            records["ee_pos_quat"].append(ee)
+            records["gripper"].append(env._last_gripper)
+            records["timestamp"].append(time.monotonic() - started)
+            remaining = period - (time.monotonic() - tick)
+            if remaining > 0:
+                time.sleep(remaining)
+    finally:
+        signal.signal(signal.SIGINT, previous_sigint)
+        env.close()
+        with h5py.File(run_dir / "rollout.h5", "w") as h5:
+            h5.attrs["config"] = OmegaConf.to_yaml(cfg)
+            for key, values in records.items():
+                array = np.asarray(values)
+                kwargs = {"compression": "gzip", "compression_opts": 4} if array.size else {}
+                h5.create_dataset(key, data=array, **kwargs)
+            h5.create_dataset("goal", data=goal if "goal" in locals() else np.empty(0))
+        print(f"Real-robot rollout saved to: {run_dir / 'rollout.h5'}")
+    return run_dir
+
+
+
 @hydra.main(version_base=None, config_path="./config/eval", config_name="pusht")
 def run(cfg: DictConfig):
     """Run evaluation of dinowm vs random policy."""
@@ -190,8 +725,8 @@ def run(cfg: DictConfig):
 
 
     # create world environment
-    cfg.world.max_episode_steps = 2 * cfg.eval.eval_budget
-    world = swm.World(**cfg.world, image_shape=(cfg.world.height, cfg.world.width))
+    # cfg.world.max_episode_steps = 2 * cfg.eval.eval_budget
+    # world = swm.World(**cfg.world, image_shape=(cfg.world.height, cfg.world.width))
     
     
 
@@ -274,6 +809,7 @@ def run(cfg: DictConfig):
         model.interpolate_pos_encoding = True
         config = swm.PlanConfig(**cfg.plan_config)
         solver = hydra.utils.instantiate(cfg.solver, model=model)
+        print("solver:", solver)
 
         policy = swm.policy.WorldModelPolicy(
             solver=solver, config=config, process=process, transform=transform
@@ -284,206 +820,16 @@ def run(cfg: DictConfig):
         policy = swm.policy.RandomPolicy()
 
 
-
-
-
-    world.set_policy(policy, results_path)        
-
-    if cfg.eval.eval_zeroshot.execute:
-        pass
-        
-
-        
-        video_dir = results_path / "zeroshot"
-        video_dir.mkdir(parents=True, exist_ok=True)
-
-        start_time = time.time()
-        metrics = world.evaluate_zeroshot(
-            start_positions=start_positions,
-            goal_positions=goal_positions,
-            init_ee_poses=init_ee_positions,
-            goal_ee_poses=goal_ee_positions,
-            eval_budget=cfg.eval.eval_budget,
-            start_option_name="box_pos",
-            goal_option_name="goal_marker_pos",
-            start_info_name="bluebox_pos",
-            goal_info_name="goal_pos",
-            callables=[
-                {
-                    "method": "set_bluebox_pos",
-                    "args": {
-                        "bluebox_pos": {
-                            "value": "start_positions",
-                            "in_positions": True,
-                        },
-                    },
-                },
-                {
-                    "method": "set_goal_pos",
-                    "args": {
-                        "goal_pos": {
-                            "value": "goal_positions",
-                            "in_positions": True,
-                        },
-                    },
-                },
-            ],
-            video_path=video_dir,
-            plot_joint_compare_normed=cfg.eval.eval_zeroshot.plot_joint_compare_normed,
-            x_range=x_range, 
-            y_range=y_range, 
-            z_range=z_range,
-        )
-        end_time = time.time()
-        
-        print("==RESULTS==")
-        print(f"metrics: {metrics}")
-        print(f"evaluation_time: {end_time - start_time} seconds\n")
-        
-        log_path = video_dir / "zeroshot_results.txt"
-        with log_path.open('a') as f:
-            f.write("\n")  # separate from previous runs
-
-            f.write("==== CONFIG ====\n")
-            f.write(OmegaConf.to_yaml(cfg))
-            f.write("\n")
-
-            f.write("==== RESULTS ====\n")
-            f.write(f"metrics: {metrics}\n")
-            f.write(f"evaluation_time: {end_time - start_time} seconds\n")
-            
-
-
-
-    
-
-    # sample the episodes and the starting indices
-    episode_len = get_episodes_length(dataset, ep_indices)
-    max_start_idx = episode_len - cfg.eval.eval_tr_ds.goal_offset_steps - 1
-    max_start_idx_dict = {ep_id: max_start_idx[i] for i, ep_id in enumerate(ep_indices)}
-    # Map each dataset row’s episode_idx to its max_start_idx
-    col_name = "episode_idx" if "episode_idx" in dataset.column_names else "ep_idx"
-    max_start_per_row = np.array(
-        [max_start_idx_dict[ep_id] for ep_id in dataset.get_col_data(col_name)]
-    )
-
-    # remove all the lines of dataset for which dataset['step_idx'] > max_start_per_row
-    valid_mask = dataset.get_col_data("step_idx") <= max_start_per_row
-    valid_indices = np.nonzero(valid_mask)[0]
-    print(valid_mask.sum(), "valid starting points found for evaluation.")
-
-    g = np.random.default_rng(cfg.seed)
-    # random_episode_indices = g.choice(
-    #     len(valid_indices) - 1, size=cfg.eval.num_eval, replace=False
-    # )
-
-
-    random_episode_indices = g.choice(valid_indices, size=cfg.eval.num_eval, replace=False,)
-    random_episode_indices = np.sort(random_episode_indices)
-
-
-    eval_episodes = dataset.get_col_data(col_name)[random_episode_indices]
-    eval_start_idx = dataset.get_col_data("step_idx")[random_episode_indices]
-
-    if len(eval_episodes) < cfg.eval.num_eval:
-        raise ValueError("Not enough episodes with sufficient length for evaluation.")
-
-
-    if cfg.eval.compute_opt_action_cost.execute:
-        dataset_for_action_cost = get_dataset(cfg, cfg.eval.ac_cost_dataset_name)
-
-        col_name_cost = "episode_idx" if "episode_idx" in dataset_for_action_cost.column_names else "ep_idx"
-        ep_indices_cost, _ = np.unique(
-            dataset_for_action_cost.get_col_data(col_name_cost),
-            return_index=True,
-        )
-
-        episode_len_cost = get_episodes_length(dataset_for_action_cost, ep_indices_cost)
-        horizon = cfg.eval.compute_opt_action_cost.horizon
-
-        max_start_idx_cost = episode_len_cost - horizon - 1
-        max_start_idx_dict_cost = {
-            ep_id: max_start_idx_cost[i]
-            for i, ep_id in enumerate(ep_indices_cost)
-        }
-
-        max_start_per_row_cost = np.array([
-            max_start_idx_dict_cost[ep_id]
-            for ep_id in dataset_for_action_cost.get_col_data(col_name_cost)
-        ])
-
-        valid_mask_cost = dataset_for_action_cost.get_col_data("step_idx") <= max_start_per_row_cost
-        valid_indices_cost = np.nonzero(valid_mask_cost)[0]
-
-        print(valid_mask_cost.sum(), "valid starting points found for action-cost evaluation.")
-
-        g = np.random.default_rng(cfg.seed)
-        sampled_indices_cost = g.choice(
-            valid_indices_cost,
-            size=min(cfg.eval.num_eval, len(valid_indices_cost)),
-            replace=False,
-        )
-        sampled_indices_cost = np.sort(sampled_indices_cost)
-
-        # eval_episodes_for_action_cost = dataset_for_action_cost.get_row_data(sampled_indices_cost)[col_name_cost]
-        # eval_start_idx_for_action_cost = dataset_for_action_cost.get_row_data(sampled_indices_cost)["step_idx"]
-        eval_episodes_for_action_cost = (dataset_for_action_cost.get_col_data(col_name_cost)[sampled_indices_cost])
-
-        eval_start_idx_for_action_cost = (dataset_for_action_cost.get_col_data("step_idx")[sampled_indices_cost])
-
-
-        cost_results = compute_action_costs(
-            model=model,
-            dataset=dataset_for_action_cost,
-            eval_episodes=eval_episodes_for_action_cost.tolist(),
-            eval_start_idx=eval_start_idx_for_action_cost.tolist(),
-            horizon=horizon,
-            transform=transform,
-            process=process,
-            action_key=action_key,
-        )
+    ##実機タスクコード
+    if cfg.eval.real_robot.execute:
+        if policy == "random" or isinstance(policy, swm.policy.RandomPolicy):
+            raise ValueError("Real-robot inference requires a trained policy")
+        run_xarm_task(cfg, policy, process, results_path)
 
 
 
 
 
-    world.set_policy(policy)
-    if cfg.eval.eval_tr_ds.execute:
-        
-    
-        start_time = time.time()
-        
-        #学習データセット分布内テスト
-        metrics = world.evaluate_from_dataset(
-            dataset,
-            start_steps=eval_start_idx.tolist(),
-            goal_offset_steps=cfg.eval.eval_tr_ds.goal_offset_steps,
-            eval_budget=cfg.eval.eval_budget,
-            episodes_idx=eval_episodes.tolist(),
-            callables=OmegaConf.to_container(cfg.eval.get("callables"), resolve=True),
-            video_path=results_path,
-        )
-        end_time = time.time()
-        
-        print(metrics)
-
-        results_path = results_path / cfg.output.filename
-        results_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with results_path.open("a") as f:
-            f.write("\n")  # separate from previous runs
-
-            f.write("==== CONFIG ====\n")
-            f.write(OmegaConf.to_yaml(cfg))
-            f.write("\n")
-
-            f.write("==== RESULTS ====\n")
-            f.write(f"metrics: {metrics}\n")
-            f.write(f"evaluation_time: {end_time - start_time} seconds\n")
-    
-
-
-    # print("cfg.probing.dataset_name:", cfg.probing.dataset_name)
     dataset = get_dataset(cfg, cfg.eval.probing.dataset_name)
     val_dataset = get_dataset(cfg, cfg.eval.probing.val_dataset_name)
     
@@ -495,9 +841,7 @@ def run(cfg: DictConfig):
     if cfg.eval.probing.exe_probe:
         results_path = (
             Path(swm.data.utils.get_cache_dir(), "eval", cfg.policy).parent
-        ) 
-        
-        print("results_path:", results_path)
+        ) #results_path: /home/shonosukehida/.stable_worldmodel/eval/flip_mug/ep200_tm300_gripper
 
         # print("(eval.py) transform:", transform)
         prober = ProbingEvaluator(
@@ -515,385 +859,147 @@ def run(cfg: DictConfig):
         
 
 
-@torch.no_grad()
-def compute_action_costs(
-    model,
-    dataset,
-    eval_episodes,
-    eval_start_idx,
-    horizon,
-    transform,
-    process,
-    action_key="action",  # or "action_cartesian", "action_joint"
+
+def visualize_cem_raw_actions(
+    outputs,
+    action_processor,
+    save_dir,
+    step_idx,
+    receding_horizon,
 ):
-    device = next(model.parameters()).device
+    """
+    CEMが最終的に選んだ全horizonの行動列を可視化する。
 
-    ep_idx_arr = np.array(eval_episodes)
-    start_steps_arr = np.array(eval_start_idx)
-    end_steps = start_steps_arr + horizon + 1
-    
-    print("ep_idx_arr:", ep_idx_arr) #[0]
-    print("start_steps_arr:", start_steps_arr) #[88]
+    outputs["actions"]:
+        shape (num_envs, horizon, action_dim)
+        CEMの正規化空間での出力
+    """
+    if outputs is None:
+        return
 
-    data = dataset.load_chunk(ep_idx_arr, start_steps_arr, end_steps)
+    if "actions" not in outputs:
+        raise KeyError("CEM outputs does not contain 'actions'")
 
-    dataset_costs = []
-    random_costs = []
-    zero_costs = []
-    hold_costs = []
+    actions = outputs["actions"]
 
-    # random action 用pool
-    action_pool = dataset.get_col_data(action_key)
+    if torch.is_tensor(actions):
+        actions = actions.detach().cpu().numpy()
+    else:
+        actions = np.asarray(actions)
 
-
-    for i, ep in enumerate(data):
-
-        # ============================================================
-        # pixels
-        # ============================================================
-        pixels = ep["pixels"]
-        if isinstance(pixels, torch.Tensor):
-            pixels = pixels.cpu()
-
-        # ============================================================
-        # actions
-        # ============================================================
-        actions = ep[action_key]
-        if isinstance(actions, torch.Tensor):
-            actions = actions.cpu()
-
-        H = 1
-
-        # ============================================================
-        # init / goal image
-        # ============================================================
-        init_pixels = pixels[:H]
-        goal_pixels = pixels[-1:]
-
-        init_pixels = torch.stack([
-            transform["pixels"](p)
-            for p in init_pixels
-        ])
-
-        goal_pixels = torch.stack([
-            transform["goal"](p)
-            for p in goal_pixels
-        ])
-
-        info = {
-            "pixels": init_pixels[None, None].to(device),
-            "goal": goal_pixels[None, None].to(device),
-        }
-
-        # ============================================================
-        # dataset action
-        # ============================================================
-        dataset_action_seq = actions[:horizon]
-
-        dataset_action_seq = (
-            dataset_action_seq.numpy()
-            if isinstance(dataset_action_seq, torch.Tensor)
-            else np.asarray(dataset_action_seq)
+    if actions.ndim != 3:
+        raise ValueError(
+            "CEM actions must have shape "
+            f"(num_envs, horizon, action_dim), got {actions.shape}"
         )
-        
 
-        # ============================================================
-        # random action
-        # ============================================================
-        # shuffle_action_seq = dataset_action_seq.copy()
-        # np.random.shuffle(shuffle_action_seq)
+    # 今回は実機1台なのでenv_idx=0
+    actions_normalized = actions[0]
 
+    # 逆正規化して物理空間へ戻す
+    actions_physical = action_processor.inverse_transform(
+        actions_normalized
+    )
 
-        # random_action_seq = shuffle_action_seq.astype(np.float32)
-        # print("random_action_seq:", random_action_seq)
-        if action_key == "action" or action_key == "action_joint":
-            low = np.array([
-                -2.8973,
-                -1.7628,
-                -2.8973,
-                -3.0718,
-                -2.8973,
-                -0.0175,
-                -2.8973,
-            ], dtype=np.float32)
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
 
-            high = np.array([
-                2.8973,
-                1.7628,
-                2.8973,
-                -0.0698,
-                2.8973,
-                3.7525,
-                2.8973,
-            ], dtype=np.float32)
-            random_action_seq = np.random.uniform(
-                low=low,
-                high=high,
-                size=(horizon, low.shape[0]),
-            ).astype(np.float32)
-        else:
-            low = np.array([
-                0.45,   # x
-               -0.2,     # y
-                0.05,     # z
-            ], dtype=np.float32)
+    np.savez(
+        save_dir / f"step_{step_idx:04d}_cem_actions.npz",
+        normalized=actions_normalized,
+        physical=actions_physical,
+        receding_horizon=np.int64(receding_horizon),
+    )
 
-            high = np.array([
-                0.85,   # x
-                0.2,     # y
-                0.05,     # z
-            ], dtype=np.float32)
+    _plot_cem_action_sequence(
+        actions=actions_normalized,
+        save_path=save_dir
+        / f"step_{step_idx:04d}_normalized.png",
+        title=f"CEM normalized actions — step {step_idx}",
+        receding_horizon=receding_horizon,
+    )
 
-            random_action_seq = np.random.uniform(
-                low=low,
-                high=high,
-                size=(horizon, low.shape[0]),
-            ).astype(np.float32)
-            
+    _plot_cem_action_sequence(
+        actions=actions_physical,
+        save_path=save_dir
+        / f"step_{step_idx:04d}_physical.png",
+        title=f"CEM physical actions — step {step_idx}",
+        receding_horizon=receding_horizon,
+    )
 
-        # ============================================================
-        # zero action
-        # ============================================================
-        zero_action_seq = np.zeros_like(dataset_action_seq)
-        
-        
-        # ============================================================
-        # hold action
-        # ============================================================
-        hold_action = 0.5
-        hold_action_seq = np.full_like(dataset_action_seq, hold_action)
+def _plot_cem_action_sequence(
+    actions,
+    save_path,
+    title,
+    receding_horizon,
+):
+    """
+    actions:
+        shape (horizon, 8)
+        [x, y, z, qx, qy, qz, qw, gripper]
+    """
+    actions = np.asarray(actions)
 
-        # ============================================================
-        # normalize
-        # ============================================================
-        def normalize_action(action_seq):
-            if action_key in process:
-                return process[action_key].transform(action_seq)
-            return action_seq
+    if actions.ndim != 2 or actions.shape[1] != 8:
+        raise ValueError(
+            f"Expected actions shape (horizon, 8), got {actions.shape}"
+        )
 
-        
-        dataset_action_seq = normalize_action(dataset_action_seq)
-        random_action_seq = normalize_action(random_action_seq)
-        zero_action_seq = normalize_action(zero_action_seq)
-        hold_action_seq = normalize_action(hold_action_seq)
+    horizon = actions.shape[0]
+    steps = np.arange(horizon)
 
+    fig, axes = plt.subplots(
+        3,
+        1,
+        figsize=(10, 10),
+        sharex=True,
+    )
 
+    # 位置
+    axes[0].plot(steps, actions[:, 0], marker="o", label="x")
+    axes[0].plot(steps, actions[:, 1], marker="o", label="y")
+    axes[0].plot(steps, actions[:, 2], marker="o", label="z")
+    axes[0].set_ylabel("Position")
+    axes[0].legend()
+    axes[0].grid(True)
 
-        # ============================================================
-        # tensor helper
-        # ============================================================
-        def to_action_candidates(action_seq):
-            return torch.as_tensor(
-                action_seq[None, None],
-                dtype=torch.float32,
-                device=device,
+    # Quaternion
+    axes[1].plot(steps, actions[:, 3], marker="o", label="qx")
+    axes[1].plot(steps, actions[:, 4], marker="o", label="qy")
+    axes[1].plot(steps, actions[:, 5], marker="o", label="qz")
+    axes[1].plot(steps, actions[:, 6], marker="o", label="qw")
+    axes[1].set_ylabel("Quaternion")
+    axes[1].legend()
+    axes[1].grid(True)
+
+    # Gripper
+    axes[2].plot(
+        steps,
+        actions[:, 7],
+        marker="o",
+        label="gripper",
+    )
+    axes[2].set_ylabel("Gripper")
+    axes[2].set_xlabel("Planning step")
+    axes[2].legend()
+    axes[2].grid(True)
+
+    # 実際に採用されるreceding horizonの境界
+    if 0 < receding_horizon < horizon:
+        boundary = receding_horizon - 0.5
+
+        for ax in axes:
+            ax.axvline(
+                boundary,
+                linestyle="--",
+                label="receding horizon",
             )
 
-        dataset_candidates = to_action_candidates(dataset_action_seq)
-        random_candidates = to_action_candidates(random_action_seq)
-        zero_candidates = to_action_candidates(zero_action_seq)
-        hold_candidates = to_action_candidates(hold_action_seq)
+    fig.suptitle(title)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
 
-        # ============================================================
-        # cost
-        # ============================================================
-        dataset_cost = model.get_cost(info, dataset_candidates).item()
-        random_cost = model.get_cost(info, random_candidates).item()
-        zero_cost = model.get_cost(info, zero_candidates).item()
-        hold_cost = model.get_cost(info, hold_candidates).item()
-
-        dataset_costs.append(dataset_cost)
-        random_costs.append(random_cost)
-        zero_costs.append(zero_cost)
-        hold_costs.append(hold_cost)
-
-        # ============================================================
-        # per-episode print
-        # ============================================================
-        print(f"\n[Episode {i}]")
-        print(f"dataset_cost : {dataset_cost:.6f}")
-        print(f"random_cost  : {random_cost:.6f}")
-        print(f"zero_cost    : {zero_cost:.6f}")
-        print(f"large_cost    : {hold_cost:.6f}", "hold_action:", hold_action)
-
-    # ============================================================
-    # summary
-    # ============================================================
-    dataset_costs = np.array(dataset_costs)
-    random_costs = np.array(random_costs)
-    zero_costs = np.array(zero_costs)
-    hold_costs = np.array(hold_costs)
-
-    print("\n==================== SUMMARY ====================")
-
-    print("\n[DATASET ACTION COST]")
-    print("mean:", dataset_costs.mean())
-    print("min :", dataset_costs.min())
-    print("max :", dataset_costs.max())
-    print("std :", dataset_costs.std())
-
-    print("\n[RANDOM ACTION COST]")
-    print("mean:", random_costs.mean())
-    print("min :", random_costs.min())
-    print("max :", random_costs.max())
-    print("std :", random_costs.std())
-
-    print("\n[ZERO ACTION COST]")
-    print("mean:", zero_costs.mean())
-    print("min :", zero_costs.min())
-    print("max :", zero_costs.max())
-    print("std :", zero_costs.std())
-
-    print("\n[LARGE ACTION COST] hold_action:", hold_action)
-    print("mean:", hold_costs.mean())
-    print("min :", hold_costs.min())
-    print("max :", hold_costs.max())
-    print("std :", hold_costs.std())
-
-    # ============================================================
-    # comparison
-    # ============================================================
-    # dataset_better_than_random = np.mean(dataset_costs < random_costs)
-    # dataset_better_than_zero = np.mean(dataset_costs < zero_costs)
-
-    # print("\n==================== COMPARISON ====================")
-    # print(
-    #     f"dataset < random : "
-    #     f"{dataset_better_than_random * 100:.2f}%"
-    # )
-
-    # print(
-    #     f"dataset < zero   : "
-    #     f"{dataset_better_than_zero * 100:.2f}%"
-    # )
-
-    # return {
-    #     "dataset": dataset_costs,
-    #     "random": random_costs,
-    #     "zero": zero_costs,
-    # }
-
-
-
-def sample_radial_start_goal(
-    cfg,
-    center,
-    x_range,
-    y_range,
-    z_range,
-):
-    random_cfg = cfg.eval.eval_zeroshot.random
-    g = np.random.default_rng()
-
-    r_low, r_high = random_cfg.polar.start_position.r_range
-    th_low, th_high = random_cfg.polar.start_position.theta_range
-    d = float(random_cfg.polar.start_goal_distance)
-
-    z = float(random_cfg.polar.init_ee_positions[2])
-
-    start_positions = []
-    goal_positions = []
-
-    for _ in range(cfg.eval.num_eval):
-        r = g.uniform(r_low, r_high)
-        theta_deg = g.uniform(th_low, th_high)
-
-        start = polar_to_xyz([r, theta_deg, z], center)
-
-        direction = start[:2] - center[:2]
-        norm = np.linalg.norm(direction)
-
-        if norm < 1e-8:
-            theta = np.deg2rad(-(theta_deg - 90.0))
-            direction = np.array([np.cos(theta), np.sin(theta)], dtype=np.float32)
-        else:
-            direction = direction / norm
-
-        goal = start.copy()
-        goal[:2] = start[:2] + d * direction
-        goal[0] = np.clip(goal[0], x_range[0], x_range[1])
-        goal[1] = np.clip(goal[1], y_range[0], y_range[1])
-        goal[2] = z
-
-        start_positions.append(start.astype(np.float32))
-        goal_positions.append(goal.astype(np.float32))
-
-    return np.stack(start_positions), np.stack(goal_positions)
-        
-
-def add_xy_noise(
-    positions,
-    num_eval,
-    x_range,
-    y_range,
-    noise_std=0.0,
-    noise_clip=0.0,
-    seed=0,
-    box_size=0.05,
-    center=None,
-    max_tries=1000,
-):
-    if seed is not None:
-        rng = np.random.default_rng(seed)
-    else:
-        rng = np.random.default_rng()
-
-    positions = np.asarray(positions, dtype=np.float32)
-    positions = np.repeat(positions[None, :], num_eval, axis=0)
-
-    if center is None:
-        center = np.array(
-            [
-                (x_range[0] + x_range[1]) / 2.0,
-                (y_range[0] + y_range[1]) / 2.0,
-            ],
-            dtype=np.float32,
-        )
-    else:
-        center = np.asarray(center, dtype=np.float32)[:2]
-
-    def box_contains_center(pos_xy):
-        return (
-            abs(pos_xy[0] - center[0]) <= box_size
-            and abs(pos_xy[1] - center[1]) <= box_size
-        )
-
-    for i in range(num_eval):
-        base = positions[i].copy()
-
-        for _ in range(max_tries):
-            noise = rng.normal(0.0, noise_std, size=2).astype(np.float32)
-            noise = np.clip(noise, -noise_clip, noise_clip)
-            
-
-            cand = base.copy()
-            cand[:2] += noise
-
-            cand[0] = np.clip(cand[0], x_range[0], x_range[1])
-            cand[1] = np.clip(cand[1], y_range[0], y_range[1])
-
-            if not box_contains_center(cand[:2]):
-                print("noise in add_xy_noise:", noise)
-                positions[i] = cand
-                break
-        else:
-            # どうしても中心を含む場合は、中心から遠ざかる方向へ押し出す
-            cand = base.copy()
-            direction = cand[:2] - center
-
-            if np.linalg.norm(direction) < 1e-8:
-                direction = np.array([1.0, 0.0], dtype=np.float32)
-            else:
-                direction = direction / np.linalg.norm(direction)
-
-            cand[:2] = center + direction * (box_size + 1e-3)
-
-            cand[0] = np.clip(cand[0], x_range[0], x_range[1])
-            cand[1] = np.clip(cand[1], y_range[0], y_range[1])
-
-            positions[i] = cand
-
-    return positions
 
 if __name__ == "__main__":
     run()
