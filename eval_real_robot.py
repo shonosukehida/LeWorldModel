@@ -851,8 +851,8 @@ class XArm7IK:
 
 def _load_or_capture_goal(env, real_cfg):
     goal_path = str(real_cfg.goal_image_path or "")
-    print("real_cfg:", real_cfg)
-    print("goal_path:", goal_path)
+    # print("real_cfg:", real_cfg)
+    # print("goal_path:", goal_path)
     if goal_path:
         bgr = cv2.imread(goal_path, cv2.IMREAD_COLOR)
         if bgr is None:
@@ -1130,7 +1130,7 @@ def run(cfg: DictConfig):
 
 
 
-    print_normalization_process(process)
+    # print_normalization_process(process)
 
                         
 
