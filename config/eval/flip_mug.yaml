@@ -39,8 +39,8 @@ seed: 42
 policy: lewm_weights 
 
 plan_config:
-  horizon: 5 #CEMの計算horizon #5
-  receding_horizon: 5 #buffer にためておくaction step, 貯められたaction は毎ステップ取り出され環境に投入される #5
+  horizon: 5 #CEMの計算horizon #!5
+  receding_horizon: 5 #buffer にためておくaction step, 貯められたaction は毎ステップ取り出され環境に投入される #!5
   action_block: 1
   action_space: "cartesian" #cartesian / joint
   warm_start: false
@@ -59,7 +59,7 @@ eval:
   # to 0=open and 1=closed.
   real_robot:
     execute: true
-    dry_run: true #ハードは動かさずにソフトだけをテストする
+    dry_run: false #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
     follower_ip: "192.168.1.240"
     max_steps: 300

@@ -413,6 +413,7 @@ class XArmInferenceEnv:
         return qpos, qvel, ee
 
     def execute(self, action, action_space):
+        code = 0
         action = np.asarray(action, dtype=np.float32).reshape(-1)
         if action_space == "joint":
             if action.size < 7:
@@ -435,45 +436,22 @@ class XArmInferenceEnv:
                     f"got {action.size}"
                 )
             _, _, current_ee = self.get_robot_state()
-            target_xyz = action[:3].copy()
-            current_xyz = current_ee[:3]
-            delta = np.clip(
-                target_xyz - current_xyz,
-                -float(self.cfg.max_cartesian_delta_m),
-                float(self.cfg.max_cartesian_delta_m),
+            clipped_action = self.clip_cartesian_action(
+                action,
+                current_ee=current_ee,
             )
-            target_xyz = current_xyz + delta
-            bounds = np.asarray(self.cfg.workspace_bounds_m, dtype=np.float32)
-            target_xyz = np.clip(target_xyz, bounds[:, 0], bounds[:, 1])
 
-            current_rotation = Rotation.from_quat(current_ee[3:7])
-            target_quat = action[3:7]
-            quat_norm = float(np.linalg.norm(target_quat))
-            if quat_norm < 1e-6:
-                raise ValueError("Predicted flip-mug quaternion has near-zero norm")
-            target_rotation = Rotation.from_quat(target_quat / quat_norm)
-            relative = target_rotation * current_rotation.inv()
-            rotation_vector = relative.as_rotvec()
-            angle = float(np.linalg.norm(rotation_vector))
-            max_angle = float(self.cfg.max_orientation_delta_rad)
-            if angle > max_angle:
-                relative = Rotation.from_rotvec(rotation_vector * (max_angle / angle))
-                target_rotation = relative * current_rotation
-            target_quat = target_rotation.as_quat().astype(np.float32)
+            target_xyz = clipped_action[:3]
+
+            
+            target_quat = clipped_action[3:7]
+            target_rotation = Rotation.from_quat(target_quat)
             target_rpy = target_rotation.as_euler("xyz")
             pose = np.concatenate([target_xyz * 1000.0, target_rpy])
 
-            target_gripper = float(np.clip(action[7], 0.0, 1.0))
-            target_gripper = float(np.clip(
-                target_gripper,
-                float(self._last_gripper) - float(self.cfg.gripper.max_delta),
-                float(self._last_gripper) + float(self.cfg.gripper.max_delta),
-            ))
+            target_gripper = float(clipped_action[7])
+            
             if not self.dry_run:
-                # code = self._robot.set_position(
-                #     *pose.tolist(), is_radian=True,
-                #     speed=float(self.cfg.cartesian_speed_mm_s), wait=False,
-                # )
                 current_qpos, _, _ = self.get_robot_state()
 
                 target_qpos = self._ik_solver.solve(
@@ -490,7 +468,7 @@ class XArmInferenceEnv:
                 )
 
                 code = self._robot.set_servo_angle(
-                    angle=target_qpos.tolist(),
+                    angle=safe_qpos.tolist(),
                     is_radian=True,
                     speed=float(self.cfg.joint_speed),
                     wait=False,
@@ -521,6 +499,108 @@ class XArmInferenceEnv:
         if not self.dry_run and (code[0] if isinstance(code, tuple) else code) != 0:
             raise RuntimeError(f"xArm motion command failed with SDK code {code}")
         return action.astype(np.float32)
+    
+
+    def clip_cartesian_action(self, action, current_ee=None):
+        """
+        Cartesian actionを安全制限後の値へ変換する。
+
+        Args:
+            action:
+                shape (8,)
+                [x, y, z, qx, qy, qz, qw, gripper]
+
+            current_ee:
+                shape (7,)
+                [x, y, z, qx, qy, qz, qw]
+                Noneなら実機またはdry-run状態から取得する。
+
+        Returns:
+            clipped_action:
+                shape (8,)
+                [x, y, z, qx, qy, qz, qw, gripper]
+        """
+
+        
+        action = np.asarray(action, dtype=np.float32).reshape(-1)
+
+        if action.size < 8:
+            raise ValueError(
+                "Cartesian action must have 8 values, "
+                f"got {action.size}"
+            )
+
+        if current_ee is None:
+            _, _, current_ee = self.get_robot_state()
+
+        current_ee = np.asarray(current_ee, dtype=np.float32)
+
+        # Position clip
+        target_xyz = action[:3].copy()
+        current_xyz = current_ee[:3]
+
+        delta_xyz = np.clip(
+            target_xyz - current_xyz,
+            -float(self.cfg.max_cartesian_delta_m),
+            float(self.cfg.max_cartesian_delta_m),
+        )
+
+        target_xyz = current_xyz + delta_xyz
+
+        bounds = np.asarray(
+            self.cfg.workspace_bounds_m,
+            dtype=np.float32,
+        )
+        target_xyz = np.clip(
+            target_xyz,
+            bounds[:, 0],
+            bounds[:, 1],
+        )
+
+        # Orientation clip
+        current_rotation = Rotation.from_quat(current_ee[3:7])
+
+        target_quat = action[3:7]
+        quat_norm = float(np.linalg.norm(target_quat))
+
+        if quat_norm < 1e-6:
+            raise ValueError(
+                "Predicted quaternion has near-zero norm"
+            )
+
+        target_rotation = Rotation.from_quat(
+            target_quat / quat_norm
+        )
+
+        relative = target_rotation * current_rotation.inv()
+        rotation_vector = relative.as_rotvec()
+        angle = float(np.linalg.norm(rotation_vector))
+
+        max_angle = float(self.cfg.max_orientation_delta_rad)
+
+        if angle > max_angle:
+            relative = Rotation.from_rotvec(
+                rotation_vector * (max_angle / angle)
+            )
+            target_rotation = relative * current_rotation
+
+        target_quat = target_rotation.as_quat().astype(np.float32)
+
+        # Gripper clip
+        target_gripper = float(np.clip(action[7], 0.0, 1.0))
+        target_gripper = float(np.clip(
+            target_gripper,
+            float(self._last_gripper)
+            - float(self.cfg.gripper.max_delta),
+            float(self._last_gripper)
+            + float(self.cfg.gripper.max_delta),
+        ))
+
+        return np.concatenate([
+            target_xyz,
+            target_quat,
+            [target_gripper],
+        ]).astype(np.float32)
 
 
 
@@ -599,7 +679,6 @@ def _policy_observation(image, goal, qpos, qvel, ee, step_idx, process):
 
 
 def run_xarm_task(cfg, policy, process, results_path):
-    print("results_path: ", results_path)
 
     """Run MPC against xArm and persist synchronized observations/actions."""
     real_cfg = cfg.eval.real_robot
@@ -668,10 +747,12 @@ def run_xarm_task(cfg, policy, process, results_path):
                 
             # print("run_dir:", run_dir)
             if outputs is not None:
-                visualize_cem_raw_actions(
+                visualize_cem_actions(
                     outputs=outputs,
                     action_processor=policy.action_processor,
-                    save_dir=run_dir / "cem" / "cem_raw_actions",
+                    env=env,
+                    current_ee=ee,
+                    save_dir=run_dir / "cem" / "cem_actions",
                     step_idx=step_idx,
                     receding_horizon=int(policy.cfg.receding_horizon),
                 )
@@ -713,8 +794,7 @@ def run(cfg: DictConfig):
     ), "Planning horizon must be smaller than or equal to eval_budget"
     
 
-    # print("cfg.policy:", cfg.policy)
-    # print("swm.data.utils.get_cache_dir():", swm.data.utils.get_cache_dir())
+
     results_path = (
         Path(swm.data.utils.get_cache_dir(), "eval", cfg.policy).parent
         if cfg.policy != "random"
@@ -785,9 +865,11 @@ def run(cfg: DictConfig):
                         
 
     # -- run evaluation
-    policy = cfg.get("policy", "random") #franka_push/pairs_100_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/lewm
+    policy = cfg.get("policy", "random") #flip_mug/ep200_tm300_gripper/lewm
+
+    
     if policy != "random":
-        model = swm.policy.AutoCostModel(cfg.policy)
+        model = swm.policy.AutoCostModel(cfg.policy) #cfg.policy: flip_mug/ep200_tm300_gripper/lewm
         
         if cfg.eval.probing.get("use_random_encoder", False):
             print("Using a randomly reinitialized encoder")
@@ -809,7 +891,7 @@ def run(cfg: DictConfig):
         model.interpolate_pos_encoding = True
         config = swm.PlanConfig(**cfg.plan_config)
         solver = hydra.utils.instantiate(cfg.solver, model=model)
-        print("solver:", solver)
+        # print("solver:", solver)
 
         policy = swm.policy.WorldModelPolicy(
             solver=solver, config=config, process=process, transform=transform
@@ -857,12 +939,70 @@ def run(cfg: DictConfig):
         prober.run()
         
         
+def clip_cem_action_sequence(
+    env,
+    actions_physical,
+    current_ee,
+):
+    """
+    CEMの物理空間の行動列に、Cartesian安全制限を逐次適用する。
+
+    Args:
+        env:
+            XArmInferenceEnv
+
+        actions_physical:
+            shape (horizon, 8)
+            [x, y, z, qx, qy, qz, qw, gripper]
+
+        current_ee:
+            shape (7,)
+            現在の[x, y, z, qx, qy, qz, qw]
+
+    Returns:
+        clipped_actions:
+            shape (horizon, 8)
+    """
+    actions_physical = np.asarray(
+        actions_physical,
+        dtype=np.float32,
+    )
+
+    if actions_physical.ndim != 2 or actions_physical.shape[1] != 8:
+        raise ValueError(
+            "actions_physical must have shape "
+            f"(horizon, 8), got {actions_physical.shape}"
+        )
+
+    simulated_ee = np.asarray(
+        current_ee,
+        dtype=np.float32,
+    ).reshape(7).copy()
+
+    clipped_actions = []
+
+    for action in actions_physical:
+        clipped_action = env.clip_cartesian_action(
+            action,
+            current_ee=simulated_ee,
+        )
+
+        clipped_actions.append(clipped_action)
+
+        # 前stepのclip後EE姿勢を、
+        # 次stepの仮想的な現在EE姿勢として使う
+        simulated_ee = clipped_action[:7].copy()
+
+    return np.stack(clipped_actions, axis=0)
 
 
 
-def visualize_cem_raw_actions(
+
+def visualize_cem_actions(
     outputs,
     action_processor,
+    env,
+    current_ee,
     save_dir,
     step_idx,
     receding_horizon,
@@ -900,6 +1040,11 @@ def visualize_cem_raw_actions(
     actions_physical = action_processor.inverse_transform(
         actions_normalized
     )
+    actions_clipped = clip_cem_action_sequence(
+        env=env,
+        actions_physical=actions_physical,
+        current_ee=current_ee,
+    )
 
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -908,6 +1053,8 @@ def visualize_cem_raw_actions(
         save_dir / f"step_{step_idx:04d}_cem_actions.npz",
         normalized=actions_normalized,
         physical=actions_physical,
+        clipped=actions_clipped,
+        current_ee=np.asarray(current_ee, dtype=np.float32),
         receding_horizon=np.int64(receding_horizon),
     )
 
@@ -924,6 +1071,14 @@ def visualize_cem_raw_actions(
         save_path=save_dir
         / f"step_{step_idx:04d}_physical.png",
         title=f"CEM physical actions — step {step_idx}",
+        receding_horizon=receding_horizon,
+    )
+    
+    _plot_cem_action_sequence(
+        actions=actions_clipped,
+        save_path=save_dir
+        / f"step_{step_idx:04d}_clipped.png",
+        title=f"CEM clipped actions — step {step_idx}",
         receding_horizon=receding_horizon,
     )
 
@@ -959,7 +1114,7 @@ def _plot_cem_action_sequence(
     axes[0].plot(steps, actions[:, 0], marker="o", label="x")
     axes[0].plot(steps, actions[:, 1], marker="o", label="y")
     axes[0].plot(steps, actions[:, 2], marker="o", label="z")
-    axes[0].set_ylabel("Position")
+    axes[0].set_ylabel("Position [m]")
     axes[0].legend()
     axes[0].grid(True)
 
