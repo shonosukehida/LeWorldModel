@@ -30,6 +30,7 @@ import ctypes
 
 import matplotlib.pyplot as plt
 import json
+import subprocess
 
 
 def img_transform(cfg):
@@ -667,6 +668,11 @@ class XArmInferenceEnv:
                     max_delta,
                 )
 
+                # デバッグ用
+                self._last_target_qpos = target_qpos.copy()
+                self._last_safe_qpos = safe_qpos.copy()                
+                # print("target_qpos: ", target_qpos, "safe_qpos: ", safe_qpos)
+
                 code = self._robot.set_servo_angle(
                     angle=safe_qpos.tolist(),
                     is_radian=True,
@@ -801,7 +807,77 @@ class XArmInferenceEnv:
             target_quat,
             [target_gripper],
         ]).astype(np.float32)
+        
+    def forward_kinematics(self, qpos):
+        """
+        xArm7 joint angles -> EE pose
 
+        Args:
+            qpos:
+                shape (7,)
+                joint angles [rad]
+
+        Returns:
+            ee:
+                shape (7,)
+                [x, y, z, qx, qy, qz, qw]
+                position unit: metre
+        """
+        qpos = np.asarray(
+            qpos,
+            dtype=np.float32,
+        ).reshape(-1)
+
+        if qpos.size < 7:
+            raise ValueError(
+                f"qpos needs 7 values, got {qpos.size}"
+            )
+
+        if self.dry_run:
+            raise RuntimeError(
+                "forward_kinematics requires a real xArm connection"
+            )
+
+        code, fk_pose = self._robot.get_forward_kinematics(
+            qpos[:7].tolist(),
+            input_is_radian=True,
+        )
+
+        if code != 0 or fk_pose is None:
+            raise RuntimeError(
+                "xArm get_forward_kinematics failed\n"
+                f"code: {code}\n"
+                f"qpos: {qpos[:7]}"
+            )
+
+        fk_pose = np.asarray(
+            fk_pose,
+            dtype=np.float64,
+        )
+
+        if fk_pose.shape != (6,):
+            raise ValueError(
+                f"FK pose must have shape (6,), got {fk_pose.shape}"
+            )
+
+        # xArm SDK:
+        # [x_mm, y_mm, z_mm, roll, pitch, yaw]
+        position_m = fk_pose[:3] / 1000.0
+
+        quaternion = Rotation.from_euler(
+            "xyz",
+            fk_pose[3:6],
+            degrees=False,
+        ).as_quat()
+
+        ee = np.concatenate(
+            [
+                position_m,
+                quaternion,
+            ]
+        ).astype(np.float32)
+
+        return ee
 
 
 class XArm7IK:
@@ -973,15 +1049,172 @@ def run_xarm_task(cfg, policy, process, results_path):
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
         env.close()
+
+        # rollout.h5 を保存
         with h5py.File(run_dir / "rollout.h5", "w") as h5:
             h5.attrs["config"] = OmegaConf.to_yaml(cfg)
+
             for key, values in records.items():
                 array = np.asarray(values)
-                kwargs = {"compression": "gzip", "compression_opts": 4} if array.size else {}
-                h5.create_dataset(key, data=array, **kwargs)
-            h5.create_dataset("goal", data=goal if "goal" in locals() else np.empty(0))
-        print(f"Real-robot rollout saved to: {run_dir / 'rollout.h5'}")
+                kwargs = {
+                    "compression": "gzip",
+                    "compression_opts": 4
+                } if array.size else {}
+
+                h5.create_dataset(
+                    key,
+                    data=array,
+                    **kwargs
+                )
+
+            h5.create_dataset(
+                "goal",
+                data=goal if "goal" in locals() else np.empty(0)
+            )
+
+        print(
+            f"Real-robot rollout saved to: "
+            f"{run_dir / 'rollout.h5'}"
+        )
+
+
+        # commanded Cartesian position と
+        # 次stepで観測された実際のEE positionを比較
+        if (
+            len(records["commanded_action"]) > 1
+            and len(records["ee_pos_quat"]) > 1
+        ):
+            commanded_actions = np.asarray(
+                records["commanded_action"],
+                dtype=np.float32,
+            )
+
+            ee_states = np.asarray(
+                records["ee_pos_quat"],
+                dtype=np.float32,
+            )
+
+
+
+            # commanded_action[t] に対して、
+            # その命令後の ee_pos_quat[t+1] を比較する
+            commanded_xyz = commanded_actions[:-1, :3]
+            actual_xyz = ee_states[1:, :3]
+
+            # 横軸を step にする
+            plot_steps = np.arange(1, len(commanded_xyz) + 1)
+
+            fig, axes = plt.subplots(
+                3,
+                1,
+                figsize=(12, 10),
+                sharex=True,
+            )
+
+            axis_names = ["x", "y", "z"]
+
+            for i, axis_name in enumerate(axis_names):
+                axes[i].plot(
+                    plot_steps,
+                    commanded_xyz[:, i],
+                    label=f"Commanded {axis_name}",
+                )
+
+                axes[i].plot(
+                    plot_steps,
+                    actual_xyz[:, i],
+                    label=f"Actual {axis_name}",
+                )
+
+                axes[i].set_ylabel(
+                    f"{axis_name.upper()} Position [m]"
+                )
+
+                axes[i].legend()
+                axes[i].grid(True)
+
+            axes[2].set_xlabel("Step")
+
+            fig.suptitle(
+                "Commanded vs Actual EE Position"
+            )
+
+            fig.tight_layout()
+
+            position_plot_path = (
+                run_dir / "commanded_vs_actual_position.png"
+            )
+
+            fig.savefig(
+                position_plot_path,
+                dpi=150,
+                bbox_inches="tight",
+            )
+
+            plt.close(fig)
+
+            print(
+                f"Commanded vs actual EE position plot saved to: "
+                f"{position_plot_path}"
+            )
+
+
+        # pixels を rollout.mp4 として保存
+        if len(records["pixels"]) > 0:
+            raw_video_path = run_dir / "rollout_raw.mp4"
+            video_path = run_dir / "rollout.mp4"
+
+            frames = np.asarray(records["pixels"])
+            height, width = frames[0].shape[:2]
+
+            # 一旦 mp4v で保存
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+
+            writer = cv2.VideoWriter(
+                str(raw_video_path),
+                fourcc,
+                float(real_cfg.control_hz),
+                (width, height),
+            )
+
+            if not writer.isOpened():
+                raise RuntimeError(
+                    f"Could not open video writer: {raw_video_path}"
+                )
+
+            for frame in frames:
+                frame_bgr = cv2.cvtColor(
+                    frame.astype(np.uint8),
+                    cv2.COLOR_RGB2BGR,
+                )
+
+                writer.write(frame_bgr)
+
+            writer.release()
+
+            # H.264 に変換
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i", str(raw_video_path),
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    str(video_path),
+                ],
+                check=True,
+            )
+
+            # 中間ファイルを削除
+            raw_video_path.unlink()
+
+            print(
+                f"Real-robot rollout video saved to: "
+                f"{video_path}"
+            )
     return run_dir
+
 
 
 
@@ -1014,48 +1247,6 @@ def run(cfg: DictConfig):
         "goal": img_transform(cfg),
     }
 
-
-    # dataset = get_dataset(cfg, cfg.eval.dataset_name)
-    
-
-
-    # dataset_name = cfg.eval.dataset_name
-    # cache_dir = Path(cfg.cache_dir or swm.data.utils.get_cache_dir())
-    # h5_path = cache_dir / "datasets" / f"{dataset_name}.h5"
-    
-
-    
-    # stats_dataset = dataset  # get_dataset(cfg, cfg.dataset.stats)
-    # print("dataset.column_names:", dataset.column_names)
-    # col_name = "episode_idx" if "episode_idx" in dataset.column_names else "ep_idx"
-    # # print("col_name:", col_name)
-    # ep_indices, _ = np.unique(stats_dataset.get_col_data(col_name), return_index=True)
-
-    # print("cfg.dataset.keys_to_cache:", cfg.dataset.keys_to_cache)
-    
-    # process = {} #action.min, maxも持たせる?
-    # action_key = ""
-    # for col in cfg.dataset.keys_to_cache:
-    #     if col in ["pixels"]:
-    #         continue
-    #     # processor = preprocessing.StandardScaler()
-    #     processor = SafeStandardScaler(eps=1e-4)
-    #     col_data = stats_dataset.get_col_data(col)
-    #     col_data = col_data[~np.isnan(col_data).any(axis=1)]
-    #     processor.fit(col_data)
-        
-    #     processor.raw_min_ = col_data.min(axis=0, keepdims=True)
-    #     processor.raw_max_ = col_data.max(axis=0, keepdims=True)
-    #     processor.normed_min_ = processor.transform(processor.raw_min_)
-    #     processor.normed_max_ = processor.transform(processor.raw_max_)
-        
-    #     process[col] = processor
-
-    #     action_keys = {"action", "action_cartesian", "action_joint"}
-    #     if col not in action_keys:
-    #         process[f"goal_{col}"] = process[col]
-    #     else:
-    #         action_key = col
 
     dataset_name = cfg.eval.dataset_name
 
@@ -1125,13 +1316,6 @@ def run(cfg: DictConfig):
             f"statistics: {stats_path}"
         )
 
-    # print(f"action_key: {action_key}")
-
-
-
-
-    # print_normalization_process(process)
-
                         
 
     # -- run evaluation
@@ -1161,7 +1345,6 @@ def run(cfg: DictConfig):
         model.interpolate_pos_encoding = True
         config = swm.PlanConfig(**cfg.plan_config)
         solver = hydra.utils.instantiate(cfg.solver, model=model)
-        # print("solver:", solver)
 
         policy = swm.policy.WorldModelPolicy(
             solver=solver, config=config, process=process, transform=transform

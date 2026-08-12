@@ -1,15 +1,22 @@
-from xarm.wrapper import XArmAPI
+import h5py
+import imageio.v2 as imageio
 import numpy as np
 
-arm = XArmAPI("192.168.1.240", is_radian=True)
+h5_path = "/home/hida/.stable_worldmodel/eval/flip_mug/ep200_tm300_gripper/rollout.h5"
+output_path = "/home/hida/.stable_worldmodel/eval/flip_mug/ep200_tm300_gripper/rollout.mp4"
 
-# 適当な7関節角
-joints = np.zeros(7, dtype=np.float32)
+with h5py.File(h5_path, "r") as f:
+    print("keys:", list(f.keys()))
 
-code, pose = arm.get_forward_kinematics(
-    joints.tolist(),
-    input_is_radian=True,
-)
+    frames = f["pixels"][:]   # (T, H, W, 3)
 
-print(code)
-print(pose)
+    print("frames.shape:", frames.shape)
+    print("dtype:", frames.dtype)
+
+    with imageio.get_writer(output_path, fps=5) as writer:
+        for frame in frames:
+            if frame.dtype != np.uint8:
+                frame = np.clip(frame, 0, 255).astype(np.uint8)
+            writer.append_data(frame)
+
+print("Saved:", output_path)
