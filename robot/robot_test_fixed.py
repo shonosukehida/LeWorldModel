@@ -66,7 +66,7 @@ def run(cfg: DictConfig):
         target_xyz = initial_xyz.copy()
 
         # まずは安全に x 方向へ +2 cm
-        target_xyz[0] += 0.02
+        # target_xyz[0] += 0.02
 
         # 姿勢は初期姿勢のまま固定
         target_quat = initial_quat.copy()

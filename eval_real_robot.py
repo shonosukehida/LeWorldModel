@@ -382,51 +382,6 @@ def load_normalization_process(stats_path):
     return process, action_key
 
 
-class XArm7IK:
-    def __init__(self, lib_path: str):
-        self.lib = ctypes.CDLL(str(Path(lib_path).resolve()))
-
-        double_ptr = ctypes.POINTER(ctypes.c_double)
-
-        self.lib.xarm7_init.argtypes = [
-            double_ptr,
-            double_ptr,
-            double_ptr,
-            double_ptr,
-        ]
-        self.lib.xarm7_init.restype = ctypes.c_int
-
-        self.lib.xarm7_ik.argtypes = [
-            double_ptr,
-            double_ptr,
-            double_ptr,
-        ]
-        self.lib.xarm7_ik.restype = ctypes.c_int
-
-        code = self.lib.xarm7_init(None, None, None, None)
-        if code != 0:
-            raise RuntimeError(f"xarm7_init failed: {code}")
-
-    def solve(
-        self,
-        pose_rpy: np.ndarray,
-        q_pre: np.ndarray,
-    ) -> np.ndarray:
-        pose = np.ascontiguousarray(pose_rpy, dtype=np.float64)
-        seed = np.ascontiguousarray(q_pre, dtype=np.float64)
-        theta = np.empty(7, dtype=np.float64)
-
-        code = self.lib.xarm7_ik(
-            pose.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-            seed.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-            theta.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-        )
-
-        if code != 0:
-            raise RuntimeError(f"xarm7_ik failed: {code}")
-
-        return theta.astype(np.float32)
-
 
 class XArmInferenceEnv:
     """Minimal xArm7/RealSense adapter used only by the real-robot rollout.

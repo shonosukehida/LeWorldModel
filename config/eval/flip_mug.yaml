@@ -68,7 +68,7 @@ eval:
     non_interactive: false
     goal_image_path: config/eval/goal_state/flip_mug/goal_state_0.png #ゴール画像のパス
     output_dir: ${hydra:runtime.cwd}/real_robot_rollouts/flip_mug
-    max_cartesian_delta_m: 0.04 #現在位置との差分 [m]
+    max_cartesian_delta_m: 10000 #現在位置との差分 [m] #0.02 #0.04
     max_orientation_delta_rad: 6.28  # 0.0872665 = 5deg
     max_joint_delta_rad: 1000 #0.03
     cartesian_speed_mm_s: 50.0
