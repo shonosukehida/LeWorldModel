@@ -28,8 +28,8 @@ def lejepa_forward(self, batch, stage, cfg):
     lambd = cfg.loss.sigreg.weight
     lambd_idm = cfg.loss.idm.weight if cfg.loss.idm.use else None
     
-    print("sigreg.coeff: ", lambd)
-    print("idm.coeff: ", lambd_idm)
+    # print("sigreg.coeff: ", lambd)
+    # print("idm.coeff: ", lambd_idm)
 
     # print("type(batch):", type(batch))
     action_key = ""
@@ -62,7 +62,6 @@ def lejepa_forward(self, batch, stage, cfg):
         a_pred = self.idm(z_t, z_tp1)
         
         output["idm_loss"] = F.mse_loss(a_pred, a_t)
-    
     
     
 
@@ -122,6 +121,18 @@ def run(cfg):
                 # print("col:", col)
                 setattr(cfg.wm, f"action_dim", dataset.get_dim(col))
 
+
+            if col == "proprio":
+                dataset_prop_dim = dataset.get_dim(col)
+
+                if dataset_prop_dim != cfg.wm.prop_dim:
+                    raise ValueError(
+                        "Proprio dimension mismatch: "
+                        f"dataset={dataset_prop_dim}, "
+                        f"config={cfg.wm.prop_dim}"
+                    )
+            
+
     
     transform = spt.data.transforms.Compose(*transforms)
     dataset.transform = transform
@@ -150,38 +161,52 @@ def run(cfg):
     )
 
     hidden_dim = encoder.config.hidden_size
-    embed_dim = cfg.wm.get("embed_dim", hidden_dim)
-    # print("cfg.wm.action_dim:", cfg.wm.action_dim)
+
+    img_embed_dim = cfg.wm.get("embed_dim", hidden_dim,)
+    prop_embed_dim = cfg.wm.prop_embed_dim
+
+    state_embed_dim = (img_embed_dim + prop_embed_dim)
+
+
     effective_act_dim = cfg.data.dataset.frameskip * cfg.wm.action_dim
 
     predictor = ARPredictor(
         num_frames=cfg.wm.history_size,
-        input_dim=embed_dim,
+        input_dim=state_embed_dim,
         hidden_dim=hidden_dim,
         output_dim=hidden_dim,
         **cfg.predictor,
     )
 
-    action_encoder = Embedder(input_dim=effective_act_dim, emb_dim=embed_dim)
+    action_encoder = Embedder(input_dim=effective_act_dim, emb_dim=state_embed_dim)
     
     projector = MLP(
         input_dim=hidden_dim,
-        output_dim=embed_dim,
+        output_dim=img_embed_dim,
         hidden_dim=2048,
         norm_fn=torch.nn.BatchNorm1d,
     )
 
     predictor_proj = MLP(
         input_dim=hidden_dim,
-        output_dim=embed_dim,
+        output_dim=state_embed_dim,
         hidden_dim=2048,
         norm_fn=torch.nn.BatchNorm1d,
+    )
+
+
+    prop_encoder = MLP(
+        input_dim=cfg.wm.prop_dim,
+        hidden_dim=64,
+        output_dim=prop_embed_dim,
+        norm_fn=torch.nn.LayerNorm,
     )
 
     world_model = JEPA(
         encoder=encoder,
         predictor=predictor,
         action_encoder=action_encoder,
+        prop_encoder=prop_encoder,
         projector=projector,
         pred_proj=predictor_proj,
     )
@@ -208,7 +233,7 @@ def run(cfg):
     
     if cfg.loss.idm.use:
         
-        idm = IDM(embed_dim=embed_dim, action_dim=effective_act_dim, hidden_dim = cfg.loss.idm.hidden_dim)
+        idm = IDM(embed_dim=state_embed_dim, action_dim=effective_act_dim, hidden_dim = cfg.loss.idm.hidden_dim)
 
         for p in idm.parameters():
             p.requires_grad = False

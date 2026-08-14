@@ -48,6 +48,9 @@ wm:
   history_size: 3
   num_preds: 1
   embed_dim: 192
+  prop_dim: 8 # 生のproprioception次元
+  prop_embed_dim: 32 # MLPが出力するproprio潜在の次元
+
 
 predictor:
   depth: 6

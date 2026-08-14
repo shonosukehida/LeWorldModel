@@ -15,6 +15,7 @@ class JEPA(nn.Module):
         encoder,
         predictor,
         action_encoder,
+        prop_encoder,
         projector=None,
         pred_proj=None,
         # action_space="",
@@ -24,43 +25,140 @@ class JEPA(nn.Module):
         self.encoder = encoder
         self.predictor = predictor
         self.action_encoder = action_encoder
+        self.prop_encoder = prop_encoder
         self.projector = projector or nn.Identity()
         self.pred_proj = pred_proj or nn.Identity()
         # self.action_space = action_space
 
+
     def encode(self, info):
-        """Encode observations and actions into embeddings.
-        info: dict with pixels and action keys
+        """Encode pixels, proprioception, and actions.
+
+        Expected inputs:
+            pixels:
+                (B, T, C, H, W)
+
+            proprio:
+                (B, T, 8)
+
+            action/action_joint/action_cartesian:
+                (B, T, action_dim)
+
+        Outputs:
+            img_emb:
+                (B, T, img_embed_dim)
+
+            prop_emb:
+                (B, T, prop_embed_dim)
+
+            emb:
+                (B, T, img_embed_dim + prop_embed_dim)
+
+            act_emb:
+                (B, T, state_embed_dim), if action exists
         """
+        if "pixels" not in info:
+            raise KeyError("pixels not found in info")
 
-        pixels = info['pixels'].float()
-        b = pixels.size(0)
-        pixels = rearrange(pixels, "b t ... -> (b t) ...") # flatten for encoding
-        output = self.encoder(pixels, interpolate_pos_encoding=True)
-        pixels_emb = output.last_hidden_state[:, 0]  # cls token
-        emb = self.projector(pixels_emb)
-        info["emb"] = rearrange(emb, "(b t) d -> b t d", b=b)
+        if "proprio" not in info:
+            raise KeyError("proprio not found in info")
 
-        # print("info.keys():", info.keys()) #dict
+        pixels = info["pixels"].float()
+        proprio = info["proprio"].float()
+
+        if pixels.ndim != 5:
+            raise ValueError(
+                "pixels must have shape (B, T, C, H, W), "
+                f"got {pixels.shape}"
+            )
+
+        if proprio.ndim != 3:
+            raise ValueError(
+                "proprio must have shape (B, T, D), "
+                f"got {proprio.shape}"
+            )
+
+        if pixels.shape[:2] != proprio.shape[:2]:
+            raise ValueError(
+                "pixels and proprio must have the same "
+                "batch and time dimensions, "
+                f"got pixels={pixels.shape[:2]} and "
+                f"proprio={proprio.shape[:2]}"
+            )
+
+        batch_size = pixels.size(0)
+
+        # (B, T, C, H, W) -> (B*T, C, H, W)
+        pixels_flat = rearrange(
+            pixels,
+            "b t ... -> (b t) ...",
+        )
+
+        # (B, T, 8) -> (B*T, 8)
+        proprio_flat = rearrange(
+            proprio,
+            "b t d -> (b t) d",
+        )
+
+        # 画像潜在
+        encoder_output = self.encoder(
+            pixels_flat,
+            interpolate_pos_encoding=True,
+        )
+
+        pixels_features = (
+            encoder_output.last_hidden_state[:, 0]
+        )
+
+        z_img_flat = self.projector(
+            pixels_features
+        )
+
+        # Proprio潜在
+        z_prop_flat = self.prop_encoder(
+            proprio_flat
+        )
+        # print("z_prop_flat.shape: ", z_prop_flat.shape)
+
+        emb_flat = torch.cat(
+            [z_img_flat, z_prop_flat],
+            dim=-1,
+        )
+
+        z_img = rearrange(
+            z_img_flat,
+            "(b t) d -> b t d",
+            b=batch_size,
+        )
+
+        z_prop = rearrange(
+            z_prop_flat,
+            "(b t) d -> b t d",
+            b=batch_size,
+        )
+
+        emb = rearrange(
+            emb_flat,
+            "(b t) d -> b t d",
+            b=batch_size,
+        )
+
+        info["img_emb"] = z_img
+        info["prop_emb"] = z_prop
+        info["emb"] = emb
+
         if "action" in info:
-            info["act_emb"] = self.action_encoder(info["action"])
+            info["act_emb"] = self.action_encoder(
+                info["action"]
+            )
         elif "action_joint" in info:
-            info["act_emb"] = self.action_encoder(info["action_joint"])
+            info["act_emb"] = self.action_encoder(
+                info["action_joint"]
+            )
         elif "action_cartesian" in info:
-            info["act_emb"] = self.action_encoder(info["action_cartesian"])
-        
-        # print("[jepa.py]self.cfg.action_space:", self.cfg.action_space)
-        # if self.cfg.action_space == "joint":
-        #     action_key = "action"
-        # elif self.cfg.action_space == "cartesian":
-        #     action_key = "action_cartesian"
-        # else:
-        #     raise ValueError(f"Unknown action_space: {self.cfg.action_space}")
-
-        # if action_key in info:
-        #     info["act_emb"] = self.action_encoder(info[action_key])
-
-        
+            info["act_emb"] = self.action_encoder(
+                info["action_cartesian"]
+            )
 
         return info
 

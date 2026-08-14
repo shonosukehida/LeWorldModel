@@ -31,6 +31,7 @@ dataset:
     # - action
     # - action_joint
     - action_cartesian
+    - proprio
     # - qpos
     # - qvel
     # - bluebox_pos
@@ -50,8 +51,8 @@ eval:
   num_eval: 1 #1
   eval_budget: 50 #50
   img_size: 224 
-  dataset_name: flip_mug/ep200_tm300_gripper/push
-  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_gripper/process_stats.npz
+  dataset_name: flip_mug/ep2_tm300/push
+  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep2_tm300/process_stats.npz
   ac_cost_dataset_name: null
 
 
@@ -67,6 +68,15 @@ eval:
     control_hz: 10 #0.5
     non_interactive: false
     goal_image_path: config/eval/goal_state/flip_mug/goal_state_0.png #ゴール画像のパス
+    goal_proprio: #ゴール状態の姿勢
+      - 0.50  # x [m]
+      - 0.00  # y [m]
+      - 0.35  # z [m]
+      - 0.00  # qx
+      - 0.00  # qy
+      - 0.00  # qz
+      - 1.00  # qw
+      - 0.00  # gripper
     output_dir: ${hydra:runtime.cwd}/real_robot_rollouts/flip_mug
     max_cartesian_delta_m: 10000 #現在位置との差分 [m] #0.02 #0.04
     max_orientation_delta_rad: 6.28  # 0.0872665 = 5deg
@@ -94,7 +104,7 @@ eval:
     exe_probe: true
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
-    val_dataset_name: flip_mug/ep1_tm300_redpen/push #flip_mug/val_ep10_tm300/push
+    val_dataset_name: flip_mug/val_ep10_tm300_prop/push #flip_mug/val_ep10_tm300_prop/push
     plot_all_train_data: true
     plot_all_val_data: false
     plot_open_data: true

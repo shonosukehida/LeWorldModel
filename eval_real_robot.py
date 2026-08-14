@@ -547,10 +547,33 @@ class XArmInferenceEnv:
         ee_rpy = self._sdk_value(
             self._robot.get_position(is_radian=True), "get_position"
         )[:6]
-        ee = np.concatenate([
-            ee_rpy[:3] / 1000.0,
-            Rotation.from_euler("xyz", ee_rpy[3:6]).as_quat(),
-        ]).astype(np.float32)
+
+        quat = Rotation.from_euler(
+            "xyz",
+            ee_rpy[3:6],
+        ).as_quat().astype(np.float32)
+
+        quat /= np.clip(
+            np.linalg.norm(quat),
+            1e-8,
+            None,
+        )
+
+        previous_quat = self._last_ee[3:7]
+
+        if np.dot(
+            previous_quat,
+            quat,
+        ) < 0:
+            quat *= -1.0
+
+        ee = np.concatenate(
+            [
+                ee_rpy[:3] / 1000.0,
+                quat,
+            ]
+        ).astype(np.float32)
+
         try:
             code, gripper_position = self._robot.get_gripper_position()
             if code == 0:
@@ -880,33 +903,136 @@ class XArm7IK:
 
         return theta.astype(np.float32)
 
-def _load_or_capture_goal(env, real_cfg):
-    goal_path = str(real_cfg.goal_image_path or "")
-    # print("real_cfg:", real_cfg)
-    # print("goal_path:", goal_path)
+def _load_or_capture_goal(
+    env,
+    real_cfg,
+):
+    goal_path = str(
+        real_cfg.goal_image_path or ""
+    )
+
     if goal_path:
-        bgr = cv2.imread(goal_path, cv2.IMREAD_COLOR)
+        bgr = cv2.imread(
+            goal_path,
+            cv2.IMREAD_COLOR,
+        )
+
         if bgr is None:
-            raise FileNotFoundError(f"Could not read goal image: {goal_path}")
-        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            raise FileNotFoundError(
+                f"Could not read goal image: {goal_path}"
+            )
+
+        goal_image = cv2.cvtColor(
+            bgr,
+            cv2.COLOR_BGR2RGB,
+        )
+
+        if real_cfg.get(
+            "goal_proprio",
+            None,
+        ) is None:
+            raise ValueError(
+                "goal_proprio must be specified when "
+                "using a saved goal image"
+            )
+
+        goal_proprio = np.asarray(
+            real_cfg.goal_proprio,
+            dtype=np.float32,
+        )
+
+        if goal_proprio.shape != (8,):
+            raise ValueError(
+                "goal_proprio must have shape (8,), "
+                f"got {goal_proprio.shape}"
+            )
+            
+        goal_quat = goal_proprio[3:7]
+
+        quat_norm = float(
+            np.linalg.norm(goal_quat)
+        )
+
+        if quat_norm < 1e-8:
+            raise ValueError(
+                "goal_proprio contains a zero quaternion"
+            )
+
+        goal_proprio[3:7] = (
+            goal_quat / quat_norm
+        )
+
+        if goal_proprio[6] < 0:
+            goal_proprio[3:7] *= -1.0
+
+        return goal_image, goal_proprio
+
     if not real_cfg.non_interactive:
-        input("Place the scene in the GOAL state, then press Enter to capture it: ")
-    return env.get_image()
+        input(
+            "Place the scene and robot in the GOAL "
+            "state, then press Enter to capture it: "
+        )
+
+    goal_image = env.get_image()
+    _, _, goal_ee = env.get_robot_state()
+
+    goal_proprio = np.concatenate(
+        [
+            goal_ee,
+            np.asarray(
+                [env._last_gripper],
+                dtype=np.float32,
+            ),
+        ]
+    ).astype(np.float32)
+
+    return goal_image, goal_proprio
 
 
-def _policy_observation(image, goal, qpos, qvel, ee, step_idx, process):
-    """Build the (environment, history, ...) layout expected by policy."""
+def _policy_observation(
+    image,
+    goal,
+    ee,
+    gripper,
+    goal_proprio,
+    step_idx,
+    process,
+):
+    """Build observation for the proprio-aware world model."""
+    current_proprio = np.concatenate(
+        [
+            np.asarray(ee, dtype=np.float32),
+            np.asarray(
+                [gripper],
+                dtype=np.float32,
+            ),
+        ]
+    ).astype(np.float32)
+
+    goal_proprio = np.asarray(
+        goal_proprio,
+        dtype=np.float32,
+    ).reshape(8)
+
     obs = {
         "pixels": image[None, None],
         "goal": goal[None, None],
-        "step_idx": np.asarray([[step_idx]], dtype=np.int64),
-        "qpos": qpos[None, None],
-        "qvel": qvel[None, None],
-        "ee_pos": ee[:3][None, None],
+
+        # (environment=1, history=1, dim=8)
+        "proprio": current_proprio[None, None],
+        "goal_proprio": goal_proprio[None, None],
+
+        "step_idx": np.asarray(
+            [[step_idx]],
+            dtype=np.int64,
+        ),
     }
-    # Do not pass untrained auxiliary keys to models that do not use them.
-    keep = {"pixels", "goal", "step_idx"} | set(process.keys())
-    return {key: value for key, value in obs.items() if key in keep}
+
+    keep = {"pixels", "goal", "step_idx",} | set(process.keys())
+
+    return {
+        key: value for key, value in obs.items() if key in keep
+    }
 
 
 def run_xarm_task(cfg, policy, process, results_path):
@@ -947,11 +1073,19 @@ def run_xarm_task(cfg, policy, process, results_path):
 
     previous_sigint = signal.signal(signal.SIGINT, request_stop)
     records = {key: [] for key in (
-        "pixels", "commanded_action", "qpos", "qvel", "ee_pos_quat",
+        "pixels", "proprio", "commanded_action", "qpos", "qvel", "ee_pos_quat",
         "gripper", "timestamp"
     )}
     try:
-        goal = _load_or_capture_goal(env, real_cfg)
+        
+        goal, goal_proprio = (
+            _load_or_capture_goal(
+                env,
+                real_cfg,
+            )
+        )        
+
+
         cv2.imwrite(
             str(run_dir / "goal.png"), cv2.cvtColor(goal, cv2.COLOR_RGB2BGR)
         )
@@ -966,8 +1100,25 @@ def run_xarm_task(cfg, policy, process, results_path):
             tick = time.monotonic()
             image = env.get_image()
             qpos, qvel, ee = env.get_robot_state()
+
+            current_proprio = np.concatenate(
+                [
+                    ee,
+                    np.asarray(
+                        [env._last_gripper],
+                        dtype=np.float32,
+                    ),
+                ]
+            ).astype(np.float32)
+
             info = _policy_observation(
-                image, goal, qpos, qvel, ee, step_idx, process
+                image=image,
+                goal=goal,
+                ee=ee,
+                gripper=float(env._last_gripper),
+                goal_proprio=goal_proprio,
+                step_idx=step_idx,
+                process=process,
             )
             action_result = policy.get_action(info)
             if isinstance(action_result, tuple):
@@ -992,6 +1143,7 @@ def run_xarm_task(cfg, policy, process, results_path):
             commanded = env.execute(action, str(cfg.plan_config.action_space))
 
             records["pixels"].append(image)
+            records["proprio"].append(current_proprio)
             records["commanded_action"].append(commanded)
             records["qpos"].append(qpos)
             records["qvel"].append(qvel)
@@ -1026,6 +1178,16 @@ def run_xarm_task(cfg, policy, process, results_path):
                 "goal",
                 data=goal if "goal" in locals() else np.empty(0)
             )
+
+            h5.create_dataset(
+                "goal_proprio",
+                data=(
+                    goal_proprio
+                    if "goal_proprio" in locals()
+                    else np.empty(0, dtype=np.float32)
+                ),
+            )
+
 
         print(
             f"Real-robot rollout saved to: "
@@ -1271,7 +1433,24 @@ def run(cfg: DictConfig):
             f"statistics: {stats_path}"
         )
 
-                        
+    #正規化統計が正しいフィールドになっているか検証
+    required_process_keys = {
+        "action_cartesian",
+        "proprio",
+        "goal_proprio",
+    }
+
+    missing_process_keys = (
+        required_process_keys
+        - set(process.keys())
+    )
+
+    if missing_process_keys:
+        raise KeyError(
+            "Normalization process is missing keys: "
+            f"{sorted(missing_process_keys)}"
+        )  
+    ##        
 
     # -- run evaluation
     policy = cfg.get("policy", "random") #flip_mug/ep200_tm300_gripper/lewm
