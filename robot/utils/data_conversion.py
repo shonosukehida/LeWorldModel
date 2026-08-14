@@ -219,6 +219,64 @@ def create_output_datasets(
     )
 
 
+def canonicalize_quaternion_sequence(
+    quaternions: np.ndarray,
+) -> np.ndarray:
+    """Make quaternion signs continuous within one episode.
+
+    Args:
+        quaternions:
+            Shape (T, 4), ordered as [qx, qy, qz, qw].
+
+    Returns:
+        Shape (T, 4), normalized and sign-continuous quaternions.
+    """
+    quaternions = np.asarray(
+        quaternions,
+        dtype=np.float32,
+    ).copy()
+
+    if quaternions.ndim != 2 or quaternions.shape[1] != 4:
+        raise ValueError(
+            "quaternions must have shape (T, 4), "
+            f"got {quaternions.shape}"
+        )
+
+    if quaternions.shape[0] == 0:
+        raise ValueError("quaternions must not be empty")
+
+    if not np.all(np.isfinite(quaternions)):
+        raise ValueError(
+            "quaternions contain NaN or Inf"
+        )
+
+    norms = np.linalg.norm(
+        quaternions,
+        axis=1,
+        keepdims=True,
+    )
+
+    if np.any(norms < 1e-8):
+        raise ValueError(
+            "Zero-length quaternion was found"
+        )
+
+    quaternions /= norms
+
+    if quaternions[0, 3] < 0:
+        quaternions[0] *= -1.0
+
+    for step in range(1, quaternions.shape[0]):
+        dot = np.dot(
+            quaternions[step - 1],
+            quaternions[step],
+        )
+
+        if dot < 0:
+            quaternions[step] *= -1.0
+
+    return quaternions
+
 def fk_pose_to_pos_quat(
     fk_pose: list[float] | np.ndarray,
 ) -> np.ndarray:
@@ -505,7 +563,6 @@ def merge_episodes(
                 end = start + episode_length
 
                 with h5py.File(episode_path, "r") as episode_file:
-                    # 元データを平坦時系列へコピー
                     for output_key, source_key in SOURCE_KEYS.items():
                         episode_data = episode_file[source_key][...]
 
@@ -513,6 +570,27 @@ def merge_episodes(
                             raise ValueError(
                                 f"Unexpected T dimension for {source_key}: "
                                 f"{episode_data.shape}"
+                            )
+
+                        if output_key == "ee_pos_quat":
+                            episode_data = np.asarray(
+                                episode_data,
+                                dtype=np.float32,
+                            ).copy()
+
+                            if (
+                                episode_data.ndim != 2
+                                or episode_data.shape[1] != 7
+                            ):
+                                raise ValueError(
+                                    "ee_pos_quat must have shape (T, 7), "
+                                    f"got {episode_data.shape}"
+                                )
+
+                            episode_data[:, 3:7] = (
+                                canonicalize_quaternion_sequence(
+                                    episode_data[:, 3:7]
+                                )
                             )
 
                         output_file[output_key][start:end] = episode_data
@@ -526,6 +604,12 @@ def merge_episodes(
                         arm=arm,
                         leader=leader,
                         episode_name=episode_path.name,
+                    )
+                    
+                    leader_ee_pos_quat[:, 3:7] = (
+                        canonicalize_quaternion_sequence(
+                            leader_ee_pos_quat[:, 3:7]
+                        )
                     )
 
                     action_cartesian = calculate_action_cartesian(
