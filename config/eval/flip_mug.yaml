@@ -59,7 +59,7 @@ eval:
   # layout: [x, y, z, qx, qy, qz, qw, gripper], where gripper is normalized
   # to 0=open and 1=closed.
   real_robot:
-    execute: true
+    execute: false
     dry_run: false #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
     follower_ip: "192.168.1.240"
@@ -91,12 +91,12 @@ eval:
 
 
   probing:
-    exe_probe: false
+    exe_probe: true
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
     val_dataset_name: flip_mug/ep1_tm300_redpen/push #flip_mug/val_ep10_tm300/push
     plot_all_train_data: true
-    plot_all_val_data: true
+    plot_all_val_data: false
     plot_open_data: true
     plot_closed_data: 
       plot_whisker:  #closed forward をひげ状にプロット
@@ -110,57 +110,14 @@ eval:
     max_samples: 1000 #pcaで可視化する際に集める潜在列のステップ数
     plot_line: true #pca でclosed forward を可視化するときに１本線にするか否か
     encoder_isotropy: 
-      check: true
+      check: false
       max_samples: 1000
       sample_interval: 1
 
-    check_shaded_images:
-      check: false
-      shaded_dataset_name: franka/shadow_occlusion_probe_box0p05/push
-    check_ee_cost_map:
-      check: false
-      goal_ee_pos: [0.65, 0.0, 0.05]
-      goal_bluebox_pos: [0.65, -0.15, 0.05]
-      fixed_bluebox_pos: [0.65, -0.05, 0.05] #cost map計算中に固定するbox位置
-      image_size: [64, 64]
-      cost_type: "l2"
-      num_x: 50
-      num_y: 50
-
-    check_box_cost_map:
-      check: false
-      goal_ee_pos: [0.65, 0.0, 0.05]
-      goal_bluebox_pos: [0.65, -0.15, 0.05]
-      fixed_ee_pos: null #cost map計算中に固定するbox位置
-      image_size: [64, 64]
-      cost_type: "l2"
-      num_x: 50
-      num_y: 50
-
-    check_ee_box_cost_map:
-      check: false
-      goal_ee_pos: [0.65, 0.0, 0.05]
-      goal_bluebox_pos: [0.65, 0.15, 0.05]
-      fixed_ee_pos: null #cost map計算中に固定するbox位置
-      image_size: [64, 64]
-      cost_type: "l2"
-      num_x: 50
-      num_y: 50
-      show_task_initial: true
-      task_initial_box_pos: [0.65, 0.05, 0.05]
-
-    check_ac_pred_cost_map: #1step predictor 出力とgoal状態とのコストをマップ
-      check: false
-      init_ee_pos: [0.65, 0.0, 0.05]
-      init_bluebox_pos: [0.65, 0.05, 0.05]
-      goal_ee_pos: [0.65, 0.0, 0.05]
-      goal_bluebox_pos: [0.65, 0.15, 0.05]
-      num_x: 50
-      num_y: 50
-      image_size: [64, 64]
+ 
 
     encoder_rgb_pca:
-      check: true
+      check: false
       horizon: 300
       is_val: false
 

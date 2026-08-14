@@ -1367,10 +1367,6 @@ def run(cfg: DictConfig):
 
     dataset = get_dataset(cfg, cfg.eval.probing.dataset_name)
     val_dataset = get_dataset(cfg, cfg.eval.probing.val_dataset_name)
-    
-    shaded_dataset = None
-    if  cfg.eval.probing.check_shaded_images.check and cfg.eval.probing.check_shaded_images.shaded_dataset_name is not None:
-        shaded_dataset = get_shaded_dataset(cfg, cfg.eval.probing.check_shaded_images.shaded_dataset_name)
 
 
     if cfg.eval.probing.exe_probe:
