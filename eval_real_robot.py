@@ -415,10 +415,7 @@ class XArmInferenceEnv:
         self._robot = None
         self._pipeline = None
         
-        self._ik_solver = XArm7IK(
-            "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
-            "libxarm7_capi.so"
-        )
+        self._ik_solver = None
 
         if not self.dry_run:
             try:
@@ -437,6 +434,29 @@ class XArmInferenceEnv:
             self._robot.set_gripper_enable(True)
             self._robot.set_gripper_mode(0)
             self._robot.set_gripper_speed(int(robot_cfg.gripper.speed))
+            
+            tcp_offset = getattr(
+                self._robot,
+                "tcp_offset",
+                None,
+            )
+
+            world_offset = getattr(
+                self._robot,
+                "world_offset",
+                None,
+            )
+
+            print("SDK tcp_offset:", tcp_offset)
+            print("SDK world_offset:", world_offset)
+
+            self._ik_solver = XArm7IK(
+                "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
+                "libxarm7_capi.so",
+                tcp_offset=tcp_offset,
+                world_offset=world_offset,
+            )  
+            
 
             pipeline = rs.pipeline()
             rs_cfg = rs.config()
@@ -629,6 +649,8 @@ class XArmInferenceEnv:
             pose = np.concatenate([target_xyz * 1000.0, target_rpy])
 
             target_gripper = float(clipped_action[7])
+            
+            # print("pose:", pose)
             
             if not self.dry_run:
                 current_qpos, _, _ = self.get_robot_state()
@@ -859,10 +881,19 @@ class XArmInferenceEnv:
 
 
 class XArm7IK:
-    def __init__(self, lib_path: str):
-        self.lib = ctypes.CDLL(str(Path(lib_path).resolve()))
+    def __init__(
+        self,
+        lib_path: str,
+        tcp_offset=None,
+        world_offset=None,
+    ):
+        self.lib = ctypes.CDLL(
+            str(Path(lib_path).resolve())
+        )
 
-        double_ptr = ctypes.POINTER(ctypes.c_double)
+        double_ptr = ctypes.POINTER(
+            ctypes.c_double
+        )
 
         self.lib.xarm7_init.argtypes = [
             double_ptr,
@@ -879,9 +910,73 @@ class XArm7IK:
         ]
         self.lib.xarm7_ik.restype = ctypes.c_int
 
-        code = self.lib.xarm7_init(None, None, None, None)
+        # init呼び出し中に配列が生存するよう、
+        # インスタンス属性として保持
+        self._tcp_offset = self._prepare_offset(
+            tcp_offset
+        )
+        self._world_offset = self._prepare_offset(
+            world_offset
+        )
+
+        tcp_ptr = self._as_pointer(
+            self._tcp_offset
+        )
+        world_ptr = self._as_pointer(
+            self._world_offset
+        )
+
+        code = self.lib.xarm7_init(
+            None,
+            None,
+            tcp_ptr,
+            world_ptr,
+        )
+
         if code != 0:
-            raise RuntimeError(f"xarm7_init failed: {code}")
+            raise RuntimeError(
+                f"xarm7_init failed: {code}"
+            )
+
+        print(
+            "IK tcp_offset:",
+            self._tcp_offset,
+        )
+        print(
+            "IK world_offset:",
+            self._world_offset,
+        )
+
+    @staticmethod
+    def _prepare_offset(offset):
+        if offset is None:
+            return None
+
+        offset = np.asarray(
+            offset,
+            dtype=np.float64,
+        ).reshape(-1)
+
+        if offset.size < 6:
+            raise ValueError(
+                "Offset must contain 6 values: "
+                "[x_mm, y_mm, z_mm, "
+                "roll, pitch, yaw]"
+            )
+
+        return np.ascontiguousarray(
+            offset[:6],
+            dtype=np.float64,
+        )
+
+    @staticmethod
+    def _as_pointer(offset):
+        if offset is None:
+            return None
+
+        return offset.ctypes.data_as(
+            ctypes.POINTER(ctypes.c_double)
+        )
 
     def solve(
         self,
