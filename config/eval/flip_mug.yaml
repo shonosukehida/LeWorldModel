@@ -64,7 +64,7 @@ eval:
     dry_run: false #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
     follower_ip: "192.168.1.240"
-    max_steps: 50 #300
+    max_steps: 300 #50
     control_hz: 10 #0.5
     non_interactive: false
     goal_image_path: config/eval/goal_state/flip_mug/goal_state_0.png #ゴール画像のパス
@@ -78,13 +78,13 @@ eval:
       - 0.000000  # qw
       - 0.005000  # gripper
     output_dir: ${hydra:runtime.cwd}/real_robot_rollouts/flip_mug
-    max_cartesian_delta_m: 10000 #現在位置との差分 [m] #0.02 #0.04
-    max_orientation_delta_rad: 6.28  # 0.0872665 = 5deg
-    max_joint_delta_rad: 1000 #0.03
+    max_cartesian_delta_m: 0.04 #現在位置との差分 [m] #0.02 #0.04
+    max_orientation_delta_rad: 0.0872665  # 0.0872665 = 5deg
+    max_joint_delta_rad: 0.03 #0.03
     cartesian_speed_mm_s: 50.0
     joint_speed: 0.15
     workspace_bounds_m:
-      - [0.4995, 100]
+      - [0.4995, 0.75]
       - [-0.2168, 0.2073]
       - [0.12, 0.4752]
     gripper:
