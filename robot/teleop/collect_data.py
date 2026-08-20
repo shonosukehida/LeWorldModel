@@ -110,7 +110,7 @@ def xarm_collect() -> None:
     
     #置きたい場所: /home/shonosukehida/.stable_worldmodel/datasets/flip_mug
     save_dir = (
-        Path(__file__).resolve().parents[3]
+        Path.home()
         / ".stable_worldmodel"
         / "datasets"
         / "flip_mug"

@@ -69,14 +69,14 @@ eval:
     non_interactive: false
     goal_image_path: config/eval/goal_state/flip_mug/goal_state_0.png #ゴール画像のパス
     goal_proprio: #ゴール状態の姿勢
-      - 0.50  # x [m]
-      - 0.00  # y [m]
-      - 0.35  # z [m]
-      - 0.00  # qx
-      - 0.00  # qy
-      - 0.00  # qz
-      - 1.00  # qw
-      - 0.00  # gripper
+      - 0.662306  # x [m]
+      - 0.071855  # y [m]
+      - 0.148523  # z [m]
+      - 0.991043  # qx
+      - 0.096080  # qy
+      - 0.092754  # qz
+      - 0.000000  # qw
+      - 0.005000  # gripper
     output_dir: ${hydra:runtime.cwd}/real_robot_rollouts/flip_mug
     max_cartesian_delta_m: 10000 #現在位置との差分 [m] #0.02 #0.04
     max_orientation_delta_rad: 6.28  # 0.0872665 = 5deg
