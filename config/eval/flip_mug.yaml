@@ -59,7 +59,7 @@ eval:
   # layout: [x, y, z, qx, qy, qz, qw, gripper], where gripper is normalized
   # to 0=open and 1=closed.
   real_robot:
-    execute: false
+    execute: true
     dry_run: false #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
     follower_ip: "192.168.1.240"
@@ -68,7 +68,7 @@ eval:
     non_interactive: false
     goal_image_path: config/eval/goal_state/flip_mug/goal_state_0.png #ゴール画像のパス
     output_dir: ${hydra:runtime.cwd}/real_robot_rollouts/flip_mug
-    max_cartesian_delta_m: 0.04 #現在位置との差分 [m] #0.02 #0.04
+    max_cartesian_delta_m: 0.01 #現在位置との差分 [m] #0.02 #0.04
     max_orientation_delta_rad: 0.0872665  # 0.0872665 = 5deg
     max_joint_delta_rad: 0.03 #0.03
     cartesian_speed_mm_s: 50.0
