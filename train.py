@@ -67,9 +67,40 @@ def lejepa_forward(self, batch, stage, cfg):
 
 
     # LeWM loss
+    # output["pred_loss"] = (pred_emb - tgt_emb).pow(2).mean()
+    # output["sigreg_loss"]= self.sigreg(emb.transpose(0, 1))
+    # output["loss"] = output["pred_loss"] + lambd * output["sigreg_loss"]
+
+
+    # 結合潜在表現の次元
+    # [image embedding | proprio embedding]
+    prop_embed_dim = cfg.wm.prop_embed_dim
+
+    pred_img_emb = pred_emb[..., :-prop_embed_dim]
+    tgt_img_emb = tgt_emb[..., :-prop_embed_dim]
+
+    pred_prop_emb = pred_emb[..., -prop_embed_dim:]
+    tgt_prop_emb = tgt_emb[..., -prop_embed_dim:]
+
+    # 潜在表現全体の予測loss
     output["pred_loss"] = (pred_emb - tgt_emb).pow(2).mean()
-    output["sigreg_loss"]= self.sigreg(emb.transpose(0, 1))
-    output["loss"] = output["pred_loss"] + lambd * output["sigreg_loss"]
+
+    # 可視化用：画像部分とproprio部分を分離
+    output["img_pred_loss"] = (pred_img_emb - tgt_img_emb).pow(2).mean()
+    output["prop_pred_loss"] = (pred_prop_emb - tgt_prop_emb).pow(2).mean()
+    
+
+    output["sigreg_loss"] = self.sigreg(
+        emb.transpose(0, 1)
+    )
+
+    # 学習に使うlossは従来どおり
+    output["loss"] = (
+        output["pred_loss"]
+        + lambd * output["sigreg_loss"]
+    )
+
+
     
     if cfg.loss.idm.use:
         output["loss"] = output["loss"] + lambd_idm * output["idm_loss"]
