@@ -51,8 +51,8 @@ eval:
   num_eval: 1 #1
   eval_budget: 50 #50
   img_size: 224 
-  dataset_name: flip_mug/ep2_tm300/push
-  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep2_tm300/process_stats.npz
+  dataset_name: flip_mug/ep200_tm300/push
+  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300/process_stats.npz
   ac_cost_dataset_name: null
 
 
@@ -64,7 +64,7 @@ eval:
     dry_run: false #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
     follower_ip: "192.168.1.240"
-    max_steps: 300 #50
+    max_steps: 50 #50
     control_hz: 10 #0.5
     non_interactive: false
     goal_image_path: config/eval/goal_state/flip_mug/goal_state_0.png #ゴール画像のパス
@@ -106,7 +106,7 @@ eval:
     dataset_name: ${eval.dataset_name}
     val_dataset_name: flip_mug/val_ep10_tm300_prop/push #flip_mug/val_ep10_tm300_prop/push
     plot_all_train_data: true
-    plot_all_val_data: false
+    plot_all_val_data: true
     plot_open_data: true
     plot_closed_data: 
       plot_whisker:  #closed forward をひげ状にプロット
@@ -120,14 +120,14 @@ eval:
     max_samples: 1000 #pcaで可視化する際に集める潜在列のステップ数
     plot_line: true #pca でclosed forward を可視化するときに１本線にするか否か
     encoder_isotropy: 
-      check: false
+      check: true
       max_samples: 1000
       sample_interval: 1
 
  
 
     encoder_rgb_pca:
-      check: false
+      check: true
       horizon: 300
       is_val: false
 
