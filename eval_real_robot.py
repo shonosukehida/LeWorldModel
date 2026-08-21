@@ -17,6 +17,7 @@ import stable_worldmodel as swm
 import env.franka
 
 from stable_worldmodel.probing.flip_mug.probe_evaluator import ProbingEvaluator
+from stable_worldmodel.probing.flip_mug.probe_evaluator_no_propio import ProbingEvaluator_NoProprio
 from env.franka.env import FrankaSimEnv
 import h5py
 from transformers import ViTModel
@@ -1696,17 +1697,28 @@ def run(cfg: DictConfig):
         results_path = (
             Path(swm.data.utils.get_cache_dir(), "eval", cfg.policy).parent
         ) #results_path: /home/shonosukehida/.stable_worldmodel/eval/flip_mug/ep200_tm300_gripper
-
-        # print("(eval.py) transform:", transform)
-        prober = ProbingEvaluator(
-            dataset,
-            model,
-            config = cfg.eval.probing, 
-            transform = transform,
-            process = process,
-            results_path = results_path,
-            val_dataset = val_dataset,
-        )
+        
+        if hasattr(model, "prop_encoder") and model.prop_encoder is not None:  
+            prober = ProbingEvaluator(
+                dataset,
+                model,
+                config = cfg.eval.probing, 
+                transform = transform,
+                process = process,
+                results_path = results_path,
+                val_dataset = val_dataset,
+            )
+        else:
+            prober = ProbingEvaluator_NoProprio(
+                dataset,
+                model,
+                config = cfg.eval.probing, 
+                transform = transform,
+                process = process,
+                results_path = results_path,
+                val_dataset = val_dataset,
+            )
+            
         
         prober.run()
         
