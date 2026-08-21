@@ -1179,11 +1179,7 @@ def run_xarm_task(cfg, policy, process, results_path):
 
     previous_sigint = signal.signal(signal.SIGINT, request_stop)
     records = {key: [] for key in (
-<<<<<<< HEAD
         "pixels", "proprio", "commanded_action", "qpos", "qvel", "ee_pos_quat",
-=======
-        "pixels", "proprio", "commanded_action", "target_qpos", "safe_qpos", "qpos", "qvel", "ee_pos_quat",
->>>>>>> origin/real_robot
         "gripper", "timestamp"
     )}
     try:
@@ -1253,11 +1249,7 @@ def run_xarm_task(cfg, policy, process, results_path):
             commanded = env.execute(action, str(cfg.plan_config.action_space))
 
             records["pixels"].append(image)
-<<<<<<< HEAD
             records["proprio"].append(current_proprio)
-=======
-            # records["proprio"].append(current_proprio)
->>>>>>> origin/real_robot
             records["commanded_action"].append(commanded)
             records["target_qpos"].append(env._last_target_qpos.copy())
             records["safe_qpos"].append(env._last_safe_qpos.copy())
