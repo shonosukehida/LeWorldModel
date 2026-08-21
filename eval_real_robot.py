@@ -497,6 +497,17 @@ class XArmInferenceEnv:
                     rgb,
                     (width, height),
                 )
+        self._last_target_qpos = np.full(
+            7,
+            np.nan,
+            dtype=np.float32,
+        )
+
+        self._last_safe_qpos = np.full(
+            7,
+            np.nan,
+            dtype=np.float32,
+        )
 
 
 
@@ -1168,7 +1179,11 @@ def run_xarm_task(cfg, policy, process, results_path):
 
     previous_sigint = signal.signal(signal.SIGINT, request_stop)
     records = {key: [] for key in (
+<<<<<<< HEAD
         "pixels", "proprio", "commanded_action", "qpos", "qvel", "ee_pos_quat",
+=======
+        "pixels", "proprio", "commanded_action", "target_qpos", "safe_qpos", "qpos", "qvel", "ee_pos_quat",
+>>>>>>> origin/real_robot
         "gripper", "timestamp"
     )}
     try:
@@ -1238,8 +1253,14 @@ def run_xarm_task(cfg, policy, process, results_path):
             commanded = env.execute(action, str(cfg.plan_config.action_space))
 
             records["pixels"].append(image)
+<<<<<<< HEAD
             records["proprio"].append(current_proprio)
+=======
+            # records["proprio"].append(current_proprio)
+>>>>>>> origin/real_robot
             records["commanded_action"].append(commanded)
+            records["target_qpos"].append(env._last_target_qpos.copy())
+            records["safe_qpos"].append(env._last_safe_qpos.copy())
             records["qpos"].append(qpos)
             records["qvel"].append(qvel)
             records["ee_pos_quat"].append(ee)
@@ -1368,6 +1389,87 @@ def run_xarm_task(cfg, policy, process, results_path):
             print(
                 f"Commanded vs actual EE position plot saved to: "
                 f"{position_plot_path}"
+            )
+
+
+        # set_servo_angle() に投入した関節角と、
+        # 次stepで観測された実測関節角を比較
+        if (
+            len(records["safe_qpos"]) > 1
+            and len(records["qpos"]) > 1
+        ):
+            safe_qpos_states = np.asarray(
+                records["safe_qpos"],
+                dtype=np.float32,
+            )
+
+            actual_qpos_states = np.asarray(
+                records["qpos"],
+                dtype=np.float32,
+            )
+
+            # safe_qpos[t] の命令後に取得されるのが qpos[t+1]
+            commanded_qpos = safe_qpos_states[:-1]
+            actual_qpos = actual_qpos_states[1:]
+
+            plot_steps = np.arange(
+                1,
+                len(commanded_qpos) + 1,
+            )
+
+            fig, axes = plt.subplots(
+                7,
+                1,
+                figsize=(12, 18),
+                sharex=True,
+            )
+
+            for joint_idx in range(7):
+                axes[joint_idx].plot(
+                    plot_steps,
+                    commanded_qpos[:, joint_idx],
+                    label=f"Commanded Joint {joint_idx + 1}",
+                )
+
+                axes[joint_idx].plot(
+                    plot_steps,
+                    actual_qpos[:, joint_idx],
+                    label=f"Actual Joint {joint_idx + 1}",
+                )
+
+                axes[joint_idx].set_ylabel(
+                    f"J{joint_idx + 1} [rad]"
+                )
+
+                axes[joint_idx].legend()
+                axes[joint_idx].grid(True)
+
+            axes[-1].set_xlabel("Step")
+
+            fig.suptitle(
+                "Commanded vs Actual Joint Position"
+            )
+
+            fig.tight_layout(
+                rect=[0, 0, 1, 0.98]
+            )
+
+            joint_plot_path = (
+                run_dir
+                / "commanded_vs_actual_joint_position.png"
+            )
+
+            fig.savefig(
+                joint_plot_path,
+                dpi=150,
+                bbox_inches="tight",
+            )
+
+            plt.close(fig)
+
+            print(
+                "Commanded vs actual joint position plot "
+                f"saved to: {joint_plot_path}"
             )
 
 
