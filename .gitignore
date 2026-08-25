@@ -7,6 +7,7 @@ dataset_gen/franka/push/check
 __pycache__/
 env/__pycache__/
 env/franka/__pycache__/
+__pycache__/**
 *.mp4
 lightning_logs
 environment*

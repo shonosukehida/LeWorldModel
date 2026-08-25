@@ -106,17 +106,26 @@ eval:
     val_dataset_name: franka/val_pairs_1_ep_3_timestep_200_sample_towards_bluebox_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05_box0p050/push
     plot_all_train_data: true
     plot_all_val_data: true
-    plot_open_data: true
+    plot_open_data: false
     plot_closed_data: true
     closed_pred_step: 1
     max_samples: 1000 #pcaで可視化する際に集める潜在列のステップ数
     plot_line: true #pca でclosed forward を可視化するときに１本線にするか否か
-    check_isotropy: true
+    plot_horizon:
+      plot: true
+      closed_pred_horizon: 50
+    plot_whisker:
+      plot: true
+      pred_step: true
+    plot_all_episode:
+      plot: false
+      pred_step: 5
+    check_isotropy: false
     check_shaded_images:
-      check: true
+      check: false
       shaded_dataset_name: franka/shadow_occlusion_probe_box0p05/push
     check_ee_cost_map:
-      check: true
+      check: false
       goal_ee_pos: [0.65, 0.0, 0.05]
       goal_bluebox_pos: [0.65, -0.15, 0.05]
       fixed_bluebox_pos: [0.65, -0.05, 0.05] #cost map計算中に固定するbox位置
@@ -126,7 +135,7 @@ eval:
       num_y: 50
 
     check_box_cost_map:
-      check: true
+      check: false
       goal_ee_pos: [0.65, 0.0, 0.05]
       goal_bluebox_pos: [0.65, -0.15, 0.05]
       fixed_ee_pos: null #cost map計算中に固定するbox位置
@@ -136,7 +145,7 @@ eval:
       num_y: 50
 
     check_ee_box_cost_map:
-      check: true
+      check: false
       goal_ee_pos: [0.65, 0.0, 0.05]
       goal_bluebox_pos: [0.65, 0.15, 0.05]
       fixed_ee_pos: null #cost map計算中に固定するbox位置
@@ -148,7 +157,7 @@ eval:
       task_initial_box_pos: [0.65, 0.05, 0.05]
 
     check_ac_pred_cost_map: #1step predictor 出力とgoal状態とのコストをマップ
-      check: true
+      check: false
       init_ee_pos: [0.65, 0.0, 0.05]
       init_bluebox_pos: [0.65, 0.05, 0.05]
       goal_ee_pos: [0.65, 0.0, 0.05]
@@ -158,10 +167,10 @@ eval:
       image_size: [64, 64]
 
     encoder_rgb_pca:
-      check: true
+      check: false
 
     plot_cross_position_latent_pca:
-      check: true
+      check: false
 
 
 
