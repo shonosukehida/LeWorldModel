@@ -104,17 +104,10 @@ eval:
     exe_probe: false
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
-<<<<<<< HEAD
     val_dataset_name: flip_mug/val_ep10_tm300_prop/push #flip_mug/val_ep10_tm300_prop/push
     plot_all_train_data: true
     plot_all_val_data: true
     plot_open_data: true
-=======
-    val_dataset_name: flip_mug/ep1_tm300_redpen/push #flip_mug/val_ep10_tm300/push
-    plot_all_train_data: false
-    plot_all_val_data: false
-    plot_open_data: false
->>>>>>> origin/real_robot
     plot_closed_data: 
       plot_whisker:  #closed forward をひげ状にプロット
         plot: false

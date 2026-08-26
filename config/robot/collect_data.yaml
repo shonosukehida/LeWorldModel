@@ -19,12 +19,20 @@ robot:
     min_z: 0.0
     max_z: 475.2
   
-  camera:
-    name: "main"
-    width: 640
-    height: 480
-    fps: 30
-    index: 2
+  cameras:
+    overhead:
+      name: "main"
+      width: 640
+      height: 480
+      fps: 30
+      index: 2 #実際のindexに変更
+    
+    wrist:
+      name: "wrist"
+      width: 640
+      height: 480
+      fps: 30
+      index: 0  #実際のindexに変更
 
 # max_seconds: 30.0
 
