@@ -658,123 +658,123 @@ class XArmInferenceEnv:
                 )
 
 
-                # IK consistency check:
-                # commanded Cartesian pose vs SDK FK(target_qpos)
-                fk_target_sdk = self.forward_kinematics(
-                    target_qpos
-                )
+                # # IK consistency check:
+                # # commanded Cartesian pose vs SDK FK(target_qpos)
+                # fk_target_sdk = self.forward_kinematics(
+                #     target_qpos
+                # )
 
-                fk_target_local = self._fk_solver.solve(
-                    target_qpos
-                )
+                # fk_target_local = self._fk_solver.solve(
+                #     target_qpos
+                # )
 
-                print("target pose :", np.concatenate([
-                    target_xyz,
-                    target_quat,
-                ]))
-                print("SDK FK      :", fk_target_sdk)
-                print("Local FK    :", fk_target_local)
+                # print("target pose :", np.concatenate([
+                #     target_xyz,
+                #     target_quat,
+                # ]))
+                # print("SDK FK      :", fk_target_sdk)
+                # print("Local FK    :", fk_target_local)
 
-                position_error_m = np.linalg.norm(
-                    target_xyz - fk_target_sdk[:3]
-                )
+                # position_error_m = np.linalg.norm(
+                #     target_xyz - fk_target_sdk[:3]
+                # )
 
-                rotation_target = Rotation.from_quat(
-                    target_quat
-                )
+                # rotation_target = Rotation.from_quat(
+                #     target_quat
+                # )
 
-                rotation_fk = Rotation.from_quat(
-                    fk_target_sdk[3:7]
-                )
+                # rotation_fk = Rotation.from_quat(
+                #     fk_target_sdk[3:7]
+                # )
 
-                relative_rotation = (
-                    rotation_fk * rotation_target.inv()
-                )
+                # relative_rotation = (
+                #     rotation_fk * rotation_target.inv()
+                # )
 
-                orientation_error_deg = np.rad2deg(
-                    np.linalg.norm(
-                        relative_rotation.as_rotvec()
-                    )
-                )
+                # orientation_error_deg = np.rad2deg(
+                #     np.linalg.norm(
+                #         relative_rotation.as_rotvec()
+                #     )
+                # )
 
-                print("\n[IK -> SDK FK consistency]")
-                print("target xyz :", target_xyz)
-                print("FK xyz     :", fk_target_sdk[:3])
-                print(
-                    "position error [mm]:",
-                    position_error_m * 1000.0,
-                )
+                # print("\n[IK -> SDK FK consistency]")
+                # print("target xyz :", target_xyz)
+                # print("FK xyz     :", fk_target_sdk[:3])
+                # print(
+                #     "position error [mm]:",
+                #     position_error_m * 1000.0,
+                # )
 
-                print("target quat:", target_quat)
-                print("FK quat    :", fk_target_sdk[3:7])
-                print(
-                    "orientation error [deg]:",
-                    orientation_error_deg,
-                )
+                # print("target quat:", target_quat)
+                # print("FK quat    :", fk_target_sdk[3:7])
+                # print(
+                #     "orientation error [deg]:",
+                #     orientation_error_deg,
+                # )
                                 
-                # 関節角の1ステップ変化量を制限
-                max_delta = float(self.cfg.max_joint_delta_rad)
-                safe_qpos = current_qpos + np.clip(
-                    target_qpos - current_qpos,
-                    -max_delta,
-                    max_delta,
-                )
+                # # 関節角の1ステップ変化量を制限
+                # max_delta = float(self.cfg.max_joint_delta_rad)
+                # safe_qpos = current_qpos + np.clip(
+                #     target_qpos - current_qpos,
+                #     -max_delta,
+                #     max_delta,
+                # )
 
 
-                # ---------------------------------------------------------
-                # FK comparison:
-                # xArm SDK FK vs local XArm7FK
-                # ---------------------------------------------------------
+                # # ---------------------------------------------------------
+                # # FK comparison:
+                # # xArm SDK FK vs local XArm7FK
+                # # ---------------------------------------------------------
 
-                fk_sdk = self.forward_kinematics(
-                    safe_qpos
-                )
+                # fk_sdk = self.forward_kinematics(
+                #     safe_qpos
+                # )
 
-                fk_local = self._fk_solver.solve(
-                    safe_qpos
-                )
+                # fk_local = self._fk_solver.solve(
+                #     safe_qpos
+                # )
                 
-                print("fk_sdk:", fk_sdk)
-                print("fk_local:", fk_local)
+                # print("fk_sdk:", fk_sdk)
+                # print("fk_local:", fk_local)
 
-                # position error
-                position_error_m = np.linalg.norm(
-                    fk_sdk[:3] - fk_local[:3]
-                )
+                # # position error
+                # position_error_m = np.linalg.norm(
+                #     fk_sdk[:3] - fk_local[:3]
+                # )
 
-                # orientation error
-                rotation_sdk = Rotation.from_quat(
-                    fk_sdk[3:7]
-                )
+                # # orientation error
+                # rotation_sdk = Rotation.from_quat(
+                #     fk_sdk[3:7]
+                # )
 
-                rotation_local = Rotation.from_quat(
-                    fk_local[3:7]
-                )
+                # rotation_local = Rotation.from_quat(
+                #     fk_local[3:7]
+                # )
 
-                relative_rotation = (
-                    rotation_local * rotation_sdk.inv()
-                )
+                # relative_rotation = (
+                #     rotation_local * rotation_sdk.inv()
+                # )
 
-                orientation_error_rad = np.linalg.norm(
-                    relative_rotation.as_rotvec()
-                )
+                # orientation_error_rad = np.linalg.norm(
+                #     relative_rotation.as_rotvec()
+                # )
 
-                orientation_error_deg = np.rad2deg(
-                    orientation_error_rad
-                )
+                # orientation_error_deg = np.rad2deg(
+                #     orientation_error_rad
+                # )
 
-                print("\n[FK comparison]")
-                print("safe_qpos:", safe_qpos)
-                print("SDK FK   :", fk_sdk)
-                print("Local FK :", fk_local)
-                print(
-                    "position error [mm]:",
-                    position_error_m * 1000.0,
-                )
-                print(
-                    "orientation error [deg]:",
-                    orientation_error_deg,
-                )
+                # print("\n[FK comparison]")
+                # print("safe_qpos:", safe_qpos)
+                # print("SDK FK   :", fk_sdk)
+                # print("Local FK :", fk_local)
+                # print(
+                #     "position error [mm]:",
+                #     position_error_m * 1000.0,
+                # )
+                # print(
+                #     "orientation error [deg]:",
+                #     orientation_error_deg,
+                # )
                 ###########
 
                 # デバッグ用
@@ -1788,6 +1788,9 @@ def run(cfg: DictConfig):
         config = swm.PlanConfig(**cfg.plan_config)
         solver = hydra.utils.instantiate(cfg.solver, model=model)
 
+        # print("process[action_cartesian]")
+        # print("process.mean:", process["action_cartesian"].mean_)
+        # print("process.scale:", process["action_cartesian"].scale_)
         policy = swm.policy.WorldModelPolicy(
             solver=solver, config=config, process=process, transform=transform
         )
