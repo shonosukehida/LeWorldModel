@@ -417,6 +417,7 @@ class XArmInferenceEnv:
         self._pipeline = None
         
         self._ik_solver = None
+        self._fk_solver = None
 
         if not self.dry_run:
             try:
@@ -457,7 +458,14 @@ class XArmInferenceEnv:
                 tcp_offset=tcp_offset,
                 world_offset=world_offset,
             )  
-            
+
+
+            self._fk_solver = XArm7FK(
+                "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
+                "libxarm7_capi.so",
+                tcp_offset=tcp_offset,
+                world_offset=world_offset,
+            )
 
             pipeline = rs.pipeline()
             rs_cfg = rs.config()
@@ -648,7 +656,62 @@ class XArmInferenceEnv:
                     pose_rpy=pose,
                     q_pre=current_qpos,
                 )
-                
+
+
+                # IK consistency check:
+                # commanded Cartesian pose vs SDK FK(target_qpos)
+                fk_target_sdk = self.forward_kinematics(
+                    target_qpos
+                )
+
+                fk_target_local = self._fk_solver.solve(
+                    target_qpos
+                )
+
+                print("target pose :", np.concatenate([
+                    target_xyz,
+                    target_quat,
+                ]))
+                print("SDK FK      :", fk_target_sdk)
+                print("Local FK    :", fk_target_local)
+
+                position_error_m = np.linalg.norm(
+                    target_xyz - fk_target_sdk[:3]
+                )
+
+                rotation_target = Rotation.from_quat(
+                    target_quat
+                )
+
+                rotation_fk = Rotation.from_quat(
+                    fk_target_sdk[3:7]
+                )
+
+                relative_rotation = (
+                    rotation_fk * rotation_target.inv()
+                )
+
+                orientation_error_deg = np.rad2deg(
+                    np.linalg.norm(
+                        relative_rotation.as_rotvec()
+                    )
+                )
+
+                print("\n[IK -> SDK FK consistency]")
+                print("target xyz :", target_xyz)
+                print("FK xyz     :", fk_target_sdk[:3])
+                print(
+                    "position error [mm]:",
+                    position_error_m * 1000.0,
+                )
+
+                print("target quat:", target_quat)
+                print("FK quat    :", fk_target_sdk[3:7])
+                print(
+                    "orientation error [deg]:",
+                    orientation_error_deg,
+                )
+                                
                 # 関節角の1ステップ変化量を制限
                 max_delta = float(self.cfg.max_joint_delta_rad)
                 safe_qpos = current_qpos + np.clip(
@@ -656,6 +719,63 @@ class XArmInferenceEnv:
                     -max_delta,
                     max_delta,
                 )
+
+
+                # ---------------------------------------------------------
+                # FK comparison:
+                # xArm SDK FK vs local XArm7FK
+                # ---------------------------------------------------------
+
+                fk_sdk = self.forward_kinematics(
+                    safe_qpos
+                )
+
+                fk_local = self._fk_solver.solve(
+                    safe_qpos
+                )
+                
+                print("fk_sdk:", fk_sdk)
+                print("fk_local:", fk_local)
+
+                # position error
+                position_error_m = np.linalg.norm(
+                    fk_sdk[:3] - fk_local[:3]
+                )
+
+                # orientation error
+                rotation_sdk = Rotation.from_quat(
+                    fk_sdk[3:7]
+                )
+
+                rotation_local = Rotation.from_quat(
+                    fk_local[3:7]
+                )
+
+                relative_rotation = (
+                    rotation_local * rotation_sdk.inv()
+                )
+
+                orientation_error_rad = np.linalg.norm(
+                    relative_rotation.as_rotvec()
+                )
+
+                orientation_error_deg = np.rad2deg(
+                    orientation_error_rad
+                )
+
+                print("\n[FK comparison]")
+                print("safe_qpos:", safe_qpos)
+                print("SDK FK   :", fk_sdk)
+                print("Local FK :", fk_local)
+                print(
+                    "position error [mm]:",
+                    position_error_m * 1000.0,
+                )
+                print(
+                    "orientation error [deg]:",
+                    orientation_error_deg,
+                )
+                ###########
 
                 # デバッグ用
                 self._last_target_qpos = target_qpos.copy()
@@ -830,6 +950,7 @@ class XArmInferenceEnv:
         code, fk_pose = self._robot.get_forward_kinematics(
             qpos[:7].tolist(),
             input_is_radian=True,
+            return_is_radian=True,
         )
 
         if code != 0 or fk_pose is None:
@@ -987,6 +1108,179 @@ class XArm7IK:
 
         return theta.astype(np.float32)
 
+class XArm7FK:
+    def __init__(
+        self,
+        lib_path: str,
+        tcp_offset=None,
+        world_offset=None,
+    ):
+        self.lib = ctypes.CDLL(
+            str(Path(lib_path).resolve())
+        )
+
+        double_ptr = ctypes.POINTER(
+            ctypes.c_double
+        )
+
+        # xarm7_init(
+        #     q_max,
+        #     q_min,
+        #     tcp_offset,
+        #     world_offset,
+        # )
+        self.lib.xarm7_init.argtypes = [
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+        ]
+        self.lib.xarm7_init.restype = ctypes.c_int
+
+        # xarm7_fk(
+        #     theta,
+        #     pose,
+        # )
+        self.lib.xarm7_fk.argtypes = [
+            double_ptr,
+            double_ptr,
+        ]
+        self.lib.xarm7_fk.restype = ctypes.c_int
+
+        self._tcp_offset = self._prepare_offset(
+            tcp_offset
+        )
+        self._world_offset = self._prepare_offset(
+            world_offset
+        )
+
+        tcp_ptr = self._as_pointer(
+            self._tcp_offset
+        )
+        world_ptr = self._as_pointer(
+            self._world_offset
+        )
+
+        code = self.lib.xarm7_init(
+            None,
+            None,
+            tcp_ptr,
+            world_ptr,
+        )
+
+        if code != 0:
+            raise RuntimeError(
+                f"xarm7_init failed: {code}"
+            )
+
+        print(
+            "FK tcp_offset:",
+            self._tcp_offset,
+        )
+        print(
+            "FK world_offset:",
+            self._world_offset,
+        )
+
+    @staticmethod
+    def _prepare_offset(offset):
+        if offset is None:
+            return None
+
+        offset = np.asarray(
+            offset,
+            dtype=np.float64,
+        ).reshape(-1)
+
+        if offset.size < 6:
+            raise ValueError(
+                "Offset must contain 6 values: "
+                "[x_mm, y_mm, z_mm, "
+                "roll, pitch, yaw]"
+            )
+
+        return np.ascontiguousarray(
+            offset[:6],
+            dtype=np.float64,
+        )
+
+    @staticmethod
+    def _as_pointer(offset):
+        if offset is None:
+            return None
+
+        return offset.ctypes.data_as(
+            ctypes.POINTER(ctypes.c_double)
+        )
+
+    def solve(
+        self,
+        qpos: np.ndarray,
+    ) -> np.ndarray:
+        """
+        xArm7 joint angles -> EE pose
+
+        Args:
+            qpos:
+                shape (7,)
+                joint angles [rad]
+
+        Returns:
+            ee:
+                shape (7,)
+                [x, y, z, qx, qy, qz, qw]
+                position [m]
+        """
+        qpos = np.asarray(
+            qpos,
+            dtype=np.float64,
+        ).reshape(-1)
+
+        if qpos.size < 7:
+            raise ValueError(
+                f"qpos needs 7 values, got {qpos.size}"
+            )
+
+        theta = np.ascontiguousarray(
+            qpos[:7],
+            dtype=np.float64,
+        )
+
+        # C library output:
+        # [x_mm, y_mm, z_mm, roll, pitch, yaw]
+        pose = np.empty(
+            6,
+            dtype=np.float64,
+        )
+
+        code = self.lib.xarm7_fk(
+            theta.ctypes.data_as(
+                ctypes.POINTER(ctypes.c_double)
+            ),
+            pose.ctypes.data_as(
+                ctypes.POINTER(ctypes.c_double)
+            ),
+        )
+
+        if code != 0:
+            raise RuntimeError(
+                "xarm7_fk failed\n"
+                f"code: {code}\n"
+                f"qpos: {theta}"
+            )
+
+        position_m = pose[:3] / 1000.0
+
+        quaternion = Rotation.from_euler(
+            "xyz",
+            pose[3:6],
+            degrees=False,
+        ).as_quat()
+
+        return np.concatenate([
+            position_m,
+            quaternion,
+        ]).astype(np.float32)
 
 
 def _load_or_capture_goal(env, real_cfg):
