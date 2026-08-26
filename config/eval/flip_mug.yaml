@@ -60,7 +60,7 @@ eval:
   # layout: [x, y, z, qx, qy, qz, qw, gripper], where gripper is normalized
   # to 0=open and 1=closed.
   real_robot:
-    execute: false
+    execute: true
     dry_run: false #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
     follower_ip: "192.168.1.240"
@@ -101,7 +101,7 @@ eval:
 
 
   probing:
-    exe_probe: true
+    exe_probe: false
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
 <<<<<<< HEAD
