@@ -33,6 +33,8 @@ import matplotlib.pyplot as plt
 import json
 import subprocess
 
+from action_projector import XArmActionProjector
+
 
 def img_transform(cfg):
     transform = transforms.Compose(
@@ -1318,6 +1320,26 @@ def run_xarm_task(cfg, policy, process, results_path):
     real_cfg = cfg.eval.real_robot
     env = XArmInferenceEnv(real_cfg, cfg.plan_config) # <__main__.XArmInferenceEnv object at 0x7f94ec6751b0>
     policy.set_env(env)
+
+
+    if str(cfg.plan_config.action_space) == "cartesian":
+        if real_cfg.use_action_projector: 
+            action_projector = XArmActionProjector(
+                ik_solver=env._ik_solver,
+                fk_solver=env._fk_solver,
+                workspace_bounds_m=real_cfg.workspace_bounds_m,
+                max_cartesian_delta_m=real_cfg.max_cartesian_delta_m,
+                max_orientation_delta_rad=real_cfg.max_orientation_delta_rad,
+                max_joint_delta_rad=real_cfg.max_joint_delta_rad,
+                max_gripper_delta=real_cfg.gripper.max_delta,
+            )
+        else:
+            action_projector = None
+
+        policy.set_action_projector(action_projector)
+
+
+
     if str(cfg.plan_config.action_space) == "cartesian":
         # WorldModelPolicy currently contains a Push-specific 3-D Cartesian
         # Box. Flip-mug was trained with the 8-D pose+gripper action above,
@@ -1372,7 +1394,16 @@ def run_xarm_task(cfg, policy, process, results_path):
             info = _policy_observation(
                 image, goal, qpos, qvel, ee, step_idx, process
             )
-            action_result = policy.get_action(info)
+            projection_state = {
+                "qpos": qpos,
+                "ee": ee,
+                "gripper": env._last_gripper,
+            }
+
+            action_result = policy.get_action(
+                info,
+                projection_state=projection_state,
+            )
             if isinstance(action_result, tuple):
                 action, outputs = action_result
             else:
