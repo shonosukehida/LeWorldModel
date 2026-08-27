@@ -1131,6 +1131,185 @@ class XArm7IK:
 
         return theta.astype(np.float32)
 
+
+
+class XArm7FK:
+    def __init__(
+        self,
+        lib_path: str,
+        tcp_offset=None,
+        world_offset=None,
+    ):
+        self.lib = ctypes.CDLL(
+            str(Path(lib_path).resolve())
+        )
+
+        double_ptr = ctypes.POINTER(
+            ctypes.c_double
+        )
+
+        # xarm7_init(
+        #     q_max,
+        #     q_min,
+        #     tcp_offset,
+        #     world_offset,
+        # )
+        self.lib.xarm7_init.argtypes = [
+            double_ptr,
+            double_ptr,
+            double_ptr,
+            double_ptr,
+        ]
+        self.lib.xarm7_init.restype = ctypes.c_int
+
+        # xarm7_fk(
+        #     theta,
+        #     pose,
+        # )
+        self.lib.xarm7_fk.argtypes = [
+            double_ptr,
+            double_ptr,
+        ]
+        self.lib.xarm7_fk.restype = ctypes.c_int
+
+        self._tcp_offset = self._prepare_offset(
+            tcp_offset
+        )
+        self._world_offset = self._prepare_offset(
+            world_offset
+        )
+
+        tcp_ptr = self._as_pointer(
+            self._tcp_offset
+        )
+        world_ptr = self._as_pointer(
+            self._world_offset
+        )
+
+        code = self.lib.xarm7_init(
+            None,
+            None,
+            tcp_ptr,
+            world_ptr,
+        )
+
+        if code != 0:
+            raise RuntimeError(
+                f"xarm7_init failed: {code}"
+            )
+
+        print(
+            "FK tcp_offset:",
+            self._tcp_offset,
+        )
+        print(
+            "FK world_offset:",
+            self._world_offset,
+        )
+
+    @staticmethod
+    def _prepare_offset(offset):
+        if offset is None:
+            return None
+
+        offset = np.asarray(
+            offset,
+            dtype=np.float64,
+        ).reshape(-1)
+
+        if offset.size < 6:
+            raise ValueError(
+                "Offset must contain 6 values: "
+                "[x_mm, y_mm, z_mm, "
+                "roll, pitch, yaw]"
+            )
+
+        return np.ascontiguousarray(
+            offset[:6],
+            dtype=np.float64,
+        )
+
+    @staticmethod
+    def _as_pointer(offset):
+        if offset is None:
+            return None
+
+        return offset.ctypes.data_as(
+            ctypes.POINTER(ctypes.c_double)
+        )
+
+    def solve(
+        self,
+        qpos: np.ndarray,
+    ) -> np.ndarray:
+        """
+        xArm7 joint angles -> EE pose
+
+        Args:
+            qpos:
+                shape (7,)
+                joint angles [rad]
+
+        Returns:
+            ee:
+                shape (7,)
+                [x, y, z, qx, qy, qz, qw]
+                position [m]
+        """
+        qpos = np.asarray(
+            qpos,
+            dtype=np.float64,
+        ).reshape(-1)
+
+        if qpos.size < 7:
+            raise ValueError(
+                f"qpos needs 7 values, got {qpos.size}"
+            )
+
+        theta = np.ascontiguousarray(
+            qpos[:7],
+            dtype=np.float64,
+        )
+
+        # C library output:
+        # [x_mm, y_mm, z_mm, roll, pitch, yaw]
+        pose = np.empty(
+            6,
+            dtype=np.float64,
+        )
+
+        code = self.lib.xarm7_fk(
+            theta.ctypes.data_as(
+                ctypes.POINTER(ctypes.c_double)
+            ),
+            pose.ctypes.data_as(
+                ctypes.POINTER(ctypes.c_double)
+            ),
+        )
+
+        if code != 0:
+            raise RuntimeError(
+                "xarm7_fk failed\n"
+                f"code: {code}\n"
+                f"qpos: {theta}"
+            )
+
+        position_m = pose[:3] / 1000.0
+
+        quaternion = Rotation.from_euler(
+            "xyz",
+            pose[3:6],
+            degrees=False,
+        ).as_quat()
+
+        return np.concatenate([
+            position_m,
+            quaternion,
+        ]).astype(np.float32)
+
+
+
+
 def _load_or_capture_goal(
     env,
     real_cfg,
@@ -1301,8 +1480,16 @@ def run_xarm_task(cfg, policy, process, results_path):
 
     previous_sigint = signal.signal(signal.SIGINT, request_stop)
     records = {key: [] for key in (
-        "pixels", "proprio", "commanded_action", "qpos", "qvel", "ee_pos_quat",
-        "gripper", "timestamp"
+        "pixels",
+        "proprio",
+        "commanded_action",
+        "target_qpos",
+        "safe_qpos",
+        "qpos",
+        "qvel",
+        "ee_pos_quat",
+        "gripper",
+        "timestamp",
     )}
     try:
         
