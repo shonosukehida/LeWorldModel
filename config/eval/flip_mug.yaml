@@ -67,6 +67,7 @@ eval:
     max_steps: 300 #50
     control_hz: 10 #0.5
     non_interactive: false
+    use_action_projector: true
     goal_image_path: config/eval/goal_state/flip_mug/goal_state_0.png #ゴール画像のパス
     goal_proprio: #ゴール状態の姿勢
       - 0.662306  # x [m]
