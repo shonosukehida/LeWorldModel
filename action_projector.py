@@ -101,6 +101,8 @@ class XArmActionProjector:
             ee:
                 safe_qposをFKしたEE pose
         """
+        
+        print("project is called.")
 
         action = np.asarray(
             action,
