@@ -1,22 +1,78 @@
 import h5py
-import imageio.v2 as imageio
 import numpy as np
+import imageio.v2 as imageio
+from pathlib import Path
 
-h5_path = "/home/hida/.stable_worldmodel/eval/flip_mug/ep200_tm300_gripper/rollout.h5"
-output_path = "/home/hida/.stable_worldmodel/eval/flip_mug/ep200_tm300_gripper/rollout.mp4"
+episode_path = Path(
+    "/home/hida/.stable_worldmodel/datasets/flip_mug/ep200_tm300/per_episode/episode_3.h5"
+)
 
-with h5py.File(h5_path, "r") as f:
-    print("keys:", list(f.keys()))
+output_dir = episode_path.parent / "videos"
+output_dir.mkdir(parents=True, exist_ok=True)
 
-    frames = f["pixels"][:]   # (T, H, W, 3)
+with h5py.File(episode_path, "r") as f:
+    print("=== HDF5 structure ===")
 
-    print("frames.shape:", frames.shape)
-    print("dtype:", frames.dtype)
+    def print_structure(name, obj):
+        if isinstance(obj, h5py.Dataset):
+            print(
+                f"{name}: "
+                f"shape={obj.shape}, "
+                f"dtype={obj.dtype}"
+            )
 
-    with imageio.get_writer(output_path, fps=5) as writer:
-        for frame in frames:
-            if frame.dtype != np.uint8:
-                frame = np.clip(frame, 0, 255).astype(np.uint8)
-            writer.append_data(frame)
+    f.visititems(print_structure)
 
-print("Saved:", output_path)
+    camera_group = f["sensors"]["cameras"]
+
+    print("\n=== Cameras ===")
+    print("camera keys:", list(camera_group.keys()))
+
+    for camera_name in camera_group.keys():
+        frames = camera_group[camera_name][:]
+
+        print(
+            f"{camera_name}: "
+            f"shape={frames.shape}, "
+            f"dtype={frames.dtype}, "
+            f"min={frames.min()}, "
+            f"max={frames.max()}"
+        )
+
+        # 想定:
+        # (T, C, H, W) -> (T, H, W, C)
+        if frames.ndim == 4 and frames.shape[1] == 3:
+            frames = np.transpose(frames, (0, 2, 3, 1))
+
+        # float画像への対応
+        if np.issubdtype(frames.dtype, np.floating):
+            if frames.max() <= 1.0:
+                frames = frames * 255.0
+
+            frames = np.clip(
+                frames,
+                0,
+                255,
+            ).astype(np.uint8)
+
+        elif frames.dtype != np.uint8:
+            frames = np.clip(
+                frames,
+                0,
+                255,
+            ).astype(np.uint8)
+
+        output_path = (
+            output_dir
+            / f"episode_0_{camera_name}.mp4"
+        )
+
+        imageio.mimwrite(
+            output_path,
+            frames,
+            fps=10,
+            codec="libx264",
+            quality=8,
+        )
+
+        print("saved:", output_path)
