@@ -4,7 +4,7 @@ import imageio.v2 as imageio
 from pathlib import Path
 
 episode_path = Path(
-    "/home/hida/.stable_worldmodel/datasets/flip_mug/ep200_tm300/per_episode/episode_3.h5"
+    "/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview/per_episode/episode_3.h5"
 )
 
 output_dir = episode_path.parent / "videos"

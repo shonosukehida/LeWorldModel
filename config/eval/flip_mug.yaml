@@ -11,7 +11,7 @@ world:
   frame_skip: 1
   env_type: single
   ob_type: pixels
-  multiview: False
+  # multiview: False
   width: 640
   height: 480
   visualize_info: False
@@ -51,8 +51,8 @@ eval:
   num_eval: 1 #1
   eval_budget: 50 #50
   img_size: 224 
-  dataset_name: flip_mug/ep200_tm300/push
-  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300/process_stats.npz
+  dataset_name: flip_mug/ep200_tm300_multiview/push
+  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview/process_stats.npz
   ac_cost_dataset_name: null
 
 
@@ -60,26 +60,28 @@ eval:
   # layout: [x, y, z, qx, qy, qz, qw, gripper], where gripper is normalized
   # to 0=open and 1=closed.
   real_robot:
-    execute: false
-    dry_run: false #ハードは動かさずにソフトだけをテストする
-    dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
+    execute: true
+    dry_run: true #ハードは動かさずにソフトだけをテストする
+    dry_run_image_path: config/eval/start_state/flip_mug/overhead_start_image.png
+    dry_run_wrist_image_path: config/eval/start_state/flip_mug/wrist_start_image.png
     follower_ip: "192.168.1.240"
-    max_steps: 300 #50
+    max_steps: 50 #50
     control_hz: 10 #0.5
     non_interactive: false
-    use_action_projector: true
-    goal_image_path: config/eval/goal_state/flip_mug/goal_state_0.png #ゴール画像のパス
+    use_action_projector: false
+    goal_image_path: config/eval/goal_state/flip_mug/overhead_goal_image.png #ゴール俯瞰画像のパス
+    goal_wrist_image_path: config/eval/goal_state/flip_mug/wrist_goal_image.png #ゴール手先画像のパス
     goal_proprio: #ゴール状態の姿勢
-      - 0.662306  # x [m]
-      - 0.071855  # y [m]
-      - 0.148523  # z [m]
-      - 0.991043  # qx
-      - 0.096080  # qy
-      - 0.092754  # qz
-      - 0.000000  # qw
+      - 0.570201  # x [m]
+      - -0.028193  # y [m]
+      - 0.057318  # z [m]
+      - 0.980398  # qx
+      - 0.143173  # qy
+      - -0.134568  # qz
+      - -0.014609  # qw
       - 0.005000  # gripper
     output_dir: ${hydra:runtime.cwd}/real_robot_rollouts/flip_mug
-    max_cartesian_delta_m: 0.04 #現在位置との差分 [m] #0.02 #0.04
+    max_cartesian_delta_m: 0.02 #現在位置との差分 [m] #0.02 #0.04
     max_orientation_delta_rad: 0.0872665  # 0.0872665 = 5deg
     max_joint_delta_rad: 0.03 #0.03
     cartesian_speed_mm_s: 50.0
@@ -94,15 +96,21 @@ eval:
       speed: 2000
       max_delta: 0.10
       command_threshold: 0.03
-    camera:
-      serial: 937622072182
-      width: 640
-      height: 480
-      fps: 30
+    cameras:
+      overhead: 
+        serial: 937622072677
+        width: 640
+        height: 480
+        fps: 30
+      wrist:
+        serial: 044322070202
+        width: 640
+        height: 480
+        fps: 30
 
 
   probing:
-    exe_probe: true
+    exe_probe: false
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
     val_dataset_name: flip_mug/val_ep10_tm300_prop/push #flip_mug/val_ep10_tm300_prop/push

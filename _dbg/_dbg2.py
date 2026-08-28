@@ -1,33 +1,33 @@
-import h5py
-import numpy as np
+import cv2
+import os
 
-path = "/home/shonosukehida/.stable_worldmodel/datasets/franka/pairs_500_ep_1_timestep_500_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse/push.h5"
+video_path = "/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview/per_episode/videos/episode_0_main.mp4"
 
-with h5py.File(path, "r") as f:
+output_dir = os.path.join(
+    os.path.dirname(video_path),
+    "episode_0_main_frames"
+)
+os.makedirs(output_dir, exist_ok=True)
 
-    print("=== Keys ===")
-    for key in f.keys():
-        print(key)
+cap = cv2.VideoCapture(video_path)
 
-    print("\n=== Dataset Info ===")
-    for key in f.keys():
-        obj = f[key]
+frame_idx = 0
 
-        # Dataset
-        if isinstance(obj, h5py.Dataset):
-            print(f"\n[{key}]")
-            print("shape :", obj.shape)
-            print("dtype :", obj.dtype)
+while True:
+    ret, frame = cap.read()
 
-            # 少しだけ中身を見る
-            if obj.ndim == 1:
-                print("head  :", obj[:5])
+    if not ret:
+        break
 
-            else:
-                print("head shape :", obj[:5].shape)
-                print(obj[:5])
+    output_path = os.path.join(
+        output_dir,
+        f"frame_{frame_idx:06d}.png"
+    )
 
-        # Group
-        elif isinstance(obj, h5py.Group):
-            print(f"\n[{key}] (Group)")
-            print("subkeys :", list(obj.keys()))
+    cv2.imwrite(output_path, frame)
+    frame_idx += 1
+
+cap.release()
+
+print(f"Saved {frame_idx} frames to:")
+print(output_dir)

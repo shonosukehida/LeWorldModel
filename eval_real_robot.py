@@ -416,7 +416,8 @@ class XArmInferenceEnv:
         )
         self._last_gripper = np.float32(0.0)
         self._robot = None
-        self._pipeline = None
+        self._overhead_pipeline = None
+        self._wrist_pipeline = None
         
         self._ik_solver = None
         self._fk_solver = None
@@ -469,45 +470,112 @@ class XArmInferenceEnv:
                 world_offset=world_offset,
             )
 
-            pipeline = rs.pipeline()
-            rs_cfg = rs.config()
-            if robot_cfg.camera.serial:
-                rs_cfg.enable_device(str(robot_cfg.camera.serial))
-            rs_cfg.enable_stream(
-                rs.stream.color,
-                int(robot_cfg.camera.width),
-                int(robot_cfg.camera.height),
-                rs.format.bgr8,
-                int(robot_cfg.camera.fps),
+
+            def _start_camera(camera_cfg):
+                pipeline = rs.pipeline()
+                rs_cfg = rs.config()
+
+                rs_cfg.enable_device(str(camera_cfg.serial))
+
+                rs_cfg.enable_stream(
+                    rs.stream.color,
+                    int(camera_cfg.width),
+                    int(camera_cfg.height),
+                    rs.format.bgr8,
+                    int(camera_cfg.fps),
+                )
+
+                pipeline.start(rs_cfg)
+
+                for _ in range(15):
+                    pipeline.wait_for_frames()
+
+                return pipeline
+
+
+            self._overhead_pipeline = _start_camera(
+                robot_cfg.cameras.overhead
             )
-            pipeline.start(rs_cfg)
-            self._pipeline = pipeline
-            # Discard auto-exposure warm-up frames.
-            for _ in range(15):
-                pipeline.wait_for_frames()
+
+            self._wrist_pipeline = _start_camera(
+                robot_cfg.cameras.wrist
+            )
 
 
-        self._dry_run_image = None
+        self._dry_run_overhead_image = None
+        self._dry_run_wrist_image = None
+
+
         if self.dry_run:
-            image_path = str(self.cfg.dry_run_image_path or "")
+            overhead_path = str(
+                self.cfg.dry_run_image_path or ""
+            )
+            wrist_path = str(
+                self.cfg.dry_run_wrist_image_path or ""
+            )
 
-            if image_path:
-                bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
+            # 俯瞰画像
+            if overhead_path:
+                overhead_bgr = cv2.imread(
+                    overhead_path,
+                    cv2.IMREAD_COLOR,
+                )
 
-                if bgr is None:
+                if overhead_bgr is None:
                     raise FileNotFoundError(
-                        f"Could not read dry-run image: {image_path}"
+                        f"Could not read overhead dry-run image: "
+                        f"{overhead_path}"
                     )
 
-                rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-
-                width = int(self.cfg.camera.width)
-                height = int(self.cfg.camera.height)
-
-                self._dry_run_image = cv2.resize(
-                    rgb,
-                    (width, height),
+                overhead_rgb = cv2.cvtColor(
+                    overhead_bgr,
+                    cv2.COLOR_BGR2RGB,
                 )
+
+                overhead_width = int(
+                    self.cfg.cameras.overhead.width
+                )
+                overhead_height = int(
+                    self.cfg.cameras.overhead.height
+                )
+
+                self._dry_run_overhead_image = cv2.resize(
+                    overhead_rgb,
+                    (overhead_width, overhead_height),
+                )
+
+            # 手先画像
+            if wrist_path:
+                wrist_bgr = cv2.imread(
+                    wrist_path,
+                    cv2.IMREAD_COLOR,
+                )
+
+                if wrist_bgr is None:
+                    raise FileNotFoundError(
+                        f"Could not read wrist dry-run image: "
+                        f"{wrist_path}"
+                    )
+
+                wrist_rgb = cv2.cvtColor(
+                    wrist_bgr,
+                    cv2.COLOR_BGR2RGB,
+                )
+
+                wrist_width = int(
+                    self.cfg.cameras.wrist.width
+                )
+                wrist_height = int(
+                    self.cfg.cameras.wrist.height
+                )
+
+                self._dry_run_wrist_image = cv2.resize(
+                    wrist_rgb,
+                    (wrist_width, wrist_height),
+                )
+
+
+
         self._last_target_qpos = np.full(
             7,
             np.nan,
@@ -530,26 +598,28 @@ class XArmInferenceEnv:
                 dtype=np.float32,
             )
 
+
+
+
+
     def close(self):
-        if self._pipeline is not None:
-            self._pipeline.stop()
+        if self._overhead_pipeline is not None:
+            self._overhead_pipeline.stop()
+
+        if self._wrist_pipeline is not None:
+            self._wrist_pipeline.stop()
+
         if self._robot is not None:
-            # Stop the current trajectory before disconnecting. This does not
-            # disable the arm, so an operator can still use the pendant.
             self._robot.set_state(state=4)
             self._robot.disconnect()
 
 
-    def get_image(self):
-        if self.dry_run:
-            if self._dry_run_image is not None:
-                return self._dry_run_image.copy()
 
-            h = int(self.cfg.camera.height)
-            w = int(self.cfg.camera.width)
-            return np.zeros((h, w, 3), dtype=np.uint8)
+    def _get_image_from_pipeline(self, pipeline):
+        frames = pipeline.wait_for_frames(
+            timeout_ms=3000
+        )
 
-        frames = self._pipeline.wait_for_frames(timeout_ms=3000)
         frame = frames.get_color_frame()
 
         if not frame:
@@ -561,6 +631,25 @@ class XArmInferenceEnv:
             np.asanyarray(frame.get_data()),
             cv2.COLOR_BGR2RGB,
         )
+
+
+    def get_images(self):
+
+        if self.dry_run:
+            return (
+                self._dry_run_overhead_image.copy(),
+                self._dry_run_wrist_image.copy(),
+            )
+            
+        overhead = self._get_image_from_pipeline(
+            self._overhead_pipeline
+        )
+
+        wrist = self._get_image_from_pipeline(
+            self._wrist_pipeline
+        )
+
+        return overhead, wrist
 
 
 
@@ -1316,23 +1405,37 @@ def _load_or_capture_goal(
     env,
     real_cfg,
 ):
-    goal_path = str(
-        real_cfg.goal_image_path or ""
-    )
 
-    if goal_path:
-        bgr = cv2.imread(
+    goal_path = str(real_cfg.goal_image_path or "")
+    goal_wrist_path = str(real_cfg.goal_wrist_image_path or "")
+
+    if goal_path and goal_wrist_path:
+        goal_bgr = cv2.imread(
             goal_path,
             cv2.IMREAD_COLOR,
         )
+        goal_wrist_bgr = cv2.imread(
+            goal_wrist_path,
+            cv2.IMREAD_COLOR,
+        )
 
-        if bgr is None:
+        if goal_bgr is None:
             raise FileNotFoundError(
                 f"Could not read goal image: {goal_path}"
             )
+            
+        if goal_wrist_bgr is None:
+            raise FileNotFoundError(
+                "Could not read wrist goal image: "
+                f"{goal_wrist_path}"
+            )
 
         goal_image = cv2.cvtColor(
-            bgr,
+            goal_bgr,
+            cv2.COLOR_BGR2RGB,
+        )
+        goal_wrist_image = cv2.cvtColor(
+            goal_wrist_bgr,
             cv2.COLOR_BGR2RGB,
         )
 
@@ -1374,7 +1477,7 @@ def _load_or_capture_goal(
         if goal_proprio[6] < 0:
             goal_proprio[3:7] *= -1.0
 
-        return goal_image, goal_proprio
+        return goal_image, goal_wrist_image, goal_proprio
 
     if not real_cfg.non_interactive:
         input(
@@ -1382,25 +1485,26 @@ def _load_or_capture_goal(
             "state, then press Enter to capture it: "
         )
 
-    goal_image = env.get_image()
+    goal_image, goal_wrist_image = env.get_images()
     _, _, goal_ee = env.get_robot_state()
 
     goal_proprio = np.concatenate(
-        [
-            goal_ee,
-            np.asarray(
-                [env._last_gripper],
-                dtype=np.float32,
-            ),
-        ]
+        [goal_ee, np.asarray([env._last_gripper], dtype=np.float32,),]
     ).astype(np.float32)
 
-    return goal_image, goal_proprio
+
+
+    return (goal_image, goal_wrist_image, goal_proprio)
+
+
+
 
 
 def _policy_observation(
     image,
+    wrist_image,
     goal,
+    goal_wrist,
     ee,
     gripper,
     goal_proprio,
@@ -1425,7 +1529,9 @@ def _policy_observation(
 
     obs = {
         "pixels": image[None, None],
+        "wrist_pixels": wrist_image[None, None],
         "goal": goal[None, None],
+        "goal_wrist_pixels": goal_wrist[None, None],
 
         # (environment=1, history=1, dim=8)
         "proprio": current_proprio[None, None],
@@ -1437,7 +1543,7 @@ def _policy_observation(
         ),
     }
 
-    keep = {"pixels", "goal", "step_idx",} | set(process.keys())
+    keep = {"pixels", "wrist_pixels", "goal", "goal_wrist_pixels", "step_idx",} | set(process.keys())
 
     return {
         key: value for key, value in obs.items() if key in keep
@@ -1503,6 +1609,7 @@ def run_xarm_task(cfg, policy, process, results_path):
     previous_sigint = signal.signal(signal.SIGINT, request_stop)
     records = {key: [] for key in (
         "pixels",
+        "wrist_pixels",
         "proprio",
         "commanded_action",
         "target_qpos",
@@ -1515,7 +1622,7 @@ def run_xarm_task(cfg, policy, process, results_path):
     )}
     try:
         
-        goal, goal_proprio = (
+        goal, goal_wrist, goal_proprio = (
             _load_or_capture_goal(
                 env,
                 real_cfg,
@@ -1535,7 +1642,9 @@ def run_xarm_task(cfg, policy, process, results_path):
             if stop_requested:
                 break
             tick = time.monotonic()
-            image = env.get_image()
+            image, wrist_image = env.get_images()
+            print("overhead:", image.shape, image.dtype)
+            print("wrist:", wrist_image.shape, wrist_image.dtype)
             qpos, qvel, ee = env.get_robot_state()
 
             current_proprio = np.concatenate(
@@ -1550,13 +1659,18 @@ def run_xarm_task(cfg, policy, process, results_path):
 
             info = _policy_observation(
                 image=image,
+                wrist_image=wrist_image,
                 goal=goal,
+                goal_wrist=goal_wrist,
                 ee=ee,
                 gripper=float(env._last_gripper),
                 goal_proprio=goal_proprio,
                 step_idx=step_idx,
                 process=process,
             )
+            
+            # print("pixels:", info["pixels"].shape)
+            # print("wrist_pixels:", info["wrist_pixels"].shape)
             projection_state = {
                 "qpos": qpos,
                 "ee": ee,
@@ -1589,6 +1703,8 @@ def run_xarm_task(cfg, policy, process, results_path):
             commanded = env.execute(action, str(cfg.plan_config.action_space))
 
             records["pixels"].append(image)
+            records["wrist_pixels"].append(wrist_image)
+            
             records["proprio"].append(current_proprio)
             records["commanded_action"].append(commanded)
             records["target_qpos"].append(env._last_target_qpos.copy())
@@ -1625,6 +1741,11 @@ def run_xarm_task(cfg, policy, process, results_path):
             h5.create_dataset(
                 "goal",
                 data=goal if "goal" in locals() else np.empty(0)
+            )
+
+            h5.create_dataset(
+                "goal_wrist_pixels",
+                data=goal_wrist,
             )
 
             h5.create_dataset(
@@ -1890,7 +2011,9 @@ def run(cfg: DictConfig):
     # create the transform
     transform = {
         "pixels": img_transform(cfg),
+        "wrist_pixels": img_transform(cfg),
         "goal": img_transform(cfg),
+        "goal_wrist_pixels": img_transform(cfg),
     }
 
 
