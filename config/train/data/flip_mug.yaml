@@ -1,10 +1,11 @@
 dataset:
-  name: flip_mug/ep200_tm300/push
+  name: flip_mug/ep200_tm300_multiview/push
   num_steps: ${eval:'${wm.num_preds} + ${wm.history_size}'}
   frameskip: 1
 
   keys_to_load:
     - pixels
+    - wrist_pixels
     # - action
     # - action_joint
     - action_cartesian

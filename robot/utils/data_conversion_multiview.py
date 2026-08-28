@@ -1,5 +1,3 @@
-#行動にグリッパーが入っていない
-
 """Merge per-episode xArm HDF5 files into a single LeWM dataset.
 
 The output additionally contains ``leader_ee_pos_quat``, calculated from
@@ -8,7 +6,11 @@ forward kinematics.
 
 Output:
     ee_pos_quat          : follower EE pose [x, y, z, qx, qy, qz, qw]
+    proprio              : follower proprioception
+                           [x, y, z, qx, qy, qz, qw, gripper]
     leader_ee_pos_quat   : leader target EE pose [x, y, z, qx, qy, qz, qw]
+    action_cartesian     : target EE pose + gripper
+                           [x, y, z, qx, qy, qz, qw, gripper]
     follower             : follower joint state
     leader               : leader target joint state
     pixels               : camera observations
@@ -31,10 +33,12 @@ SOURCE_KEYS = {
     "follower": "arms/follower",
     "leader": "arms/leader",
     "pixels": "sensors/cameras/main",
+    "wrist_pixels": "sensors/cameras/wrist",
 }
 
 LEADER_EE_KEY = "leader_ee_pos_quat"
 ACTION_CARTESIAN_KEY = "action_cartesian"
+PROPRIO_KEY = "proprio"
 
 
 def get_episode_files(input_dir: Path) -> list[Path]:
@@ -65,7 +69,38 @@ def inspect_episode(
             dataset = file[source_key]
             result[output_key] = (dataset.shape, dataset.dtype)
 
+    ee_shape, _ = result["ee_pos_quat"]
+    follower_shape, _ = result["follower"]
+
+    if len(ee_shape) != 2 or ee_shape[1] != 7:
+        raise ValueError(
+            "ee_pos_quat must have shape (T, 7), "
+            f"but got {ee_shape} in {episode_path}"
+        )
+
+    if len(follower_shape) != 2 or follower_shape[1] < 8:
+        raise ValueError(
+            "Follower dataset must contain 7 joints and "
+            "1 gripper value, "
+            f"but got {follower_shape} in {episode_path}"
+        )
+
+    if ee_shape[0] != follower_shape[0]:
+        raise ValueError(
+            "ee_pos_quat and follower must have the same "
+            "time dimension, "
+            f"but got {ee_shape[0]} and {follower_shape[0]} "
+            f"in {episode_path}"
+        )
+
+    result[PROPRIO_KEY] = (
+        (ee_shape[0], 8),
+        np.dtype(np.float32),
+    )
     leader_shape, _ = result["leader"]
+
+
+
 
     if len(leader_shape) != 2 or leader_shape[1] < 7:
         raise ValueError(
@@ -79,8 +114,14 @@ def inspect_episode(
         np.dtype(np.float32),
     )
     
+    if leader_shape[1] < 8:
+        raise ValueError(
+            "Leader dataset must contain 7 joints and 1 gripper value, "
+            f"but got shape={leader_shape} in {episode_path}"
+        )
+
     result[ACTION_CARTESIAN_KEY] = (
-        (leader_shape[0], 7),
+        (leader_shape[0], 8),
         np.dtype(np.float32),
     )
 
@@ -188,7 +229,88 @@ def create_output_datasets(
         data=ep_offset,
         dtype=np.int64,
     )
+    
+    
+    episode_idx = np.repeat(
+        np.arange(num_episodes, dtype=np.int32),
+        episode_length,
+    )
 
+    step_idx = np.tile(
+        np.arange(episode_length, dtype=np.int32),
+        num_episodes,
+    )
+
+    output_file.create_dataset(
+        "episode_idx",
+        data=episode_idx,
+        dtype=np.int32,
+    )
+
+    output_file.create_dataset(
+        "step_idx",
+        data=step_idx,
+        dtype=np.int32,
+    )
+
+
+def canonicalize_quaternion_sequence(
+    quaternions: np.ndarray,
+) -> np.ndarray:
+    """Make quaternion signs continuous within one episode.
+
+    Args:
+        quaternions:
+            Shape (T, 4), ordered as [qx, qy, qz, qw].
+
+    Returns:
+        Shape (T, 4), normalized and sign-continuous quaternions.
+    """
+    quaternions = np.asarray(
+        quaternions,
+        dtype=np.float32,
+    ).copy()
+
+    if quaternions.ndim != 2 or quaternions.shape[1] != 4:
+        raise ValueError(
+            "quaternions must have shape (T, 4), "
+            f"got {quaternions.shape}"
+        )
+
+    if quaternions.shape[0] == 0:
+        raise ValueError("quaternions must not be empty")
+
+    if not np.all(np.isfinite(quaternions)):
+        raise ValueError(
+            "quaternions contain NaN or Inf"
+        )
+
+    norms = np.linalg.norm(
+        quaternions,
+        axis=1,
+        keepdims=True,
+    )
+
+    if np.any(norms < 1e-8):
+        raise ValueError(
+            "Zero-length quaternion was found"
+        )
+
+    quaternions /= norms
+
+    if quaternions[0, 3] < 0:
+        quaternions[0] *= -1.0
+
+    for step in range(1, quaternions.shape[0]):
+        dot = np.dot(
+            quaternions[step - 1],
+            quaternions[step],
+        )
+
+        if dot < 0:
+            quaternions[step] *= -1.0
+
+    return quaternions
 
 def fk_pose_to_pos_quat(
     fk_pose: list[float] | np.ndarray,
@@ -290,21 +412,106 @@ def calculate_leader_ee_trajectory(
     return leader_ee
 
 
+
+def calculate_proprio(
+    ee_pos_quat: np.ndarray,
+    follower: np.ndarray,
+) -> np.ndarray:
+    """Create follower proprioception.
+
+    Args:
+        ee_pos_quat:
+            Shape (T, 7):
+            [x, y, z, qx, qy, qz, qw]
+
+        follower:
+            Shape (T, >=8):
+            [j1, ..., j7, gripper]
+
+    Returns:
+        Shape (T, 8):
+        [x, y, z, qx, qy, qz, qw, gripper]
+    """
+    ee_pos_quat = np.asarray(
+        ee_pos_quat,
+        dtype=np.float32,
+    )
+    follower = np.asarray(
+        follower,
+        dtype=np.float32,
+    )
+
+    if ee_pos_quat.ndim != 2:
+        raise ValueError(
+            "ee_pos_quat must be a 2D array, "
+            f"got shape={ee_pos_quat.shape}"
+        )
+
+    if ee_pos_quat.shape[1] != 7:
+        raise ValueError(
+            "ee_pos_quat must have shape (T, 7), "
+            f"got shape={ee_pos_quat.shape}"
+        )
+
+    if follower.ndim != 2 or follower.shape[1] < 8:
+        raise ValueError(
+            "follower must have shape (T, >=8), "
+            f"got shape={follower.shape}"
+        )
+
+    if ee_pos_quat.shape[0] != follower.shape[0]:
+        raise ValueError(
+            "ee_pos_quat and follower must have the "
+            "same T dimension, "
+            f"got {ee_pos_quat.shape[0]} and "
+            f"{follower.shape[0]}"
+        )
+
+    if ee_pos_quat.shape[0] == 0:
+        raise ValueError(
+            "ee_pos_quat must not be empty"
+        )
+
+    if not np.all(np.isfinite(ee_pos_quat)):
+        raise ValueError(
+            "ee_pos_quat contains NaN or Inf"
+        )
+
+    if not np.all(np.isfinite(follower[:, 7])):
+        raise ValueError(
+            "Follower gripper contains NaN or Inf"
+        )
+
+    gripper = follower[:, 7:8]
+
+    proprio = np.concatenate(
+        [ee_pos_quat, gripper],
+        axis=1,
+    ).astype(np.float32)
+
+    return proprio
+
 def calculate_action_cartesian(
     leader_ee_pos_quat: np.ndarray,
+    leader: np.ndarray,
 ) -> np.ndarray:
-    """Create a T-step Cartesian action sequence.
+    """Create Cartesian actions with gripper.
+
+    Each target is:
+        [x, y, z, qx, qy, qz, qw, gripper]
 
     For t < T - 1:
-        action[t] = leader_ee_pos_quat[t + 1]
+        action[t] = target[t + 1]
 
     For t = T - 1:
-        action[t] = leader_ee_pos_quat[T - 1]
-
-    The final target is repeated because there is no next observation.
+        action[t] = target[T - 1]
     """
     leader_ee_pos_quat = np.asarray(
         leader_ee_pos_quat,
+        dtype=np.float32,
+    )
+    leader = np.asarray(
+        leader,
         dtype=np.float32,
     )
 
@@ -320,16 +527,37 @@ def calculate_action_cartesian(
             f"got shape={leader_ee_pos_quat.shape}"
         )
 
+    if leader.ndim != 2 or leader.shape[1] < 8:
+        raise ValueError(
+            "leader must have shape (T, >=8), "
+            f"got shape={leader.shape}"
+        )
+
+    if leader.shape[0] != leader_ee_pos_quat.shape[0]:
+        raise ValueError(
+            "leader and leader_ee_pos_quat must have the same T dimension, "
+            f"got {leader.shape[0]} and {leader_ee_pos_quat.shape[0]}"
+        )
+
     if leader_ee_pos_quat.shape[0] == 0:
         raise ValueError("leader_ee_pos_quat must not be empty")
 
+    # leaderの8列目をグリッパー値として使用
+    gripper = leader[:, 7:8]
+
+    # Shape: (T, 8)
+    cartesian_target = np.concatenate(
+        [leader_ee_pos_quat, gripper],
+        axis=1,
+    ).astype(np.float32)
+
     action_cartesian = np.empty_like(
-        leader_ee_pos_quat,
+        cartesian_target,
         dtype=np.float32,
     )
 
-    action_cartesian[:-1] = leader_ee_pos_quat[1:]
-    action_cartesian[-1] = leader_ee_pos_quat[-1]
+    action_cartesian[:-1] = cartesian_target[1:]
+    action_cartesian[-1] = cartesian_target[-1]
 
     return action_cartesian
 
@@ -376,7 +604,13 @@ def merge_episodes(
         if output_key == LEADER_EE_KEY:
             source_key = "arms/leader -> xArm7 FK"
         elif output_key == ACTION_CARTESIAN_KEY:
-            source_key = "leader_ee_pos_quat shifted by 1"
+            source_key = (
+                "leader_ee_pos_quat shifted by 1"
+            )
+        elif output_key == PROPRIO_KEY:
+            source_key = (
+                "ee_pos_quat + follower gripper"
+            )
         else:
             source_key = SOURCE_KEYS[output_key]
 
@@ -424,6 +658,24 @@ def merge_episodes(
             output_file.attrs["leader_fk_orientation_input"] = (
                 "roll_pitch_yaw_xyz_radians"
             )
+            output_file.attrs["action_cartesian_layout"] = (
+                "x_y_z_qx_qy_qz_qw_gripper"
+            )
+            output_file.attrs["action_cartesian_dimension"] = 8
+            output_file.attrs["action_cartesian_gripper_source"] = "leader_column_7"
+            output_file.attrs["proprio_layout"] = (
+                "x_y_z_qx_qy_qz_qw_gripper"
+            )
+            output_file.attrs["proprio_dimension"] = 8
+            output_file.attrs["proprio_position_unit"] = "metre"
+            output_file.attrs["proprio_quaternion_order"] = (
+                "qx_qy_qz_qw"
+            )
+            output_file.attrs["proprio_gripper_source"] = (
+                "follower_column_7"
+            )
+
+
 
             string_dtype = h5py.string_dtype(encoding="utf-8")
             episode_names = output_file.create_dataset(
@@ -444,7 +696,6 @@ def merge_episodes(
                 end = start + episode_length
 
                 with h5py.File(episode_path, "r") as episode_file:
-                    # 元データを平坦時系列へコピー
                     for output_key, source_key in SOURCE_KEYS.items():
                         episode_data = episode_file[source_key][...]
 
@@ -454,21 +705,75 @@ def merge_episodes(
                                 f"{episode_data.shape}"
                             )
 
+                        if output_key == "ee_pos_quat":
+                            episode_data = np.asarray(
+                                episode_data,
+                                dtype=np.float32,
+                            ).copy()
+
+                            if (
+                                episode_data.ndim != 2
+                                or episode_data.shape[1] != 7
+                            ):
+                                raise ValueError(
+                                    "ee_pos_quat must have shape (T, 7), "
+                                    f"got {episode_data.shape}"
+                                )
+
+                            episode_data[:, 3:7] = (
+                                canonicalize_quaternion_sequence(
+                                    episode_data[:, 3:7]
+                                )
+                            )
+
                         output_file[output_key][start:end] = episode_data
+
 
                     leader = np.asarray(
                         episode_file[SOURCE_KEYS["leader"]][...],
                         dtype=np.float32,
                     )
 
+                    follower = np.asarray(
+                        episode_file[SOURCE_KEYS["follower"]][...],
+                        dtype=np.float32,
+                    )
+
+                    # push.h5へ実際に保存されたee_pos_quatを使用する。
+                    # クォータニオン連続化処理を行っている場合も、
+                    # その修正後の値がここから取得される。
+                    stored_ee_pos_quat = np.asarray(
+                        output_file["ee_pos_quat"][start:end],
+                        dtype=np.float32,
+                    )
+
+                    proprio = calculate_proprio(
+                        ee_pos_quat=stored_ee_pos_quat,
+                        follower=follower,
+                    )
+                    
+                    if proprio.shape != (episode_length, 8):
+                        raise ValueError(
+                            "proprio shape mismatch: "
+                            f"expected {(episode_length, 8)}, "
+                            f"got {proprio.shape}"
+                        )
+
                     leader_ee_pos_quat = calculate_leader_ee_trajectory(
                         arm=arm,
                         leader=leader,
                         episode_name=episode_path.name,
                     )
+                    
+                    leader_ee_pos_quat[:, 3:7] = (
+                        canonicalize_quaternion_sequence(
+                            leader_ee_pos_quat[:, 3:7]
+                        )
+                    )
 
                     action_cartesian = calculate_action_cartesian(
-                        leader_ee_pos_quat
+                        leader_ee_pos_quat=leader_ee_pos_quat,
+                        leader=leader,
                     )
 
                     if leader_ee_pos_quat.shape[0] != episode_length:
@@ -490,6 +795,8 @@ def merge_episodes(
                     output_file[ACTION_CARTESIAN_KEY][start:end] = (
                         action_cartesian
                     )
+                    
+                    output_file[PROPRIO_KEY][start:end] = proprio
 
                 episode_names[episode_index] = episode_path.name
 

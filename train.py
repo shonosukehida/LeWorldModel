@@ -73,20 +73,44 @@ def lejepa_forward(self, batch, stage, cfg):
 
 
     # 結合潜在表現の次元
-    # [image embedding | proprio embedding]
+
+
+    overhead_embed_dim = cfg.wm.embed_dim
+    wrist_embed_dim = cfg.wm.embed_dim
     prop_embed_dim = cfg.wm.prop_embed_dim
 
-    pred_img_emb = pred_emb[..., :-prop_embed_dim]
-    tgt_img_emb = tgt_emb[..., :-prop_embed_dim]
 
-    pred_prop_emb = pred_emb[..., -prop_embed_dim:]
-    tgt_prop_emb = tgt_emb[..., -prop_embed_dim:]
+    overhead_end = overhead_embed_dim
+    wrist_end = overhead_end + wrist_embed_dim
 
-    # 潜在表現全体の予測loss
+    pred_overhead_emb = pred_emb[
+        ..., :overhead_end
+    ]
+    tgt_overhead_emb = tgt_emb[
+        ..., :overhead_end
+    ]
+
+    pred_wrist_emb = pred_emb[
+        ..., overhead_end:wrist_end
+    ]
+    tgt_wrist_emb = tgt_emb[
+        ..., overhead_end:wrist_end
+    ]
+
+    pred_prop_emb = pred_emb[
+        ..., wrist_end:
+    ]
+    tgt_prop_emb = tgt_emb[
+        ..., wrist_end:
+    ]
+
+
     output["pred_loss"] = (pred_emb - tgt_emb).pow(2).mean()
 
-    # 可視化用：画像部分とproprio部分を分離
-    output["img_pred_loss"] = (pred_img_emb - tgt_img_emb).pow(2).mean()
+    output["overhead_pred_loss"] = (pred_overhead_emb - tgt_overhead_emb).pow(2).mean()
+
+    output["wrist_pred_loss"] = (pred_wrist_emb - tgt_wrist_emb).pow(2).mean()
+
     output["prop_pred_loss"] = (pred_prop_emb - tgt_prop_emb).pow(2).mean()
     
 
@@ -126,12 +150,18 @@ def run(cfg):
     # print("dataset name:", cfg.data.dataset.name)
    
     print("cfg.image_size:", cfg.img_size)
-    transforms = [get_img_preprocessor(source='pixels', target='pixels', img_size=cfg.img_size)]
+    # transforms = [get_img_preprocessor(source='pixels', target='pixels', img_size=cfg.img_size)]
+    transforms = [
+        get_img_preprocessor(source="pixels", target="pixels", img_size=cfg.img_size,),
+        get_img_preprocessor(source="wrist_pixels", target="wrist_pixels", img_size=cfg.img_size,),
+    ]
+
+    image_keys = {"pixels", "wrist_pixels",}
     
     #この中でaction_dimを決定している
     with open_dict(cfg):
         for col in cfg.data.dataset.keys_to_load:
-            if col.startswith("pixels"):
+            if col in image_keys:
                 continue
             
             # print("col:", col)
@@ -183,7 +213,8 @@ def run(cfg):
     ##       model / optim      ##
     ##############################
 
-    encoder = spt.backbone.utils.vit_hf(
+
+    overhead_encoder = spt.backbone.utils.vit_hf(
         cfg.encoder_scale,
         patch_size=cfg.patch_size,
         image_size=cfg.img_size,
@@ -191,12 +222,31 @@ def run(cfg):
         use_mask_token=False,
     )
 
-    hidden_dim = encoder.config.hidden_size
+    wrist_encoder = spt.backbone.utils.vit_hf(
+        cfg.encoder_scale,
+        patch_size=cfg.patch_size,
+        image_size=cfg.img_size,
+        pretrained=False,
+        use_mask_token=False,
+    )
 
-    img_embed_dim = cfg.wm.get("embed_dim", hidden_dim,)
+    hidden_dim = overhead_encoder.config.hidden_size
+
+    if wrist_encoder.config.hidden_size != hidden_dim:
+        raise ValueError(
+            "Overhead and wrist encoder hidden dimensions must match: "
+            f"overhead={hidden_dim}, "
+            f"wrist={wrist_encoder.config.hidden_size}"
+        )
+
+
+    overhead_embed_dim = cfg.wm.get("embed_dim", hidden_dim,)
+
+    wrist_embed_dim = cfg.wm.get("embed_dim", hidden_dim,)
+
     prop_embed_dim = cfg.wm.prop_embed_dim
 
-    state_embed_dim = (img_embed_dim + prop_embed_dim)
+    state_embed_dim = (overhead_embed_dim + wrist_embed_dim + prop_embed_dim)
 
 
     effective_act_dim = cfg.data.dataset.frameskip * cfg.wm.action_dim
@@ -210,10 +260,17 @@ def run(cfg):
     )
 
     action_encoder = Embedder(input_dim=effective_act_dim, emb_dim=state_embed_dim)
-    
-    projector = MLP(
+
+    overhead_projector = MLP(
         input_dim=hidden_dim,
-        output_dim=img_embed_dim,
+        output_dim=overhead_embed_dim,
+        hidden_dim=2048,
+        norm_fn=torch.nn.BatchNorm1d,
+    )
+
+    wrist_projector = MLP(
+        input_dim=hidden_dim,
+        output_dim=wrist_embed_dim,
         hidden_dim=2048,
         norm_fn=torch.nn.BatchNorm1d,
     )
@@ -234,11 +291,13 @@ def run(cfg):
     )
 
     world_model = JEPA(
-        encoder=encoder,
+        overhead_encoder=overhead_encoder,
+        wrist_encoder=wrist_encoder,
         predictor=predictor,
         action_encoder=action_encoder,
         prop_encoder=prop_encoder,
-        projector=projector,
+        overhead_projector=overhead_projector,
+        wrist_projector=wrist_projector,
         pred_proj=predictor_proj,
     )
 
