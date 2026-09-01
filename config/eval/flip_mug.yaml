@@ -59,7 +59,7 @@ eval:
   # layout: [x, y, z, qx, qy, qz, qw, gripper], where gripper is normalized
   # to 0=open and 1=closed.
   real_robot:
-    execute: true
+    execute: false
     dry_run: false #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
     follower_ip: "192.168.1.240"
@@ -92,20 +92,20 @@ eval:
 
 
   probing:
-    exe_probe: false
+    exe_probe: true
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
-    val_dataset_name: flip_mug/ep1_tm300_redpen/push #flip_mug/val_ep10_tm300/push
-    plot_all_train_data: false
-    plot_all_val_data: false
-    plot_open_data: false
+    val_dataset_name: flip_mug/val_ep10_tm300/push #flip_mug/val_ep10_tm300/push
+    plot_all_train_data: true
+    plot_all_val_data: true
+    plot_open_data: true
     plot_closed_data: 
       plot_whisker:  #closed forward をひげ状にプロット
-        plot: false
+        plot: true
         pred_step: 5
         plot_interval: 5
       plot_pred_horizon: #pred horizon 分の予測をプロット
-        plot: false
+        plot: true
         pred_horizon: 50
     closed_pred_step: 5
     max_samples: 1000 #pcaで可視化する際に集める潜在列のステップ数
@@ -118,12 +118,9 @@ eval:
  
 
     encoder_rgb_pca:
-      check: false
+      check: true
       horizon: 300
       is_val: false
-
-    plot_cross_position_latent_pca:
-      check: false
 
 
 
