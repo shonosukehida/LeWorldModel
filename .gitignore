@@ -15,5 +15,6 @@ requirements_frozen*
 dataset_gen/franka/push/analyze_shade_image/images/*
 robot/teleop/plots/figures/
 robot/utils/plots/figures/
-__pycache__/
+__pycache__/*
+
 *.py[cod]

@@ -110,7 +110,7 @@ eval:
 
 
   probing:
-    exe_probe: false
+    exe_probe: true
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
     val_dataset_name: flip_mug/val_ep10_tm300_prop/push #flip_mug/val_ep10_tm300_prop/push
@@ -139,9 +139,6 @@ eval:
       check: true
       horizon: 300
       is_val: false
-
-    plot_cross_position_latent_pca:
-      check: false
 
 
 
