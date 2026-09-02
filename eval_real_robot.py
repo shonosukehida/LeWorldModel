@@ -389,14 +389,23 @@ def load_normalization_process(stats_path):
 class XArmInferenceEnv:
     """Minimal xArm7/RealSense adapter used only by the real-robot rollout.
 
-    Robot positions are exposed in metres/radians, while xArm SDK Cartesian
-    commands are converted to millimetres at the SDK boundary.
+    Robot positions are exposed in metres/radians.
+
+    Real-robot motion is delegated to Robopy's XArmFollower so that inference
+    uses the same low-level controller family as data collection:
+        command_joint_state()
+            -> Robopy background control loop
+            -> max_delta smoothing
+            -> FK
+            -> xArm SDK set_position()
     """
 
-    def __init__(self, robot_cfg, plan_cfg):
+    def __init__(self, robot_cfg, plan_cfg, use_camera=True):
         self.cfg = robot_cfg
         self.num_envs = 1
         self.dry_run = bool(robot_cfg.dry_run)
+        self.use_camera = bool(use_camera)
+
         bounds = np.asarray(robot_cfg.workspace_bounds_m, dtype=np.float32)
         self.action_space = gym.spaces.Box(
             low=np.array([[
@@ -409,12 +418,20 @@ class XArmInferenceEnv:
             ]], dtype=np.float32),
             dtype=np.float32,
         )
+
         self._last_qpos = np.zeros(7, dtype=np.float32)
         self._last_qvel = np.zeros(7, dtype=np.float32)
         self._last_ee = np.array(
-            [0.5, 0.0, 0.3, 0.0, 0.0, 0.0, 1.0], dtype=np.float32
+            [0.5, 0.0, 0.3, 0.0, 0.0, 0.0, 1.0],
+            dtype=np.float32,
         )
         self._last_gripper = np.float32(0.0)
+
+        # Robopy owns the xArm connection/control thread.
+        self._follower = None
+
+        # Read-only access to the XArmAPI instance owned by XArmFollower.
+        # This is retained for SDK FK, TCP/world offsets, and qvel queries.
         self._robot = None
         self._overhead_pipeline = None
         self._wrist_pipeline = None
@@ -422,35 +439,100 @@ class XArmInferenceEnv:
         self._ik_solver = None
         self._fk_solver = None
 
+        # Desired joint target given to the Robopy controller.
+        self._last_target_qpos = np.full(7, np.nan, dtype=np.float32)
+        self._last_command_qpos = np.full(7, np.nan, dtype=np.float32)
+
+        # Compatibility alias for existing logging code.
+        # With the Robopy backend this is NOT Robopy's internal per-cycle
+        # max_delta-limited joint state; it is the target submitted to
+        # command_joint_state().
+        self._last_safe_qpos = np.full(7, np.nan, dtype=np.float32)
+
         if not self.dry_run:
             try:
-                import pyrealsense2 as rs
-                from xarm.wrapper import XArmAPI
+                from robopy.config.robot_config import (
+                    XArmConfig,
+                    XArmWorkspaceBounds,
+                )
+                from robopy.robots.xarm.xarm_follower import XArmFollower
             except ImportError as exc:
                 raise ImportError(
-                    "Real execution requires xarm-python-sdk and pyrealsense2"
+                    "Real execution requires robopy with xArm support"
                 ) from exc
 
-            self._robot = XArmAPI(str(robot_cfg.follower_ip))
-            self._robot.connect()
-            self._robot.motion_enable(enable=True)
-            self._robot.set_mode(0)
-            self._robot.set_state(state=0)
-            self._robot.set_gripper_enable(True)
-            self._robot.set_gripper_mode(0)
-            self._robot.set_gripper_speed(int(robot_cfg.gripper.speed))
-            
-            tcp_offset = getattr(
-                self._robot,
-                "tcp_offset",
-                None,
+            if self.use_camera:
+                try:
+                    import pyrealsense2 as rs
+                except ImportError as exc:
+                    raise ImportError(
+                        "RealSense execution requires pyrealsense2"
+                    ) from exc
+
+            def _optional_cfg(name, default):
+                try:
+                    value = getattr(robot_cfg, name)
+                except (AttributeError, KeyError):
+                    return default
+                return default if value is None else value
+
+            # XArmWorkspaceBounds in Robopy uses millimetres.
+            workspace = XArmWorkspaceBounds(
+                min_x=float(bounds[0, 0] * 1000.0),
+                max_x=float(bounds[0, 1] * 1000.0),
+                min_y=float(bounds[1, 0] * 1000.0),
+                max_y=float(bounds[1, 1] * 1000.0),
+                min_z=float(bounds[2, 0] * 1000.0),
+                max_z=float(bounds[2, 1] * 1000.0),
             )
 
-            world_offset = getattr(
-                self._robot,
-                "world_offset",
-                None,
+            # Defaults intentionally match Robopy XArmConfig defaults used by
+            # the collection script when these fields were not specified.
+            follower_cfg = XArmConfig(
+                follower_ip=str(robot_cfg.follower_ip),
+                workspace_bounds=workspace,
+                control_frequency=float(
+                    _optional_cfg("control_frequency", 50.0)
+                ),
+                max_delta=float(
+                    _optional_cfg("max_delta", 0.05)
+                ),
+                cartesian_speed=int(
+                    _optional_cfg("cartesian_speed_mm_s", 300)
+                ),
+                cartesian_mvacc=int(
+                    _optional_cfg("cartesian_mvacc", 1000)
+                ),
+                collision_sensitivity=int(
+                    _optional_cfg("collision_sensitivity", 3)
+                ),
+                gripper_open=int(robot_cfg.gripper.open_position),
+                gripper_close=int(robot_cfg.gripper.closed_position),
+                gripper_speed=int(robot_cfg.gripper.speed),
             )
+
+            self._follower = XArmFollower(follower_cfg)
+            self._follower.connect()
+
+            # XArmFollower owns this XArmAPI object. Do not connect/disconnect
+            # it separately.
+            self._robot = self._follower._robot
+            if self._robot is None:
+                raise RuntimeError(
+                    "Robopy XArmFollower connected without an XArmAPI handle"
+                )
+
+            print(
+                "Robopy follower control_frequency:",
+                follower_cfg.control_frequency,
+            )
+            print(
+                "Robopy follower max_delta:",
+                follower_cfg.max_delta,
+            )
+
+            tcp_offset = getattr(self._robot, "tcp_offset", None)
+            world_offset = getattr(self._robot, "world_offset", None)
 
             print("SDK tcp_offset:", tcp_offset)
             print("SDK world_offset:", world_offset)
@@ -460,8 +542,7 @@ class XArmInferenceEnv:
                 "libxarm7_capi.so",
                 tcp_offset=tcp_offset,
                 world_offset=world_offset,
-            )  
-
+            )
 
             self._fk_solver = XArm7FK(
                 "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
@@ -501,6 +582,9 @@ class XArmInferenceEnv:
                 robot_cfg.cameras.wrist
             )
 
+                # Discard auto-exposure warm-up frames.
+                for _ in range(15):
+                    pipeline.wait_for_frames()
 
         self._dry_run_overhead_image = None
         self._dry_run_wrist_image = None
@@ -613,6 +697,12 @@ class XArmInferenceEnv:
             self._robot.set_state(state=4)
             self._robot.disconnect()
 
+        if self._follower is not None:
+            # XArmFollower stops its background control thread and disconnects
+            # the XArmAPI object it owns.
+            self._follower.disconnect()
+            self._follower = None
+            self._robot = None
 
 
     def _get_image_from_pipeline(self, pipeline):
@@ -657,23 +747,51 @@ class XArmInferenceEnv:
     def _sdk_value(result, name):
         code, value = result
         if code != 0:
-            raise RuntimeError(f"xArm {name} failed with SDK code {code}")
+            raise RuntimeError(
+                f"xArm {name} failed with SDK code {code}"
+            )
         return np.asarray(value, dtype=np.float32)
 
     def get_robot_state(self):
         if self.dry_run:
             return self._last_qpos, self._last_qvel, self._last_ee
-        qpos = self._sdk_value(
-            self._robot.get_servo_angle(is_radian=True), "get_servo_angle"
-        )[:7]
+
+        if self._follower is None or self._robot is None:
+            raise RuntimeError("Robopy XArmFollower is not connected")
+
+        # Use Robopy's cached follower state for qpos / EE / gripper so the
+        # observation path is consistent with the low-level controller.
+        follower_state = np.asarray(
+            self._follower.get_joint_state(),
+            dtype=np.float32,
+        )
+        qpos = follower_state[:7].copy()
+        self._last_gripper = np.float32(follower_state[7])
+
+        ee = np.asarray(
+            self._follower.get_ee_pos_quat(),
+            dtype=np.float32,
+        ).copy()
+
+        # XArmFollower does not expose qvel, so retain the SDK query for it.
         try:
-            code, joint_states = self._robot.get_joint_states(is_radian=True)
+            code, joint_states = self._robot.get_joint_states(
+                is_radian=True
+            )
             if code != 0:
                 raise RuntimeError(
                     f"xArm get_joint_states failed with SDK code {code}"
                 )
-            qvel = np.asarray(joint_states[1], dtype=np.float32)[:7]
-        except (AttributeError, IndexError, TypeError, RuntimeError):
+            qvel = np.asarray(
+                joint_states[1],
+                dtype=np.float32,
+            )[:7]
+        except (
+            AttributeError,
+            IndexError,
+            TypeError,
+            RuntimeError,
+        ):
             qvel = np.zeros(7, dtype=np.float32)
         ee_rpy = self._sdk_value(
             self._robot.get_position(is_radian=True), "get_position"
@@ -723,212 +841,164 @@ class XArmInferenceEnv:
         return qpos, qvel, ee
 
     def execute(self, action, action_space):
-        code = 0
-        action = np.asarray(action, dtype=np.float32).reshape(-1)
+        """Execute one policy target through Robopy's XArmFollower.
+
+        The outer per-joint ``max_joint_delta_rad`` clip used by the previous
+        XArmAPI/set_servo_angle implementation is intentionally not applied
+        here. Robopy's XArmFollower performs its own norm-based ``max_delta``
+        smoothing at ``control_frequency`` in the background thread.
+        """
+        action = np.asarray(
+            action,
+            dtype=np.float32,
+        ).reshape(-1)
+
         if action_space == "joint":
             if action.size < 7:
-                raise ValueError(f"joint action needs 7 values, got {action.size}")
-            current_qpos, _, _ = self.get_robot_state()
-            max_delta = float(self.cfg.max_joint_delta_rad)
-            target = current_qpos + np.clip(
-                action[:7] - current_qpos, -max_delta, max_delta
-            )
-            if not self.dry_run:
-                code = self._robot.set_servo_angle(
-                    angle=target.tolist(), is_radian=True,
-                    speed=float(self.cfg.joint_speed), wait=False,
-                )
-        else:
-            if action.size < 8:
                 raise ValueError(
-                    "flip-mug Cartesian action must be "
-                    "[x,y,z,qx,qy,qz,qw,gripper] (8 values), "
-                    f"got {action.size}"
+                    f"joint action needs 7 values, got {action.size}"
                 )
-            _, _, current_ee = self.get_robot_state()
-            clipped_action = self.clip_cartesian_action(
-                action,
-                current_ee=current_ee,
+
+            target_qpos = action[:7].copy()
+            command_qpos = target_qpos.copy()
+
+            self._last_target_qpos = target_qpos.copy()
+            self._last_command_qpos = command_qpos.copy()
+            self._last_safe_qpos = command_qpos.copy()
+
+            if not self.dry_run:
+                if self._follower is None:
+                    raise RuntimeError(
+                        "Robopy XArmFollower is not connected"
+                    )
+                self._follower.command_joint_state(
+                    command_qpos.astype(np.float32)
+                )
+
+            return command_qpos.astype(np.float32)
+
+        if action.size < 8:
+            raise ValueError(
+                "flip-mug Cartesian action must be "
+                "[x,y,z,qx,qy,qz,qw,gripper] (8 values), "
+                f"got {action.size}"
             )
 
-            target_xyz = clipped_action[:3]
+        _, _, current_ee = self.get_robot_state()
+        clipped_action = self.clip_cartesian_action(
+            action,
+            current_ee=current_ee,
+        )
 
-            
-            target_quat = clipped_action[3:7]
-            target_rotation = Rotation.from_quat(target_quat)
-            target_rpy = target_rotation.as_euler("xyz")
-            pose = np.concatenate([target_xyz * 1000.0, target_rpy])
+        target_xyz = clipped_action[:3]
+        target_quat = clipped_action[3:7]
+        target_rotation = Rotation.from_quat(target_quat)
+        target_rpy = target_rotation.as_euler("xyz")
+        pose = np.concatenate([
+            target_xyz * 1000.0,
+            target_rpy,
+        ])
+        target_gripper = float(clipped_action[7])
 
-            target_gripper = float(clipped_action[7])
-            
-            # print("pose:", pose)
-            
-            if not self.dry_run:
-                current_qpos, _, _ = self.get_robot_state()
+        if not self.dry_run:
+            current_qpos, _, _ = self.get_robot_state()
 
-                target_qpos = self._ik_solver.solve(
-                    pose_rpy=pose,
-                    q_pre=current_qpos,
-                )
+            target_qpos = self._ik_solver.solve(
+                pose_rpy=pose,
+                q_pre=current_qpos,
+            )
 
+            # Keep the existing IK/FK consistency checks.
+            fk_target_sdk = self.forward_kinematics(
+                target_qpos
+            )
+            fk_target_local = self._fk_solver.solve(
+                target_qpos
+            )
 
-                # IK consistency check:
-                # commanded Cartesian pose vs SDK FK(target_qpos)
-                fk_target_sdk = self.forward_kinematics(
-                    target_qpos
-                )
+            position_error_m = np.linalg.norm(
+                target_xyz - fk_target_sdk[:3]
+            )
 
-                fk_target_local = self._fk_solver.solve(
-                    target_qpos
-                )
-
-                # print("target pose :", np.concatenate([
-                #     target_xyz,
-                #     target_quat,
-                # ]))
-                # print("SDK FK      :", fk_target_sdk)
-                # print("Local FK    :", fk_target_local)
-
-                position_error_m = np.linalg.norm(
-                    target_xyz - fk_target_sdk[:3]
-                )
-
-                rotation_target = Rotation.from_quat(
-                    target_quat
-                )
-
-                rotation_fk = Rotation.from_quat(
-                    fk_target_sdk[3:7]
-                )
-
-                relative_rotation = (
-                    rotation_fk * rotation_target.inv()
-                )
-
-                orientation_error_deg = np.rad2deg(
-                    np.linalg.norm(
-                        relative_rotation.as_rotvec()
-                    )
-                )
-
-                # print("\n[IK -> SDK FK consistency]")
-                # print("target xyz :", target_xyz)
-                # print("FK xyz     :", fk_target_sdk[:3])
-                # print(
-                #     "position error [mm]:",
-                #     position_error_m * 1000.0,
-                # )
-
-                # print("target quat:", target_quat)
-                # print("FK quat    :", fk_target_sdk[3:7])
-                # print(
-                #     "orientation error [deg]:",
-                #     orientation_error_deg,
-                # )
-                                
-                # 関節角の1ステップ変化量を制限
-                max_delta = float(self.cfg.max_joint_delta_rad)
-                safe_qpos = current_qpos + np.clip(
-                    target_qpos - current_qpos,
-                    -max_delta,
-                    max_delta,
-                )
-
-
-                # ---------------------------------------------------------
-                # FK comparison:
-                # xArm SDK FK vs local XArm7FK
-                # ---------------------------------------------------------
-
-                fk_sdk = self.forward_kinematics(
-                    safe_qpos
-                )
-
-                fk_local = self._fk_solver.solve(
-                    safe_qpos
-                )
-                
-                # print("fk_sdk:", fk_sdk)
-                # print("fk_local:", fk_local)
-
-                # position error
-                position_error_m = np.linalg.norm(
-                    fk_sdk[:3] - fk_local[:3]
-                )
-
-                # orientation error
-                rotation_sdk = Rotation.from_quat(
-                    fk_sdk[3:7]
-                )
-
-                rotation_local = Rotation.from_quat(
-                    fk_local[3:7]
-                )
-
-                relative_rotation = (
-                    rotation_local * rotation_sdk.inv()
-                )
-
-                orientation_error_rad = np.linalg.norm(
+            rotation_target = Rotation.from_quat(
+                target_quat
+            )
+            rotation_fk = Rotation.from_quat(
+                fk_target_sdk[3:7]
+            )
+            relative_rotation = (
+                rotation_fk * rotation_target.inv()
+            )
+            orientation_error_deg = np.rad2deg(
+                np.linalg.norm(
                     relative_rotation.as_rotvec()
                 )
+            )
 
-                orientation_error_deg = np.rad2deg(
-                    orientation_error_rad
+            # Robopy performs the low-level joint smoothing. Do not apply the
+            # old outer max_joint_delta_rad clip here, otherwise the command
+            # would be limited twice.
+            command_qpos = target_qpos.copy()
+
+            fk_sdk = self.forward_kinematics(
+                command_qpos
+            )
+            fk_local = self._fk_solver.solve(
+                command_qpos
+            )
+
+            position_error_m = np.linalg.norm(
+                fk_sdk[:3] - fk_local[:3]
+            )
+
+            rotation_sdk = Rotation.from_quat(
+                fk_sdk[3:7]
+            )
+            rotation_local = Rotation.from_quat(
+                fk_local[3:7]
+            )
+            relative_rotation = (
+                rotation_local * rotation_sdk.inv()
+            )
+            orientation_error_rad = np.linalg.norm(
+                relative_rotation.as_rotvec()
+            )
+            orientation_error_deg = np.rad2deg(
+                orientation_error_rad
+            )
+
+            self._last_target_qpos = target_qpos.copy()
+            self._last_command_qpos = command_qpos.copy()
+            self._last_safe_qpos = command_qpos.copy()
+
+            if self._follower is None:
+                raise RuntimeError(
+                    "Robopy XArmFollower is not connected"
                 )
 
-                # print("\n[FK comparison]")
-                # print("safe_qpos:", safe_qpos)
-                # print("SDK FK   :", fk_sdk)
-                # print("Local FK :", fk_local)
-                # print(
-                #     "position error [mm]:",
-                #     position_error_m * 1000.0,
-                # )
-                # print(
-                #     "orientation error [deg]:",
-                #     orientation_error_deg,
-                # )
-                ##########
-
-                # デバッグ用
-                self._last_target_qpos = target_qpos.copy()
-                self._last_safe_qpos = safe_qpos.copy()                
-                # print("target_qpos: ", target_qpos, "safe_qpos: ", safe_qpos)
-
-                code = self._robot.set_servo_angle(
-                    angle=safe_qpos.tolist(),
-                    is_radian=True,
-                    speed=float(self.cfg.joint_speed),
-                    wait=False,
-                )
-                if abs(target_gripper - float(self._last_gripper)) >= float(
-                    self.cfg.gripper.command_threshold
-                ):
-                    sdk_gripper = (
-                        float(self.cfg.gripper.open_position)
-                        + target_gripper
-                        * (
-                            float(self.cfg.gripper.closed_position)
-                            - float(self.cfg.gripper.open_position)
-                        )
-                    )
-                    gripper_code = self._robot.set_gripper_position(
-                        int(round(sdk_gripper)), wait=False
-                    )
-                    if gripper_code != 0:
-                        raise RuntimeError(
-                            "xArm gripper command failed with SDK code "
-                            f"{gripper_code}"
-                        )
-            self._last_gripper = np.float32(target_gripper)
-            action = np.concatenate([
-                target_xyz, target_quat, [target_gripper]
+            # Passing 8 values lets the same Robopy background controller
+            # update both the joint target and gripper target.
+            follower_action = np.concatenate([
+                command_qpos,
+                np.asarray(
+                    [target_gripper],
+                    dtype=np.float32,
+                ),
             ]).astype(np.float32)
-        if not self.dry_run and (code[0] if isinstance(code, tuple) else code) != 0:
-            raise RuntimeError(f"xArm motion command failed with SDK code {code}")
-        return action.astype(np.float32)
-    
+
+            self._follower.command_joint_state(
+                follower_action
+            )
+
+        self._last_gripper = np.float32(
+            target_gripper
+        )
+
+        return np.concatenate([
+            target_xyz,
+            target_quat,
+            [target_gripper],
+        ]).astype(np.float32)
 
     def clip_cartesian_action(self, action, current_ee=None):
         """

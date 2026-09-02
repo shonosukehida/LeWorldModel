@@ -30,7 +30,7 @@ class XArmActionProjector:
         workspace_bounds_m,
         max_cartesian_delta_m,
         max_orientation_delta_rad,
-        max_joint_delta_rad,
+        max_delta,
         max_gripper_delta,
     ):
         self.ik_solver = ik_solver
@@ -54,10 +54,8 @@ class XArmActionProjector:
         self.max_orientation_delta_rad = float(
             max_orientation_delta_rad
         )
-
-        self.max_joint_delta_rad = float(
-            max_joint_delta_rad
-        )
+        
+        self.max_delta = float(max_delta)
 
         self.max_gripper_delta = float(
             max_gripper_delta
@@ -176,11 +174,21 @@ class XArmActionProjector:
             )
 
         # 4. joint delta clip
-        safe_qpos = current_qpos + np.clip(
-            target_qpos - current_qpos,
-            -self.max_joint_delta_rad,
-            self.max_joint_delta_rad,
-        )
+
+        safe_qpos = current_qpos.copy()
+        num_inner_steps = 5  # 50 Hz / 10 Hz
+
+        for _ in range(num_inner_steps):
+            joint_delta = target_qpos - safe_qpos
+            delta_norm = np.linalg.norm(joint_delta)
+
+            if delta_norm > self.max_delta:
+                joint_delta = (
+                    joint_delta / delta_norm
+                    * self.max_delta
+                )
+
+            safe_qpos = safe_qpos + joint_delta
 
         # 5. FK
         try:
