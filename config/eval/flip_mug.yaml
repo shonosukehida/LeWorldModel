@@ -70,12 +70,8 @@ eval:
     control_frequency: 50
     non_interactive: false
     use_action_projector: false
-<<<<<<< HEAD
     goal_image_path: config/eval/goal_state/flip_mug/overhead_goal_image.png #ゴール俯瞰画像のパス
     goal_wrist_image_path: config/eval/goal_state/flip_mug/wrist_goal_image.png #ゴール手先画像のパス
-=======
-    goal_image_path: config/eval/goal_state/flip_mug/goal_state_0.png #ゴール画像のパス
->>>>>>> real_robot_add_prop
     goal_proprio: #ゴール状態の姿勢
       - 0.570201  # x [m]
       - -0.028193  # y [m]
