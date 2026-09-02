@@ -26,6 +26,7 @@ eval:
     output_dir: ${hydra:runtime.cwd}/real_robot_rollouts/flip_mug
     max_cartesian_delta_m: 0.01 #現在位置との差分 [m] #0.02 #0.04
     max_orientation_delta_rad: 0.0872665  # 0.0872665 = 5deg
+    # max_joint_delta_rad: 100 #0.03 #action_projector適用時に使用
     max_delta: 0.05 #joint差分ベクトルの最大ノルム
     cartesian_speed_mm_s: 300.
     joint_speed: 0.15
