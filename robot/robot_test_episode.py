@@ -80,6 +80,7 @@ def run(cfg: DictConfig):
     env = XArmInferenceEnv(
         real_cfg,
         cfg.plan_config,
+        use_camera=False,
     )
 
     control_hz = float(real_cfg.control_hz)
@@ -89,7 +90,7 @@ def run(cfg: DictConfig):
     # Logs
     # ------------------------------------------------------------
     target_qpos_log = []
-    safe_qpos_log = []
+    command_qpos_log = []
 
     # command を送る「前」の qpos
     qpos_before_log = []
@@ -219,16 +220,16 @@ def run(cfg: DictConfig):
                 env._last_target_qpos.copy()
             )
 
-            safe_qpos = (
-                env._last_safe_qpos.copy()
+            command_qpos = (
+                env._last_command_qpos.copy()
             )
 
             target_qpos_log.append(
                 target_qpos
             )
 
-            safe_qpos_log.append(
-                safe_qpos
+            command_qpos_log.append(
+                command_qpos
             )
 
             # ----------------------------------------------------
@@ -265,20 +266,20 @@ def run(cfg: DictConfig):
             # tracking error
             # ----------------------------------------------------
             tracking_error = (
-                safe_qpos
+                command_qpos
                 - qpos_after
             )
 
-            leader_to_safe_error = (
+            leader_to_command_error = (
                 target_qpos
-                - safe_qpos
+                - command_qpos
             )
 
             print(
                 f"step={step_idx:03d} | "
-                f"leader->safe max="
-                f"{np.max(np.abs(leader_to_safe_error)):.5f} rad | "
-                f"safe->actual max="
+                f"leader->command max="
+                f"{np.max(np.abs(leader_to_command_error)):.5f} rad | "
+                f"command->actual max="
                 f"{np.max(np.abs(tracking_error)):.5f} rad"
             )
 
@@ -296,8 +297,8 @@ def run(cfg: DictConfig):
         dtype=np.float32,
     )
 
-    safe_qpos_log = np.asarray(
-        safe_qpos_log,
+    command_qpos_log = np.asarray(
+        command_qpos_log,
         dtype=np.float32,
     )
 
@@ -317,7 +318,7 @@ def run(cfg: DictConfig):
     )
 
     executed_steps = len(
-        safe_qpos_log
+        command_qpos_log
     )
 
     if executed_steps == 0:
@@ -339,13 +340,13 @@ def run(cfg: DictConfig):
     # Error statistics
     # ============================================================
     tracking_error = (
-        safe_qpos_log
+        command_qpos_log
         - qpos_after_log
     )
 
-    leader_safe_error = (
+    leader_command_error = (
         target_qpos_log
-        - safe_qpos_log
+        - command_qpos_log
     )
 
     # データ収集時の leader - follower
@@ -360,7 +361,7 @@ def run(cfg: DictConfig):
     print("========================================")
 
     print(
-        "Replay clipped action -> actual "
+        "Replay command -> actual follower "
         "MAE [rad]:",
         np.mean(
             np.abs(tracking_error)
@@ -368,7 +369,7 @@ def run(cfg: DictConfig):
     )
 
     print(
-        "Replay clipped action -> actual follower "
+        "Replay command -> actual follower "
         "max error [rad]:",
         np.max(
             np.abs(tracking_error)
@@ -376,7 +377,7 @@ def run(cfg: DictConfig):
     )
 
     print(
-        "Replay clipped action -> actual follower "
+        "Replay command -> actual follower "
         "MAE [deg]:",
         np.rad2deg(
             np.mean(
@@ -386,11 +387,11 @@ def run(cfg: DictConfig):
     )
 
     print(
-        "Leader action -> clipped action "
+        "Leader action -> Robopy command "
         "MAE [deg]:",
         np.rad2deg(
             np.mean(
-                np.abs(leader_safe_error)
+                np.abs(leader_command_error)
             ),
         )
     )
@@ -430,7 +431,7 @@ def run(cfg: DictConfig):
             original_follower_qpos
         ),
         target_qpos=target_qpos_log,
-        safe_qpos=safe_qpos_log,
+        command_qpos=command_qpos_log,
         qpos_before=qpos_before_log,
         qpos_after=qpos_after_log,
         timestamp=timestamp_log,
@@ -438,7 +439,7 @@ def run(cfg: DictConfig):
 
     # ============================================================
     # Plot 1:
-    # leader / safe / replay actual
+    # leader / Robopy command / replay actual
     # ============================================================
     steps = np.arange(
         executed_steps
@@ -460,8 +461,8 @@ def run(cfg: DictConfig):
 
         axes[joint_idx].plot(
             steps,
-            safe_qpos_log[:, joint_idx],
-            label="Commanded Safe qpos",
+            command_qpos_log[:, joint_idx],
+            label="Robopy Command qpos",
         )
 
         axes[joint_idx].plot(
@@ -483,7 +484,7 @@ def run(cfg: DictConfig):
 
     fig.suptitle(
         "Dataset Leader vs "
-        "Commanded vs Replay Actual"
+        "Robopy Command vs Replay Actual"
     )
 
     fig.tight_layout(
@@ -492,7 +493,7 @@ def run(cfg: DictConfig):
 
     save_path = (
         output_dir
-        / "leader_safe_replay_qpos.png"
+        / "leader_robopy_command_replay_qpos.png"
     )
 
     fig.savefig(
