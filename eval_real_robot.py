@@ -615,17 +615,35 @@ class XArmInferenceEnv:
         action = np.asarray(action, dtype=np.float32).reshape(-1)
         if action_space == "joint":
             if action.size < 7:
-                raise ValueError(f"joint action needs 7 values, got {action.size}")
+                raise ValueError(
+                    f"joint action needs 7 values, got {action.size}"
+                )
+
             current_qpos, _, _ = self.get_robot_state()
+            target_qpos = action[:7].copy()
+
             max_delta = float(self.cfg.max_joint_delta_rad)
-            target = current_qpos + np.clip(
-                action[:7] - current_qpos, -max_delta, max_delta
+
+            # 実際にxArmへ送る安全制限後の関節角
+            safe_qpos = current_qpos + np.clip(
+                target_qpos - current_qpos,
+                -max_delta,
+                max_delta,
             )
+
+            self._last_target_qpos = (target_qpos.copy())
+            self._last_safe_qpos = (safe_qpos.copy())
+
             if not self.dry_run:
                 code = self._robot.set_servo_angle(
-                    angle=target.tolist(), is_radian=True,
-                    speed=float(self.cfg.joint_speed), wait=False,
+                    angle=safe_qpos.tolist(),
+                    is_radian=True,
+                    speed=float(self.cfg.joint_speed),
+                    wait=False,
                 )
+
+            # execute()の返り値も実際に送った値にする
+            action = safe_qpos.copy()
         else:
             if action.size < 8:
                 raise ValueError(
