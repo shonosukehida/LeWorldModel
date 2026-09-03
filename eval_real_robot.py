@@ -582,10 +582,6 @@ class XArmInferenceEnv:
                 robot_cfg.cameras.wrist
             )
 
-                # Discard auto-exposure warm-up frames.
-                for _ in range(15):
-                    pipeline.wait_for_frames()
-
         self._dry_run_overhead_image = None
         self._dry_run_wrist_image = None
 
