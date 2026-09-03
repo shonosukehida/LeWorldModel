@@ -60,11 +60,11 @@ eval:
   # layout: [x, y, z, qx, qy, qz, qw, gripper], where gripper is normalized
   # to 0=open and 1=closed.
   real_robot:
-    execute: false
+    execute: true
     dry_run: false #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
     follower_ip: "192.168.1.240"
-    max_steps: 300 #50
+    max_steps: 5 #50
     control_hz: 10 #0.5
     control_frequency: 50
     non_interactive: false
@@ -105,7 +105,7 @@ eval:
 
 
   probing:
-    exe_probe: true
+    exe_probe: false
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
     val_dataset_name: flip_mug/val_ep10_tm300/push #flip_mug/val_ep10_tm300/push
