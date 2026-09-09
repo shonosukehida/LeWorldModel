@@ -14,16 +14,6 @@ train_split: 0.9
 
 
 
-# Dataset
-data:
-  dataset:
-    name: flip_mug/ep2_tm300/push #flip_mug/ep200_tm300/push
-
-    # train_policy.py 側で
-    # policy.pred_horizon に上書きする
-    num_steps: 16
-
-    frameskip: 1
 
 
 
