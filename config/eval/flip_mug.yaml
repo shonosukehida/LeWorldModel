@@ -38,6 +38,11 @@ dataset:
 
 seed: 42
 policy: lewm_weights 
+policy_type: world_model #world_model/gpc/diffusion
+gpc:
+  diffusion_checkpoint: /home/shonosukehida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep2_tm300/seed_41/20260910_162050/best.ckpt
+  num_candidates: 50
+
 
 plan_config:
   horizon: 5 #CEMの計算horizon #!5
@@ -65,7 +70,7 @@ eval:
     dry_run_image_path: config/eval/start_state/flip_mug/overhead_start_image.png
     dry_run_wrist_image_path: config/eval/start_state/flip_mug/wrist_start_image.png
     follower_ip: "192.168.1.240"
-    max_steps: 50 #50
+    max_steps: 5 #50
     control_hz: 10 #0.5
     control_frequency: 50
     non_interactive: false
@@ -113,7 +118,7 @@ eval:
 
 
   probing:
-    exe_probe: true
+    exe_probe: false
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
     val_dataset_name: flip_mug/val_ep10_tm300_prop/push #flip_mug/val_ep10_tm300_prop/push
