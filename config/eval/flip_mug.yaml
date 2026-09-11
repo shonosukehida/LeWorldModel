@@ -40,7 +40,7 @@ seed: 42
 policy: lewm_weights 
 policy_type: world_model #world_model/gpc/diffusion
 gpc:
-  diffusion_checkpoint: /home/shonosukehida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep2_tm300/seed_41/20260910_162050/best.ckpt
+  diffusion_checkpoint: null
   num_candidates: 50
 
 
