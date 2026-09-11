@@ -182,7 +182,7 @@ class SafeStandardScaler:
 
     def fit(self, x):
         self.mean_ = np.mean(x, axis=0, keepdims=True)
-        std = np.std(x, axis=0, keepdims=True)
+        std = np.std(x, axis=0, keepdims=True, ddof=1,)
         self.scale_ = np.where(std < self.eps, 1.0, std)
         return self
 
