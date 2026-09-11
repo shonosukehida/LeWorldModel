@@ -35,6 +35,15 @@ import subprocess
 
 from action_projector import XArmActionProjector
 
+from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+
+from stable_worldmodel.diffusion import (
+    ConditionalUnet1D,
+    ResNet18ObsEncoder,
+)
+from stable_worldmodel.reward import latent_goal_reward
+
+from collections import deque
 
 def img_transform(cfg):
     transform = transforms.Compose(
@@ -1497,45 +1506,57 @@ def run_xarm_task(cfg, policy, process, results_path):
 
     """Run MPC against xArm and persist synchronized observations/actions."""
     real_cfg = cfg.eval.real_robot
-    env = XArmInferenceEnv(real_cfg, cfg.plan_config) # <__main__.XArmInferenceEnv object at 0x7f94ec6751b0>
+    env = XArmInferenceEnv(real_cfg, cfg.plan_config)
+
     policy.set_env(env)
 
+    # --------------------------------------------------
+    # WorldModelPolicy-specific setup
+    # --------------------------------------------------
 
-    if str(cfg.plan_config.action_space) == "cartesian":
-        if real_cfg.use_action_projector: 
-            action_projector = XArmActionProjector(
-                ik_solver=env._ik_solver,
-                fk_solver=env._fk_solver,
-                workspace_bounds_m=real_cfg.workspace_bounds_m,
-                max_cartesian_delta_m=real_cfg.max_cartesian_delta_m,
-                max_orientation_delta_rad=real_cfg.max_orientation_delta_rad,
-                max_joint_delta_rad=real_cfg.max_joint_delta_rad,
-                max_gripper_delta=real_cfg.gripper.max_delta,
+    if isinstance(policy, swm.policy.WorldModelPolicy):
+
+        if str(cfg.plan_config.action_space) == "cartesian":
+
+            if real_cfg.use_action_projector:
+                action_projector = XArmActionProjector(
+                    ik_solver=env._ik_solver,
+                    fk_solver=env._fk_solver,
+                    workspace_bounds_m=real_cfg.workspace_bounds_m,
+                    max_cartesian_delta_m=real_cfg.max_cartesian_delta_m,
+                    max_orientation_delta_rad=real_cfg.max_orientation_delta_rad,
+                    max_joint_delta_rad=real_cfg.max_joint_delta_rad,
+                    max_gripper_delta=real_cfg.gripper.max_delta,
+                )
+            else:
+                action_projector = None
+
+            policy.set_action_projector(
+                action_projector
             )
-        else:
-            action_projector = None
 
-        policy.set_action_projector(action_projector)
+            # WorldModelPolicy / CEM only
+            policy.action_space = env.action_space
 
+            policy.solver.configure(
+                n_envs=env.num_envs,
+                config=policy.cfg,
+                action_processor=policy.action_processor,
+                action_space=env.action_space,
+            )
 
+    # --------------------------------------------------
+    # Common setup
+    # --------------------------------------------------
 
-    if str(cfg.plan_config.action_space) == "cartesian":
-        # WorldModelPolicy currently contains a Push-specific 3-D Cartesian
-        # Box. Flip-mug was trained with the 8-D pose+gripper action above,
-        # so reconfigure only the solver boundary while retaining the same
-        # loaded policy/model and action normalizer.
-        
-        
-        policy.action_space = env.action_space #ここで workspace_bounds_m が入る
-        policy.solver.configure(
-            n_envs=env.num_envs,
-            config=policy.cfg,
-            action_processor=policy.action_processor,
-            action_space=env.action_space,
-        )
     policy.results_path = results_path
-    if hasattr(policy, "_action_buffer") and policy._action_buffer is not None:
+
+    if (
+        hasattr(policy, "_action_buffer")
+        and policy._action_buffer is not None
+    ):
         policy._action_buffer.clear()
+
     if hasattr(policy, "_next_init"):
         policy._next_init = None
 
@@ -1562,6 +1583,14 @@ def run_xarm_task(cfg, policy, process, results_path):
         "gripper",
         "timestamp",
     )}
+
+    # DP observation history
+    dp_image_history = None
+
+    if isinstance(policy, swm.policy.GPCPolicy):
+        dp_image_history = deque(maxlen=policy.diffusion_policy.obs_horizon)
+
+
     try:
         
         goal, goal_proprio = (
@@ -1606,16 +1635,47 @@ def run_xarm_task(cfg, policy, process, results_path):
                 step_idx=step_idx,
                 process=process,
             )
+            
+            #Build observation history for DP
+            if isinstance(policy, swm.policy.GPCPolicy):
+
+                if len(dp_image_history) == 0:
+                    for _ in range(policy.diffusion_policy.obs_horizon):
+                        dp_image_history.append(image.copy())
+                else:
+                    dp_image_history.append(image.copy())
+
+                dp_pixels = np.stack(list(dp_image_history), axis=0,)
+
+                # (T, H, W, C) -> (B=1, T, H, W, C)
+                dp_info = {
+                    "pixels": dp_pixels[None],
+                }
+                
+                
             projection_state = {
                 "qpos": qpos,
                 "ee": ee,
                 "gripper": env._last_gripper,
             }
 
-            action_result = policy.get_action(
-                info,
-                projection_state=projection_state,
-            )
+
+            if isinstance(policy, swm.policy.GPCPolicy):
+
+                action_result = policy.get_action(
+                    info,
+                    dp_info_dict=dp_info,
+                    projection_state=projection_state,
+                )
+            else:
+                action_result = policy.get_action(
+                    info,
+                    projection_state=projection_state,
+                )
+
+
+
+
             if isinstance(action_result, tuple):
                 action, outputs = action_result
             else:
@@ -1623,7 +1683,7 @@ def run_xarm_task(cfg, policy, process, results_path):
                 outputs = None
                 
             # print("run_dir:", run_dir)
-            if outputs is not None:
+            if isinstance(policy, swm.policy.WorldModelPolicy) and outputs is not None:
                 visualize_cem_actions(
                     outputs=outputs,
                     action_processor=policy.action_processor,
@@ -1912,6 +1972,147 @@ def run_xarm_task(cfg, policy, process, results_path):
 
 
 
+def load_diffusion_policy(
+    checkpoint_path,
+    image_transform,
+    device="cuda",
+):
+    checkpoint_path = Path(checkpoint_path).expanduser()
+
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location="cpu",
+        weights_only=False,
+    )
+
+    train_cfg = checkpoint["config"]
+
+    # --------------------------------------------------
+    # Observation encoder
+    # --------------------------------------------------
+
+    obs_encoder = ResNet18ObsEncoder(
+        pretrained=False,
+    )
+
+    # --------------------------------------------------
+    # Conditional U-Net
+    # --------------------------------------------------
+
+    model = ConditionalUnet1D(
+        input_dim=checkpoint["action_dim"],
+
+        global_cond_dim=(
+            checkpoint["obs_feature_dim"]
+            * checkpoint["obs_horizon"]
+        ),
+
+        diffusion_step_embed_dim=(
+            train_cfg["model"]["diffusion_step_embed_dim"]
+        ),
+
+        down_dims=tuple(
+            train_cfg["model"]["down_dims"]
+        ),
+
+        kernel_size=(
+            train_cfg["model"]["kernel_size"]
+        ),
+
+        n_groups=(
+            train_cfg["model"]["n_groups"]
+        ),
+
+        cond_predict_scale=(
+            train_cfg["model"]["cond_predict_scale"]
+        ),
+    )
+
+    # --------------------------------------------------
+    # DDPM scheduler
+    # --------------------------------------------------
+
+    noise_scheduler = DDPMScheduler(
+        num_train_timesteps=(
+            checkpoint["num_train_timesteps"]
+        ),
+
+        beta_schedule=(
+            checkpoint["beta_schedule"]
+        ),
+
+        clip_sample=(
+            train_cfg["diffusion"]["clip_sample"]
+        ),
+
+        prediction_type=(
+            checkpoint["prediction_type"]
+        ),
+    )
+
+    # --------------------------------------------------
+    # DP normalization
+    # --------------------------------------------------
+
+    action_processor = SafeStandardScaler(
+        eps=1e-4
+    )
+
+    action_processor.mean_ = (checkpoint["action_mean"].cpu().numpy())
+    action_processor.scale_ = (checkpoint["action_std"].cpu().numpy())
+    action_key = checkpoint["action_key"]
+
+    dp_process = {action_key: action_processor,}
+
+    # --------------------------------------------------
+    # DiffusionPolicy
+    # --------------------------------------------------
+
+    diffusion_policy = swm.policy.DiffusionPolicy(
+        model=model,
+        obs_encoder=obs_encoder,
+        noise_scheduler=noise_scheduler,
+
+        pred_horizon=checkpoint["pred_horizon"],
+        obs_horizon=checkpoint["obs_horizon"],
+        action_horizon=checkpoint["action_horizon"],
+        action_dim=checkpoint["action_dim"],
+
+        num_inference_steps=(
+            checkpoint["num_inference_steps"]
+        ),
+
+        process=dp_process,
+
+        transform={
+            "pixels": image_transform,
+        },
+    )
+
+    # --------------------------------------------------
+    # Load weights
+    # --------------------------------------------------
+
+    diffusion_policy.model.load_state_dict(
+        checkpoint["model_state_dict"]
+    )
+
+    diffusion_policy.obs_encoder.load_state_dict(
+        checkpoint["obs_encoder_state_dict"]
+    )
+
+    diffusion_policy.model.to(device)
+    diffusion_policy.obs_encoder.to(device)
+
+    diffusion_policy.model.eval()
+    diffusion_policy.obs_encoder.eval()
+
+    diffusion_policy.model.requires_grad_(False)
+    diffusion_policy.obs_encoder.requires_grad_(False)
+
+    return diffusion_policy
+
+
 
 @hydra.main(version_base=None, config_path="./config/eval", config_name="pusht")
 def run(cfg: DictConfig):
@@ -1933,8 +2134,8 @@ def run(cfg: DictConfig):
     # create world environment
     # cfg.world.max_episode_steps = 2 * cfg.eval.eval_budget
     # world = swm.World(**cfg.world, image_shape=(cfg.world.height, cfg.world.width))
-    
-    
+
+
 
     # create the transform
     transform = {
@@ -2049,22 +2250,41 @@ def run(cfg: DictConfig):
             model.encoder = model.encoder.to(device=device, dtype=dtype)
             model.encoder.eval()
             print("set random encoder")
-            
                 
         model = model.to("cuda")
         model = model.eval()
         model.requires_grad_(False)
         model.interpolate_pos_encoding = True
-        config = swm.PlanConfig(**cfg.plan_config)
-        solver = hydra.utils.instantiate(cfg.solver, model=model)
-
-        # print("process[action_cartesian]")
-        # print("process.mean:", process["action_cartesian"].mean_)
-        # print("process.scale:", process["action_cartesian"].scale_)
-        policy = swm.policy.WorldModelPolicy(
-            solver=solver, config=config, process=process, transform=transform
-        )
         
+        
+        
+        policy_type = cfg.get("policy_type", "world_model")
+        
+        if policy_type == "world_model":
+            config = swm.PlanConfig(**cfg.plan_config)
+            solver = hydra.utils.instantiate(cfg.solver, model=model)
+            policy = swm.policy.WorldModelPolicy(
+                solver=solver, config=config, process=process, transform=transform
+            )
+        elif policy_type == "gpc":
+
+
+            diffusion_policy = load_diffusion_policy(
+                checkpoint_path=cfg.gpc.diffusion_checkpoint,
+                image_transform=img_transform(cfg),
+                device="cuda",
+            )
+
+
+            policy = swm.policy.GPCPolicy(
+                diffusion_policy=diffusion_policy,   # 次にロード実装
+                world_model=model,
+                reward_fn=latent_goal_reward,
+                num_candidates=cfg.gpc.num_candidates,
+                process=process,
+                transform=transform,
+            )
+
 
     else:
         policy = swm.policy.RandomPolicy()

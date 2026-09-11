@@ -38,6 +38,11 @@ dataset:
 
 seed: 42
 policy: lewm_weights 
+policy_type: gpc #world_model/gpc
+gpc:
+  diffusion_checkpoint: /home/shonosukehida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep2_tm300/seed_41/20260910_162050/best.ckpt
+  num_candidates: 50
+
 
 plan_config:
   horizon: 5 #CEMの計算horizon #!5
@@ -61,7 +66,7 @@ eval:
   # to 0=open and 1=closed.
   real_robot:
     execute: true
-    dry_run: false #ハードは動かさずにソフトだけをテストする
+    dry_run: true #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
     follower_ip: "192.168.1.240"
     max_steps: 5 #50
@@ -108,7 +113,7 @@ eval:
     exe_probe: false
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
-    val_dataset_name: flip_mug/val_ep10_tm300/push #flip_mug/val_ep10_tm300/push
+    val_dataset_name: flip_mug/val_ep10_tm300_prop/push #flip_mug/val_ep10_tm300/push
     plot_all_train_data: true
     plot_all_val_data: true
     plot_open_data: true

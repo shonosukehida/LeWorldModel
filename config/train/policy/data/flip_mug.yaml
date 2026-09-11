@@ -1,4 +1,4 @@
 dataset:
-  name: flip_mug/ep200_tm300/push
+  name: flip_mug/ep2_tm300/push
   num_steps: 16
   frameskip: 1

@@ -569,9 +569,8 @@ def run(cfg):
         "%Y%m%d_%H%M%S"
     )
 
-    task_name = (
-        cfg.data.dataset.name.split("/")[0]
-    )
+    task_name = cfg.data.dataset.name.split("/")[0]
+    dataset_name =  cfg.data.dataset.name.split("/")[1]
 
     run_dir = Path(
         swm.data.utils.get_cache_dir(),
@@ -579,6 +578,7 @@ def run(cfg):
         task_name,
         "policy",
         cfg.output_model_name,
+        dataset_name,
         f"seed_{cfg.learning_seed}",
         timestamp,
     )
