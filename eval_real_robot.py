@@ -1584,21 +1584,23 @@ def run_xarm_task(cfg, policy, process, results_path):
         "timestamp",
     )}
 
-    # DP observation history
+
+    dp_policy = None
     dp_image_history = None
 
-    if isinstance(policy, swm.policy.GPCPolicy):
-        dp_image_history = deque(maxlen=policy.diffusion_policy.obs_horizon)
+    if isinstance(policy, swm.policy.DiffusionPolicy,):
+        dp_policy = policy
 
+    elif isinstance(policy, swm.policy.GPCPolicy,):
+        dp_policy = policy.diffusion_policy
+
+
+    if dp_policy is not None:
+        dp_image_history = deque(maxlen=dp_policy.obs_horizon)
 
     try:
         
-        goal, goal_proprio = (
-            _load_or_capture_goal(
-                env,
-                real_cfg,
-            )
-        )        
+        goal, goal_proprio = (_load_or_capture_goal(env, real_cfg,))        
 
 
         cv2.imwrite(
@@ -1637,37 +1639,40 @@ def run_xarm_task(cfg, policy, process, results_path):
             )
             
             #Build observation history for DP
-            if isinstance(policy, swm.policy.GPCPolicy):
 
+            dp_info = None
+            
+            if dp_policy is not None:
                 if len(dp_image_history) == 0:
-                    for _ in range(policy.diffusion_policy.obs_horizon):
+                    for _ in range(dp_policy.obs_horizon):
                         dp_image_history.append(image.copy())
+
                 else:
                     dp_image_history.append(image.copy())
 
                 dp_pixels = np.stack(list(dp_image_history), axis=0,)
 
                 # (T, H, W, C) -> (B=1, T, H, W, C)
-                dp_info = {
-                    "pixels": dp_pixels[None],
-                }
+                dp_info = {"pixels": dp_pixels[None],}
                 
                 
-            projection_state = {
-                "qpos": qpos,
-                "ee": ee,
-                "gripper": env._last_gripper,
-            }
+            projection_state = {"qpos": qpos, "ee": ee, "gripper": env._last_gripper,}
 
 
-            if isinstance(policy, swm.policy.GPCPolicy):
+            if isinstance(policy, swm.policy.DiffusionPolicy,):
+                action_result = policy.get_action(dp_info)
+
+
+            elif isinstance(policy, swm.policy.GPCPolicy,):
 
                 action_result = policy.get_action(
                     info,
                     dp_info_dict=dp_info,
                     projection_state=projection_state,
                 )
+
             else:
+
                 action_result = policy.get_action(
                     info,
                     projection_state=projection_state,
@@ -2258,16 +2263,32 @@ def run(cfg: DictConfig):
         
         
         
-        policy_type = cfg.get("policy_type", "world_model")
-        
-        if policy_type == "world_model":
-            config = swm.PlanConfig(**cfg.plan_config)
-            solver = hydra.utils.instantiate(cfg.solver, model=model)
-            policy = swm.policy.WorldModelPolicy(
-                solver=solver, config=config, process=process, transform=transform
-            )
-        elif policy_type == "gpc":
+        policy_type = cfg.get("policy_type", "world_model",)
 
+        if policy_type == "world_model":
+
+            config = swm.PlanConfig(**cfg.plan_config)
+
+            solver = hydra.utils.instantiate(cfg.solver, model=model,)
+
+            policy = swm.policy.WorldModelPolicy(
+                solver=solver,
+                config=config,
+                process=process,
+                transform=transform,
+            )
+
+
+        elif policy_type == "diffusion":
+
+            policy = load_diffusion_policy(
+                checkpoint_path=cfg.gpc.diffusion_checkpoint,
+                image_transform=img_transform(cfg),
+                device="cuda",
+            )
+
+
+        elif policy_type == "gpc":
 
             diffusion_policy = load_diffusion_policy(
                 checkpoint_path=cfg.gpc.diffusion_checkpoint,
@@ -2275,15 +2296,21 @@ def run(cfg: DictConfig):
                 device="cuda",
             )
 
-
             policy = swm.policy.GPCPolicy(
-                diffusion_policy=diffusion_policy,   # 次にロード実装
+                diffusion_policy=diffusion_policy,
                 world_model=model,
                 reward_fn=latent_goal_reward,
                 num_candidates=cfg.gpc.num_candidates,
                 process=process,
                 transform=transform,
             )
+
+        else:
+            raise ValueError(
+                f"Unknown policy_type: {policy_type}"
+            )
+
+
 
 
     else:
