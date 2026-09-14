@@ -19,20 +19,15 @@ robot:
     min_z: 0.0
     max_z: 475.2
   
-  cameras:
-    overhead:
-      name: "main"
-      width: 640
-      height: 480
-      fps: 30
-      index: 1 #実際のindexに変更
-    
-    wrist:
-      name: "wrist"
-      width: 640
-      height: 480
-      fps: 30
-      index: 0  #実際のindexに変更
+  camera:
+    width: 640
+    height: 480
+    fps: 30
+
+    serial_numbers: #収集するカメラ視点を指定
+      - "937622072677"
+      - "937622072182"
+      - "044322070202"
 
 # max_seconds: 30.0
 

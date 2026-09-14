@@ -69,6 +69,16 @@ def xarm_collect() -> None:
 
     cfg = load_robot_config()
 
+    camera_serial_numbers = [
+        str(serial)
+        for serial in cfg.robot.camera.serial_numbers
+    ]
+
+    if not camera_serial_numbers:
+        raise ValueError(
+            "robot.camera.serial_numbers must contain at least one serial number"
+        )
+
     robot_config = XArmConfig(
         follower_ip=cfg.robot.follower_ip,
         leader_port=cfg.robot.leader_port,
@@ -85,25 +95,17 @@ def xarm_collect() -> None:
             cfg.robot.start_joints
         ).astype(np.float32),
         
+        
         sensors=XArmSensorParams(
             cameras=[
-                # 俯瞰カメラ
                 CameraParams(
-                    name=cfg.robot.cameras.overhead.name,
-                    width=cfg.robot.cameras.overhead.width,
-                    height=cfg.robot.cameras.overhead.height,
-                    fps=cfg.robot.cameras.overhead.fps,
-                    index=cfg.robot.cameras.overhead.index,
-                ),
-
-                # 手先カメラ
-                CameraParams(
-                    name=cfg.robot.cameras.wrist.name,
-                    width=cfg.robot.cameras.wrist.width,
-                    height=cfg.robot.cameras.wrist.height,
-                    fps=cfg.robot.cameras.wrist.fps,
-                    index=cfg.robot.cameras.wrist.index,
-                ),
+                    name=serial_no,
+                    width=cfg.robot.camera.width,
+                    height=cfg.robot.camera.height,
+                    fps=cfg.robot.camera.fps,
+                    serial_no=serial_no,
+                )
+                for serial_no in camera_serial_numbers
             ]
         ),
     )
