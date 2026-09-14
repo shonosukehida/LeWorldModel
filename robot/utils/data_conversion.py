@@ -25,12 +25,17 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from xarm.wrapper import XArmAPI
 
+def build_source_keys(camera_serial: str,) -> dict[str, str]:
+    return {
+        **SOURCE_KEYS,
+        "pixels": f"sensors/cameras/{camera_serial}",
+    }
+
 
 SOURCE_KEYS = {
     "ee_pos_quat": "arms/ee_pos_quat",
     "follower": "arms/follower",
     "leader": "arms/leader",
-    "pixels": "sensors/cameras/main",
 }
 
 LEADER_EE_KEY = "leader_ee_pos_quat"
@@ -51,12 +56,13 @@ def get_episode_files(input_dir: Path) -> list[Path]:
 
 def inspect_episode(
     episode_path: Path,
+    source_keys: dict[str, str],
 ) -> dict[str, tuple[tuple[int, ...], np.dtype]]:
     """Read shapes and dtypes of one episode."""
     result: dict[str, tuple[tuple[int, ...], np.dtype]] = {}
 
     with h5py.File(episode_path, "r") as file:
-        for output_key, source_key in SOURCE_KEYS.items():
+        for output_key, source_key in source_keys.items():
             if source_key not in file:
                 raise KeyError(
                     f"Missing dataset '{source_key}' in {episode_path}"
@@ -97,10 +103,11 @@ def inspect_episode(
 def validate_episode(
     episode_path: Path,
     expected_info: dict[str, tuple[tuple[int, ...], np.dtype]],
+    source_keys: dict[str, str],
 ) -> None:
     """Check that an episode has the expected source keys and shapes."""
     with h5py.File(episode_path, "r") as file:
-        for output_key, source_key in SOURCE_KEYS.items():
+        for output_key, source_key in source_keys.items():
             if source_key not in file:
                 raise KeyError(
                     f"Missing dataset '{source_key}' in {episode_path}"
@@ -452,10 +459,12 @@ def merge_episodes(
     input_dir: Path,
     output_path: Path,
     robot_ip: str,
+    camera_serial: str,
     num_episodes: int | None = None,
     compression: str | None = "gzip",
 ) -> None:
     """Merge selected per-episode files into one HDF5 file."""
+    source_keys = build_source_keys(camera_serial)
     episode_files = get_episode_files(input_dir)
     available_episodes = len(episode_files)
 
@@ -481,7 +490,7 @@ def merge_episodes(
     print(f"First episode: {episode_files[0].name}")
     print(f"Last episode : {episode_files[-1].name}")
 
-    dataset_info = inspect_episode(episode_files[0])
+    dataset_info = inspect_episode(episode_files[0], source_keys,)
 
     print("\nExpected per-episode structure")
     print("=" * 72)
@@ -492,7 +501,7 @@ def merge_episodes(
         elif output_key == ACTION_CARTESIAN_KEY:
             source_key = "leader_ee_pos_quat shifted by 1"
         else:
-            source_key = SOURCE_KEYS[output_key]
+            source_key = source_keys[output_key]
 
         print(
             f"{source_key:<34} -> "
@@ -522,6 +531,7 @@ def merge_episodes(
                 compression=compression,
             )
 
+            output_file.attrs["camera_serial"] = camera_serial
             output_file.attrs["num_episodes"] = num_episodes
             output_file.attrs["source_directory"] = str(
                 input_dir.resolve()
@@ -557,13 +567,14 @@ def merge_episodes(
                 validate_episode(
                     episode_path=episode_path,
                     expected_info=dataset_info,
+                    source_keys=source_keys,
                 )
 
                 start = episode_index * episode_length
                 end = start + episode_length
 
                 with h5py.File(episode_path, "r") as episode_file:
-                    for output_key, source_key in SOURCE_KEYS.items():
+                    for output_key, source_key in source_keys.items():
                         episode_data = episode_file[source_key][...]
 
                         if episode_data.shape[0] != episode_length:
@@ -596,7 +607,7 @@ def merge_episodes(
                         output_file[output_key][start:end] = episode_data
 
                     leader = np.asarray(
-                        episode_file[SOURCE_KEYS["leader"]][...],
+                        episode_file[source_keys["leader"]][...],
                         dtype=np.float32,
                     )
 
@@ -700,6 +711,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
 
+
     parser.add_argument(
         "--input-dir",
         type=Path,
@@ -716,6 +728,17 @@ def parse_args() -> argparse.Namespace:
             "/home/hida/.stable_worldmodel/datasets/flip_mug/ep200_tm300"
         ),
         help="Directory where push.h5 will be created.",
+    )
+
+
+    parser.add_argument(
+        "--camera-serial",
+        type=str,
+        required=True,
+        help=(
+            "Serial number of the camera observation "
+            "to store as 'pixels'."
+        ),
     )
 
     parser.add_argument(
@@ -759,6 +782,7 @@ def main() -> None:
         input_dir=input_dir,
         output_path=output_path,
         robot_ip=args.robot_ip,
+        camera_serial=args.camera_serial,
         num_episodes=num_episodes,
         compression=compression,
     )
