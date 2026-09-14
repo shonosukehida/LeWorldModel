@@ -69,6 +69,16 @@ def xarm_collect() -> None:
 
     cfg = load_robot_config()
 
+    camera_serial_numbers = [
+        str(serial)
+        for serial in cfg.robot.camera.serial_numbers
+    ]
+
+    if not camera_serial_numbers:
+        raise ValueError(
+            "robot.camera.serial_numbers must contain at least one serial number"
+        )
+
     robot_config = XArmConfig(
         follower_ip=cfg.robot.follower_ip,
         leader_port=cfg.robot.leader_port,
@@ -88,12 +98,13 @@ def xarm_collect() -> None:
         sensors=XArmSensorParams(
             cameras=[
                 CameraParams(
-                    name=cfg.robot.camera.name,
+                    name=serial_no,
                     width=cfg.robot.camera.width,
                     height=cfg.robot.camera.height,
                     fps=cfg.robot.camera.fps,
-                    index=cfg.robot.camera.index,
+                    serial_no=serial_no,
                 )
+                for serial_no in camera_serial_numbers
             ]
         ),
     )
@@ -153,6 +164,11 @@ def xarm_collect() -> None:
         logger.info("ee shape: %s", observation.arms.ee_pos_quat.shape)
 
         data = asdict(observation)
+
+        logger.info("camera keys: %s", list(data["sensors"]["cameras"].keys()),)
+
+        for camera_name, frames in data["sensors"]["cameras"].items():
+            logger.info("camera '%s' shape: %s", camera_name, np.asarray(frames).shape,)
         
         save = input("do you save the episode? [Y/N]")
         if (save == "Y" or save == "yes" or save == "y"):
