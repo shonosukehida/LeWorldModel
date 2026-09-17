@@ -117,6 +117,9 @@ def xarm_collect() -> None:
 
     # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dataset_dir = f"ep{str(cfg.dataset.episode)}_tm{cfg.dataset.max_frames}"
+    if cfg.dataset.suffix is not None:
+        dataset_dir += "_" + str(cfg.dataset.suffix)
+
     
     
     #置きたい場所: /home/shonosukehida/.stable_worldmodel/datasets/flip_mug
@@ -165,10 +168,24 @@ def xarm_collect() -> None:
 
         data = asdict(observation)
 
+<<<<<<< HEAD
         logger.info("camera keys: %s", list(data["sensors"]["cameras"].keys()),)
 
         for camera_name, frames in data["sensors"]["cameras"].items():
             logger.info("camera '%s' shape: %s", camera_name, np.asarray(frames).shape,)
+=======
+        logger.info(
+            "camera keys: %s",
+            list(data["sensors"]["cameras"].keys()),
+        )
+
+        for camera_name, frames in data["sensors"]["cameras"].items():
+            logger.info(
+                "camera '%s' shape: %s",
+                camera_name,
+                np.asarray(frames).shape,
+            )
+>>>>>>> real_robot
         
         save = input("do you save the episode? [Y/N]")
         if (save == "Y" or save == "yes" or save == "y"):
