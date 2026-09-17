@@ -27,8 +27,8 @@ robot:
     # index: 2
 
     serial_numbers:
-      - "937622072677"
-      - "937622072182"
+      # - "937622072677"
+      # - "937622072182"
       - "044322070202"
 
 # max_seconds: 30.0
@@ -38,3 +38,4 @@ dataset:
   fps: 10
   max_frames: 300
   teleop_hz: 50
+  suffix: test

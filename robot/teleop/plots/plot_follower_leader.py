@@ -116,29 +116,45 @@ def min_max_normalize(
     return normalized.astype(np.float32)
 
 
-def normalize_arm_trajectory(
-    trajectory: NDArray[np.float32],
-) -> NDArray[np.float32]:
-    """Normalize seven joints and one gripper dimension into [0, 1]."""
-    normalized = np.empty_like(
-        trajectory,
-        dtype=np.float32,
-    )
+def normalize_arm_trajectories_per_episode(
+    follower: NDArray[np.float32],
+    leader: NDArray[np.float32],
+) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
+    """
+    Normalize follower and leader into [0, 1] using the shared
+    min/max observed within the episode for each dimension.
+    """
+    normalized_follower = np.empty_like(follower, dtype=np.float32)
+    normalized_leader = np.empty_like(leader, dtype=np.float32)
 
-    for joint_idx, (lower, upper) in enumerate(JOINT_LIMITS):
-        normalized[:, joint_idx] = min_max_normalize(
-            trajectory[:, joint_idx],
-            lower=lower,
-            upper=upper,
+    for dim in range(follower.shape[1]):
+        combined = np.concatenate([
+            follower[:, dim],
+            leader[:, dim],
+        ])
+
+        lower = float(combined.min())
+        upper = float(combined.max())
+
+        # 全フレームで同じ値の場合
+        if np.isclose(upper, lower):
+            normalized_follower[:, dim] = 0.5
+            normalized_leader[:, dim] = 0.5
+            continue
+
+        normalized_follower[:, dim] = (
+            follower[:, dim] - lower
+        ) / (
+            upper - lower
         )
 
-    normalized[:, 7] = min_max_normalize(
-        trajectory[:, 7],
-        lower=GRIPPER_LIMIT[0],
-        upper=GRIPPER_LIMIT[1],
-    )
+        normalized_leader[:, dim] = (
+            leader[:, dim] - lower
+        ) / (
+            upper - lower
+        )
 
-    return normalized
+    return normalized_follower, normalized_leader
 
 
 def plot_raw_trajectories(
@@ -370,11 +386,11 @@ def visualize_arm_trajectories(
         h5_path,
     )
 
-    normalized_follower = normalize_arm_trajectory(
-        follower,
-    )
-    normalized_leader = normalize_arm_trajectory(
-        leader,
+    normalized_follower, normalized_leader = (
+        normalize_arm_trajectories_per_episode(
+            follower=follower,
+            leader=leader,
+        )
     )
 
     num_frames = follower.shape[0]
@@ -440,7 +456,7 @@ def visualize_arm_trajectories(
 if __name__ == "__main__":
     visualize_arm_trajectories(
         h5_path=(
-            "/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300/per_episode/episode_0.h5"
+            "/home/hida/.stable_worldmodel/datasets/flip_mug/ep1_tm300_test/per_episode/episode_1.h5"
         ),
         fps=10.0,
     )

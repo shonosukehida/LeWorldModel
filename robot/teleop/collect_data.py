@@ -114,6 +114,9 @@ def xarm_collect() -> None:
 
     # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dataset_dir = f"ep{str(cfg.dataset.episode)}_tm{cfg.dataset.max_frames}"
+    if cfg.dataset.suffix is not None:
+        dataset_dir += "_" + str(cfg.dataset.suffix)
+
     
     
     #置きたい場所: /home/shonosukehida/.stable_worldmodel/datasets/flip_mug
