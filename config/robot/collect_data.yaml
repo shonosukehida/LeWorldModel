@@ -30,6 +30,12 @@ robot:
       # - "937622072182"
       - "044322070202"
 
+    auto_exposure: false
+
+    exposures:
+      - 150.0   # overhead
+      - 300.0   # wrist
+
 
 dataset:
   episode: 1

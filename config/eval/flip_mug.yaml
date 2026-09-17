@@ -110,11 +110,16 @@ eval:
         width: 640
         height: 480
         fps: 30
+        auto_exposure: false
+        exposure: 150.0
+
       wrist:
         serial: 044322070202
         width: 640
         height: 480
         fps: 30
+        auto_exposure: false
+        exposure: 300.0
 
 
   probing:

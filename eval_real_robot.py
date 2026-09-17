@@ -575,7 +575,25 @@ class XArmInferenceEnv:
                     int(camera_cfg.fps),
                 )
 
-                pipeline.start(rs_cfg)
+                profile = pipeline.start(rs_cfg)
+
+                device = profile.get_device()
+                color_sensor = device.first_color_sensor()
+
+                if color_sensor.supports(rs.option.enable_auto_exposure):
+                    color_sensor.set_option(
+                        rs.option.enable_auto_exposure,
+                        1.0 if bool(camera_cfg.auto_exposure) else 0.0,
+                    )
+
+                if (
+                    not bool(camera_cfg.auto_exposure)
+                    and color_sensor.supports(rs.option.exposure)
+                ):
+                    color_sensor.set_option(
+                        rs.option.exposure,
+                        float(camera_cfg.exposure),
+                    )
 
                 for _ in range(15):
                     pipeline.wait_for_frames()
