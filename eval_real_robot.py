@@ -571,10 +571,29 @@ class XArmInferenceEnv:
                     rs.format.bgr8,
                     int(robot_cfg.camera.fps),
                 )
-                pipeline.start(rs_cfg)
-                self._pipeline = pipeline
+                profile = pipeline.start(rs_cfg)
 
-                # Discard auto-exposure warm-up frames.
+                device = profile.get_device()
+                color_sensor = device.first_color_sensor()
+
+                if color_sensor.supports(rs.option.enable_auto_exposure):
+                    color_sensor.set_option(
+                        rs.option.enable_auto_exposure,
+                        1.0 if bool(robot_cfg.camera.auto_exposure) else 0.0,
+                    )
+
+                if (
+                    not bool(robot_cfg.camera.auto_exposure)
+                    and robot_cfg.camera.exposure is not None
+                    and color_sensor.supports(rs.option.exposure)
+                ):
+                    color_sensor.set_option(
+                        rs.option.exposure,
+                        float(robot_cfg.camera.exposure),
+                    )
+
+                self._pipeline = pipeline
+                # Discard camera warm-up frames.
                 for _ in range(15):
                     pipeline.wait_for_frames()
 

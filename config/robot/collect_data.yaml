@@ -27,8 +27,13 @@ robot:
 
     serial_numbers:
       # - "937622072677"
-      # - "937622072182"
-      - "044322070202"
+      - "937622072182"
+      # - "044322070202"
+
+    auto_exposure: false
+
+    exposures:
+      - 300.0
 
 
 dataset:
