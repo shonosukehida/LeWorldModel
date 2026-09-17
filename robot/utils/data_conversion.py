@@ -45,6 +45,9 @@ SOURCE_KEYS = {
     "leader": "arms/leader",
 }
 
+def build_source_keys(camera_serial: str,) -> dict[str, str]:
+    return {**SOURCE_KEYS, "pixels": f"sensors/cameras/{camera_serial}",}
+
 LEADER_EE_KEY = "leader_ee_pos_quat"
 ACTION_CARTESIAN_KEY = "action_cartesian"
 PROPRIO_KEY = "proprio"
@@ -667,6 +670,7 @@ def merge_episodes(
             output_file.attrs["pixels_camera_serial"] = pixels_camera_serial
             output_file.attrs["wrist_camera_serial"] = wrist_camera_serial
 
+            output_file.attrs["camera_serial"] = camera_serial
             output_file.attrs["num_episodes"] = num_episodes
             output_file.attrs["source_directory"] = str(
                 input_dir.resolve()
@@ -887,6 +891,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
 
+
     parser.add_argument(
         "--input-dir",
         type=Path,
@@ -978,6 +983,6 @@ if __name__ == "__main__":
     #     --output-dir /path/to/output \
     #     --pixels-camera-serial 111111 \
     #     --wrist-camera-serial 111111 \
-    #     --num_episodes None
+    #     --num_episodes None \
     #
     main()
