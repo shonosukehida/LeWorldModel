@@ -108,7 +108,7 @@ eval:
       height: 480
       fps: 30
       auto_exposure: false
-      exposure: 300
+      exposure: 120
 
 
   probing:

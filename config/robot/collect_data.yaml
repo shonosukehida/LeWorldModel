@@ -33,7 +33,7 @@ robot:
     auto_exposure: false
 
     exposures:
-      - 300.0
+      - 120
 
 
 dataset:
