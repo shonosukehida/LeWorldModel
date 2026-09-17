@@ -156,11 +156,11 @@ def hdf5_camera_to_mp4(
 if __name__ == "__main__":
     hdf5_camera_to_mp4(
         h5_path=(
-            "/home/hida/.stable_worldmodel/datasets/flip_mug/ep1_tm300_test/per_episode/episode_1.h5"
+            "/home/hida/.stable_worldmodel/datasets/flip_mug/ep1_tm300_test/per_episode/episode_2.h5"
         ),
         output_path=(
             "./robot/teleop/plots/figures/episode_main.mp4"
         ),
-        camera_name="044322070202",
+        camera_name="937622072677",
         fps=10.0,
     )
