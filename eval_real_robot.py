@@ -562,10 +562,37 @@ class XArmInferenceEnv:
                     rs.format.bgr8,
                     int(robot_cfg.camera.fps),
                 )
-                pipeline.start(rs_cfg)
+
+                profile = pipeline.start(rs_cfg)
+
+                device = profile.get_device()
+                color_sensor = device.first_color_sensor()
+
+                if color_sensor.supports(rs.option.enable_auto_exposure):
+                    color_sensor.set_option(
+                        rs.option.enable_auto_exposure,
+                        1.0 if bool(robot_cfg.camera.auto_exposure) else 0.0,
+                    )
+
+                if (
+                    not bool(robot_cfg.camera.auto_exposure)
+                    and robot_cfg.camera.exposure is not None
+                    and color_sensor.supports(rs.option.exposure)
+                ):
+                    color_sensor.set_option(
+                        rs.option.exposure,
+                        float(robot_cfg.camera.exposure),
+                    )
+
+                    actual_exposure = color_sensor.get_option(rs.option.exposure)
+                    print(
+                        f"RealSense exposure: requested={float(robot_cfg.camera.exposure):.1f}, "
+                        f"actual={actual_exposure:.1f}"
+                    )
+
                 self._pipeline = pipeline
 
-                # Discard auto-exposure warm-up frames.
+                # Discard initial camera frames.
                 for _ in range(15):
                     pipeline.wait_for_frames()
 
