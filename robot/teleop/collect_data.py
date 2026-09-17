@@ -71,6 +71,18 @@ def xarm_collect() -> None:
 
     camera_serial_numbers = [str(serial) for serial in cfg.robot.camera.serial_numbers]
 
+
+    camera_exposures = [
+        float(exposure)
+        for exposure in cfg.robot.camera.exposures
+    ]
+
+    if len(camera_exposures) != len(camera_serial_numbers):
+        raise ValueError(
+            "robot.camera.exposures must have the same length "
+            "as robot.camera.serial_numbers"
+        )
+
     if not camera_serial_numbers:
         raise ValueError(
             "robot.camera.serial_numbers must contain at least one serial number"
@@ -100,8 +112,13 @@ def xarm_collect() -> None:
                     height=cfg.robot.camera.height,
                     fps=cfg.robot.camera.fps,
                     serial_no=serial_no,
+                    auto_exposure=bool(cfg.robot.camera.auto_exposure),
+                    exposure=exposure,
                 )
-                for serial_no in camera_serial_numbers
+                for serial_no, exposure in zip(
+                    camera_serial_numbers,
+                    camera_exposures,
+                )
             ]
         ),
     )

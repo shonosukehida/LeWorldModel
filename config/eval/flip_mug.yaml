@@ -92,6 +92,8 @@ eval:
       width: 640
       height: 480
       fps: 30
+      auto_exposure: false
+      exposure: 150.0
 
 
   probing:

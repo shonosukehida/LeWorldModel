@@ -1,209 +1,289 @@
+diff --git a/config/eval/flip_mug.yaml b/config/eval/flip_mug.yaml
+index 7ab3af9..4e58863 100644
+--- a/config/eval/flip_mug.yaml
++++ b/config/eval/flip_mug.yaml
+@@ -92,6 +92,8 @@ eval:
+       width: 640
+       height: 480
+       fps: 30
++      auto_exposure: false
++      exposure: 150.0
+ 
+ 
+   probing:
 diff --git a/config/robot/collect_data.yaml b/config/robot/collect_data.yaml
-index b7fffbc..a14bac5 100644
+index 2964171..181402d 100644
 --- a/config/robot/collect_data.yaml
 +++ b/config/robot/collect_data.yaml
-@@ -24,7 +24,10 @@ robot:
+@@ -20,18 +20,16 @@ robot:
+     max_z: 475.2
+   
+   camera:
+-    name: "main"
      width: 640
      height: 480
      fps: 30
--    index: 2
-+    # index: 2
-+
-+    serial_numbers:
-+      - "937622072182"
+     # index: 2
  
- # max_seconds: 30.0
+     serial_numbers:
+-      # - "937622072677"
++      - "937622072677"
+       # - "937622072182"
+       - "044322070202"
  
+-# max_seconds: 30.0
+ 
+ dataset:
+   episode: 1
+diff --git a/diff.txt b/diff.txt
+index f910be5..e69de29 100644
+--- a/diff.txt
++++ b/diff.txt
+@@ -1,209 +0,0 @@
+-diff --git a/config/robot/collect_data.yaml b/config/robot/collect_data.yaml
+-index b7fffbc..a14bac5 100644
+---- a/config/robot/collect_data.yaml
+-+++ b/config/robot/collect_data.yaml
+-@@ -24,7 +24,10 @@ robot:
+-     width: 640
+-     height: 480
+-     fps: 30
+--    index: 2
+-+    # index: 2
+-+
+-+    serial_numbers:
+-+      - "937622072182"
+- 
+- # max_seconds: 30.0
+- 
+-diff --git a/robot/teleop/collect_data.py b/robot/teleop/collect_data.py
+-index c0d0aca..e766e33 100644
+---- a/robot/teleop/collect_data.py
+-+++ b/robot/teleop/collect_data.py
+-@@ -69,6 +69,13 @@ def xarm_collect() -> None:
+- 
+-     cfg = load_robot_config()
+- 
+-+    camera_serial_numbers = [str(serial) for serial in cfg.robot.camera.serial_numbers]
+-+
+-+    if not camera_serial_numbers:
+-+        raise ValueError(
+-+            "robot.camera.serial_numbers must contain at least one serial number"
+-+        )
+-+
+-     robot_config = XArmConfig(
+-         follower_ip=cfg.robot.follower_ip,
+-         leader_port=cfg.robot.leader_port,
+-@@ -88,12 +95,13 @@ def xarm_collect() -> None:
+-         sensors=XArmSensorParams(
+-             cameras=[
+-                 CameraParams(
+--                    name=cfg.robot.camera.name,
+-+                    name=serial_no,
+-                     width=cfg.robot.camera.width,
+-                     height=cfg.robot.camera.height,
+-                     fps=cfg.robot.camera.fps,
+--                    index=cfg.robot.camera.index,
+-+                    serial_no=serial_no,
+-                 )
+-+                for serial_no in camera_serial_numbers
+-             ]
+-         ),
+-     )
+-@@ -153,6 +161,18 @@ def xarm_collect() -> None:
+-         logger.info("ee shape: %s", observation.arms.ee_pos_quat.shape)
+- 
+-         data = asdict(observation)
+-+
+-+        logger.info(
+-+            "camera keys: %s",
+-+            list(data["sensors"]["cameras"].keys()),
+-+        )
+-+
+-+        for camera_name, frames in data["sensors"]["cameras"].items():
+-+            logger.info(
+-+                "camera '%s' shape: %s",
+-+                camera_name,
+-+                np.asarray(frames).shape,
+-+            )
+-         
+-         save = input("do you save the episode? [Y/N]")
+-         if (save == "Y" or save == "yes" or save == "y"):
+-diff --git a/robot/utils/data_conversion.py b/robot/utils/data_conversion.py
+-index 140eca3..c26b495 100644
+---- a/robot/utils/data_conversion.py
+-+++ b/robot/utils/data_conversion.py
+-@@ -25,12 +25,17 @@ import numpy as np
+- from scipy.spatial.transform import Rotation
+- from xarm.wrapper import XArmAPI
+- 
+-+def build_source_keys(camera_serial: str,) -> dict[str, str]:
+-+    return {
+-+        **SOURCE_KEYS,
+-+        "pixels": f"sensors/cameras/{camera_serial}",
+-+    }
+-+
+- 
+- SOURCE_KEYS = {
+-     "ee_pos_quat": "arms/ee_pos_quat",
+-     "follower": "arms/follower",
+-     "leader": "arms/leader",
+--    "pixels": "sensors/cameras/main",
+- }
+- 
+- LEADER_EE_KEY = "leader_ee_pos_quat"
+-@@ -51,12 +56,13 @@ def get_episode_files(input_dir: Path) -> list[Path]:
+- 
+- def inspect_episode(
+-     episode_path: Path,
+-+    source_keys: dict[str, str],
+- ) -> dict[str, tuple[tuple[int, ...], np.dtype]]:
+-     """Read shapes and dtypes of one episode."""
+-     result: dict[str, tuple[tuple[int, ...], np.dtype]] = {}
+- 
+-     with h5py.File(episode_path, "r") as file:
+--        for output_key, source_key in SOURCE_KEYS.items():
+-+        for output_key, source_key in source_keys.items():
+-             if source_key not in file:
+-                 raise KeyError(
+-                     f"Missing dataset '{source_key}' in {episode_path}"
+-@@ -97,10 +103,11 @@ def inspect_episode(
+- def validate_episode(
+-     episode_path: Path,
+-     expected_info: dict[str, tuple[tuple[int, ...], np.dtype]],
+-+    source_keys: dict[str, str],
+- ) -> None:
+-     """Check that an episode has the expected source keys and shapes."""
+-     with h5py.File(episode_path, "r") as file:
+--        for output_key, source_key in SOURCE_KEYS.items():
+-+        for output_key, source_key in source_keys.items():
+-             if source_key not in file:
+-                 raise KeyError(
+-                     f"Missing dataset '{source_key}' in {episode_path}"
+-@@ -452,10 +459,12 @@ def merge_episodes(
+-     input_dir: Path,
+-     output_path: Path,
+-     robot_ip: str,
+-+    camera_serial: str,
+-     num_episodes: int | None = None,
+-     compression: str | None = "gzip",
+- ) -> None:
+-     """Merge selected per-episode files into one HDF5 file."""
+-+    source_keys = build_source_keys(camera_serial)
+-     episode_files = get_episode_files(input_dir)
+-     available_episodes = len(episode_files)
+- 
+-@@ -481,7 +490,7 @@ def merge_episodes(
+-     print(f"First episode: {episode_files[0].name}")
+-     print(f"Last episode : {episode_files[-1].name}")
+- 
+--    dataset_info = inspect_episode(episode_files[0])
+-+    dataset_info = inspect_episode(episode_files[0], source_keys,)
+- 
+-     print("\nExpected per-episode structure")
+-     print("=" * 72)
+-@@ -492,7 +501,7 @@ def merge_episodes(
+-         elif output_key == ACTION_CARTESIAN_KEY:
+-             source_key = "leader_ee_pos_quat shifted by 1"
+-         else:
+--            source_key = SOURCE_KEYS[output_key]
+-+            source_key = source_keys[output_key]
+- 
+-         print(
+-             f"{source_key:<34} -> "
+-@@ -522,6 +531,7 @@ def merge_episodes(
+-                 compression=compression,
+-             )
+- 
+-+            output_file.attrs["camera_serial"] = camera_serial
+-             output_file.attrs["num_episodes"] = num_episodes
+-             output_file.attrs["source_directory"] = str(
+-                 input_dir.resolve()
+-@@ -557,13 +567,14 @@ def merge_episodes(
+-                 validate_episode(
+-                     episode_path=episode_path,
+-                     expected_info=dataset_info,
+-+                    source_keys=source_keys,
+-                 )
+- 
+-                 start = episode_index * episode_length
+-                 end = start + episode_length
+- 
+-                 with h5py.File(episode_path, "r") as episode_file:
+--                    for output_key, source_key in SOURCE_KEYS.items():
+-+                    for output_key, source_key in source_keys.items():
+-                         episode_data = episode_file[source_key][...]
+- 
+-                         if episode_data.shape[0] != episode_length:
+-@@ -596,7 +607,7 @@ def merge_episodes(
+-                         output_file[output_key][start:end] = episode_data
+- 
+-                     leader = np.asarray(
+--                        episode_file[SOURCE_KEYS["leader"]][...],
+-+                        episode_file[source_keys["leader"]][...],
+-                         dtype=np.float32,
+-                     )
+- 
+-@@ -700,6 +711,16 @@ def parse_args() -> argparse.Namespace:
+-         )
+-     )
+- 
+-+    parser.add_argument(
+-+        "--camera-serial",
+-+        type=str,
+-+        required=True,
+-+        help=(
+-+            "Serial number of the camera observation "
+-+            "to store as 'pixels'."
+-+        ),
+-+    )
+-+
+-     parser.add_argument(
+-         "--input-dir",
+-         type=Path,
+-@@ -759,6 +780,7 @@ def main() -> None:
+-         input_dir=input_dir,
+-         output_path=output_path,
+-         robot_ip=args.robot_ip,
+-+        camera_serial=args.camera_serial,
+-         num_episodes=num_episodes,
+-         compression=compression,
+-     )
 diff --git a/robot/teleop/collect_data.py b/robot/teleop/collect_data.py
-index c0d0aca..e766e33 100644
+index a897006..cf1d5ce 100644
 --- a/robot/teleop/collect_data.py
 +++ b/robot/teleop/collect_data.py
-@@ -69,6 +69,13 @@ def xarm_collect() -> None:
+@@ -71,6 +71,18 @@ def xarm_collect() -> None:
  
-     cfg = load_robot_config()
+     camera_serial_numbers = [str(serial) for serial in cfg.robot.camera.serial_numbers]
  
-+    camera_serial_numbers = [str(serial) for serial in cfg.robot.camera.serial_numbers]
 +
-+    if not camera_serial_numbers:
++    camera_exposures = [
++        float(exposure)
++        for exposure in cfg.robot.camera.exposures
++    ]
++
++    if len(camera_exposures) != len(camera_serial_numbers):
 +        raise ValueError(
-+            "robot.camera.serial_numbers must contain at least one serial number"
++            "robot.camera.exposures must have the same length "
++            "as robot.camera.serial_numbers"
 +        )
 +
-     robot_config = XArmConfig(
-         follower_ip=cfg.robot.follower_ip,
-         leader_port=cfg.robot.leader_port,
-@@ -88,12 +95,13 @@ def xarm_collect() -> None:
-         sensors=XArmSensorParams(
-             cameras=[
-                 CameraParams(
--                    name=cfg.robot.camera.name,
-+                    name=serial_no,
-                     width=cfg.robot.camera.width,
+     if not camera_serial_numbers:
+         raise ValueError(
+             "robot.camera.serial_numbers must contain at least one serial number"
+@@ -100,8 +112,13 @@ def xarm_collect() -> None:
                      height=cfg.robot.camera.height,
                      fps=cfg.robot.camera.fps,
--                    index=cfg.robot.camera.index,
-+                    serial_no=serial_no,
+                     serial_no=serial_no,
++                    auto_exposure=bool(cfg.robot.camera.auto_exposure),
++                    exposure=exposure,
++                )
++                for serial_no, exposure in zip(
++                    camera_serial_numbers,
++                    camera_exposures,
                  )
-+                for serial_no in camera_serial_numbers
+-                for serial_no in camera_serial_numbers
              ]
          ),
-     )
-@@ -153,6 +161,18 @@ def xarm_collect() -> None:
-         logger.info("ee shape: %s", observation.arms.ee_pos_quat.shape)
- 
-         data = asdict(observation)
-+
-+        logger.info(
-+            "camera keys: %s",
-+            list(data["sensors"]["cameras"].keys()),
-+        )
-+
-+        for camera_name, frames in data["sensors"]["cameras"].items():
-+            logger.info(
-+                "camera '%s' shape: %s",
-+                camera_name,
-+                np.asarray(frames).shape,
-+            )
-         
-         save = input("do you save the episode? [Y/N]")
-         if (save == "Y" or save == "yes" or save == "y"):
-diff --git a/robot/utils/data_conversion.py b/robot/utils/data_conversion.py
-index 140eca3..c26b495 100644
---- a/robot/utils/data_conversion.py
-+++ b/robot/utils/data_conversion.py
-@@ -25,12 +25,17 @@ import numpy as np
- from scipy.spatial.transform import Rotation
- from xarm.wrapper import XArmAPI
- 
-+def build_source_keys(camera_serial: str,) -> dict[str, str]:
-+    return {
-+        **SOURCE_KEYS,
-+        "pixels": f"sensors/cameras/{camera_serial}",
-+    }
-+
- 
- SOURCE_KEYS = {
-     "ee_pos_quat": "arms/ee_pos_quat",
-     "follower": "arms/follower",
-     "leader": "arms/leader",
--    "pixels": "sensors/cameras/main",
- }
- 
- LEADER_EE_KEY = "leader_ee_pos_quat"
-@@ -51,12 +56,13 @@ def get_episode_files(input_dir: Path) -> list[Path]:
- 
- def inspect_episode(
-     episode_path: Path,
-+    source_keys: dict[str, str],
- ) -> dict[str, tuple[tuple[int, ...], np.dtype]]:
-     """Read shapes and dtypes of one episode."""
-     result: dict[str, tuple[tuple[int, ...], np.dtype]] = {}
- 
-     with h5py.File(episode_path, "r") as file:
--        for output_key, source_key in SOURCE_KEYS.items():
-+        for output_key, source_key in source_keys.items():
-             if source_key not in file:
-                 raise KeyError(
-                     f"Missing dataset '{source_key}' in {episode_path}"
-@@ -97,10 +103,11 @@ def inspect_episode(
- def validate_episode(
-     episode_path: Path,
-     expected_info: dict[str, tuple[tuple[int, ...], np.dtype]],
-+    source_keys: dict[str, str],
- ) -> None:
-     """Check that an episode has the expected source keys and shapes."""
-     with h5py.File(episode_path, "r") as file:
--        for output_key, source_key in SOURCE_KEYS.items():
-+        for output_key, source_key in source_keys.items():
-             if source_key not in file:
-                 raise KeyError(
-                     f"Missing dataset '{source_key}' in {episode_path}"
-@@ -452,10 +459,12 @@ def merge_episodes(
-     input_dir: Path,
-     output_path: Path,
-     robot_ip: str,
-+    camera_serial: str,
-     num_episodes: int | None = None,
-     compression: str | None = "gzip",
- ) -> None:
-     """Merge selected per-episode files into one HDF5 file."""
-+    source_keys = build_source_keys(camera_serial)
-     episode_files = get_episode_files(input_dir)
-     available_episodes = len(episode_files)
- 
-@@ -481,7 +490,7 @@ def merge_episodes(
-     print(f"First episode: {episode_files[0].name}")
-     print(f"Last episode : {episode_files[-1].name}")
- 
--    dataset_info = inspect_episode(episode_files[0])
-+    dataset_info = inspect_episode(episode_files[0], source_keys,)
- 
-     print("\nExpected per-episode structure")
-     print("=" * 72)
-@@ -492,7 +501,7 @@ def merge_episodes(
-         elif output_key == ACTION_CARTESIAN_KEY:
-             source_key = "leader_ee_pos_quat shifted by 1"
-         else:
--            source_key = SOURCE_KEYS[output_key]
-+            source_key = source_keys[output_key]
- 
-         print(
-             f"{source_key:<34} -> "
-@@ -522,6 +531,7 @@ def merge_episodes(
-                 compression=compression,
-             )
- 
-+            output_file.attrs["camera_serial"] = camera_serial
-             output_file.attrs["num_episodes"] = num_episodes
-             output_file.attrs["source_directory"] = str(
-                 input_dir.resolve()
-@@ -557,13 +567,14 @@ def merge_episodes(
-                 validate_episode(
-                     episode_path=episode_path,
-                     expected_info=dataset_info,
-+                    source_keys=source_keys,
-                 )
- 
-                 start = episode_index * episode_length
-                 end = start + episode_length
- 
-                 with h5py.File(episode_path, "r") as episode_file:
--                    for output_key, source_key in SOURCE_KEYS.items():
-+                    for output_key, source_key in source_keys.items():
-                         episode_data = episode_file[source_key][...]
- 
-                         if episode_data.shape[0] != episode_length:
-@@ -596,7 +607,7 @@ def merge_episodes(
-                         output_file[output_key][start:end] = episode_data
- 
-                     leader = np.asarray(
--                        episode_file[SOURCE_KEYS["leader"]][...],
-+                        episode_file[source_keys["leader"]][...],
-                         dtype=np.float32,
-                     )
- 
-@@ -700,6 +711,16 @@ def parse_args() -> argparse.Namespace:
-         )
-     )
- 
-+    parser.add_argument(
-+        "--camera-serial",
-+        type=str,
-+        required=True,
-+        help=(
-+            "Serial number of the camera observation "
-+            "to store as 'pixels'."
-+        ),
-+    )
-+
-     parser.add_argument(
-         "--input-dir",
-         type=Path,
-@@ -759,6 +780,7 @@ def main() -> None:
-         input_dir=input_dir,
-         output_path=output_path,
-         robot_ip=args.robot_ip,
-+        camera_serial=args.camera_serial,
-         num_episodes=num_episodes,
-         compression=compression,
      )
