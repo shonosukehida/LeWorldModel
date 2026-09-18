@@ -26,18 +26,19 @@ robot:
     # index: 2
 
     serial_numbers:
-      # - "937622072677"
-      - "937622072182"
-      # - "044322070202"
+      - "937622072677"
+      # - "937622072182"
+      - "044322070202"
 
     auto_exposure: false
     exposures:
-      - 120
+      - 120 #over
+      - 70 #wrist
 
     auto_white_balance: false
     white_balances:
-      - 3300.0
-
+      - 3300.0 #over #3300.
+      - 2800.0 #wrist #2800.
 
 dataset:
   episode: 1
