@@ -31,9 +31,12 @@ robot:
       # - "044322070202"
 
     auto_exposure: false
-
     exposures:
       - 120
+
+    auto_white_balance: false
+    white_balances:
+      - 3300.0
 
 
 dataset:

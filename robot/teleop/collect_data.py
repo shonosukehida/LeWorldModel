@@ -90,6 +90,17 @@ def xarm_collect() -> None:
             "as robot.camera.serial_numbers"
         )
 
+    camera_white_balances = [
+        float(white_balance)
+        for white_balance in cfg.robot.camera.white_balances
+    ]
+
+    if len(camera_white_balances) != len(camera_serial_numbers):
+        raise ValueError(
+            "robot.camera.white_balances must have the same length "
+            "as robot.camera.serial_numbers"
+        )
+
     robot_config = XArmConfig(
         follower_ip=cfg.robot.follower_ip,
         leader_port=cfg.robot.leader_port,
@@ -116,11 +127,15 @@ def xarm_collect() -> None:
                     serial_no=serial_no,
                     auto_exposure=bool(cfg.robot.camera.auto_exposure),
                     exposure=exposure,
+                    auto_white_balance=bool(cfg.robot.camera.auto_white_balance),
+                    white_balance=white_balance,
                 )
-                for serial_no, exposure in zip(
+                for serial_no, exposure, white_balance in zip(
                     camera_serial_numbers,
                     camera_exposures,
+                    camera_white_balances,
                 )
+
             ]
         ),
     )
@@ -184,24 +199,10 @@ def xarm_collect() -> None:
 
         data = asdict(observation)
 
-<<<<<<< HEAD
         logger.info("camera keys: %s", list(data["sensors"]["cameras"].keys()),)
 
         for camera_name, frames in data["sensors"]["cameras"].items():
             logger.info("camera '%s' shape: %s", camera_name, np.asarray(frames).shape,)
-=======
-        logger.info(
-            "camera keys: %s",
-            list(data["sensors"]["cameras"].keys()),
-        )
-
-        for camera_name, frames in data["sensors"]["cameras"].items():
-            logger.info(
-                "camera '%s' shape: %s",
-                camera_name,
-                np.asarray(frames).shape,
-            )
->>>>>>> real_robot
         
         save = input("do you save the episode? [Y/N]")
         if (save == "Y" or save == "yes" or save == "y"):
