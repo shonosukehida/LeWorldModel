@@ -36,6 +36,12 @@ robot:
       - 120.0   # overhead
       - 70.0   # wrist
 
+    auto_white_balance: false
+
+    white_balances:
+      - 3300.0   # overhead
+      - 3300.0   # wrist
+
 
 dataset:
   episode: 1
