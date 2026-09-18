@@ -33,14 +33,14 @@ robot:
     auto_exposure: false
 
     exposures:
-      - 120.0   # overhead
-      - 70.0   # wrist
+      - 120.0   # overhead #120.
+      - 70.0   # wrist #70.
 
     auto_white_balance: false
 
     white_balances:
-      - 3300.0   # overhead
-      - 3300.0   # wrist
+      - 3300.0   # overhead #3300.
+      - 2800.0   # wrist #2800.
 
 
 dataset:
