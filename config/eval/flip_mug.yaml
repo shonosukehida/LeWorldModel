@@ -112,6 +112,8 @@ eval:
         fps: 30
         auto_exposure: false
         exposure: 120 #120
+        auto_white_balance: false
+        white_balance: 3300.0 #3300.
 
       wrist:
         serial: 044322070202
@@ -120,6 +122,8 @@ eval:
         fps: 30
         auto_exposure: false
         exposure: 70. #70.
+        auto_white_balance: false
+        white_balance: 2800.0 #2800.
 
 
   probing:

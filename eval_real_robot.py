@@ -580,6 +580,9 @@ class XArmInferenceEnv:
                 device = profile.get_device()
                 color_sensor = device.first_color_sensor()
 
+                # -------------------------
+                # Exposure settings
+                # -------------------------
                 if color_sensor.supports(rs.option.enable_auto_exposure):
                     color_sensor.set_option(
                         rs.option.enable_auto_exposure,
@@ -588,6 +591,7 @@ class XArmInferenceEnv:
 
                 if (
                     not bool(camera_cfg.auto_exposure)
+                    and camera_cfg.exposure is not None
                     and color_sensor.supports(rs.option.exposure)
                 ):
                     color_sensor.set_option(
@@ -595,6 +599,44 @@ class XArmInferenceEnv:
                         float(camera_cfg.exposure),
                     )
 
+                    actual_exposure = color_sensor.get_option(
+                        rs.option.exposure
+                    )
+                    print(
+                        f"RealSense {camera_cfg.serial} exposure: "
+                        f"requested={float(camera_cfg.exposure):.1f}, "
+                        f"actual={actual_exposure:.1f}"
+                    )
+
+                # -------------------------
+                # White balance settings
+                # -------------------------
+                if color_sensor.supports(rs.option.enable_auto_white_balance):
+                    color_sensor.set_option(
+                        rs.option.enable_auto_white_balance,
+                        1.0 if bool(camera_cfg.auto_white_balance) else 0.0,
+                    )
+
+                if (
+                    not bool(camera_cfg.auto_white_balance)
+                    and camera_cfg.white_balance is not None
+                    and color_sensor.supports(rs.option.white_balance)
+                ):
+                    color_sensor.set_option(
+                        rs.option.white_balance,
+                        float(camera_cfg.white_balance),
+                    )
+
+                    actual_white_balance = color_sensor.get_option(
+                        rs.option.white_balance
+                    )
+                    print(
+                        f"RealSense {camera_cfg.serial} white balance: "
+                        f"requested={float(camera_cfg.white_balance):.1f}, "
+                        f"actual={actual_white_balance:.1f}"
+                    )
+
+                # Discard initial camera frames.
                 for _ in range(15):
                     pipeline.wait_for_frames()
 
