@@ -568,6 +568,9 @@ class XArmInferenceEnv:
                 device = profile.get_device()
                 color_sensor = device.first_color_sensor()
 
+                # -------------------------
+                # Exposure settings
+                # -------------------------
                 if color_sensor.supports(rs.option.enable_auto_exposure):
                     color_sensor.set_option(
                         rs.option.enable_auto_exposure,
@@ -584,10 +587,41 @@ class XArmInferenceEnv:
                         float(robot_cfg.camera.exposure),
                     )
 
-                    actual_exposure = color_sensor.get_option(rs.option.exposure)
+                    actual_exposure = color_sensor.get_option(
+                        rs.option.exposure
+                    )
                     print(
-                        f"RealSense exposure: requested={float(robot_cfg.camera.exposure):.1f}, "
+                        "RealSense exposure: "
+                        f"requested={float(robot_cfg.camera.exposure):.1f}, "
                         f"actual={actual_exposure:.1f}"
+                    )
+
+                # -------------------------
+                # White balance settings
+                # -------------------------
+                if color_sensor.supports(rs.option.enable_auto_white_balance):
+                    color_sensor.set_option(
+                        rs.option.enable_auto_white_balance,
+                        1.0 if bool(robot_cfg.camera.auto_white_balance) else 0.0,
+                    )
+
+                if (
+                    not bool(robot_cfg.camera.auto_white_balance)
+                    and robot_cfg.camera.white_balance is not None
+                    and color_sensor.supports(rs.option.white_balance)
+                ):
+                    color_sensor.set_option(
+                        rs.option.white_balance,
+                        float(robot_cfg.camera.white_balance),
+                    )
+
+                    actual_white_balance = color_sensor.get_option(
+                        rs.option.white_balance
+                    )
+                    print(
+                        "RealSense white balance: "
+                        f"requested={float(robot_cfg.camera.white_balance):.1f}, "
+                        f"actual={actual_white_balance:.1f}"
                     )
 
                 self._pipeline = pipeline
@@ -595,6 +629,8 @@ class XArmInferenceEnv:
                 # Discard initial camera frames.
                 for _ in range(15):
                     pipeline.wait_for_frames()
+
+
 
         self._dry_run_image = None
         if self.dry_run:
