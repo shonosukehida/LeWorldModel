@@ -109,6 +109,8 @@ eval:
       fps: 30
       auto_exposure: false
       exposure: 120
+      auto_white_balance: false
+      white_balance: 3300.0
 
 
   probing:
