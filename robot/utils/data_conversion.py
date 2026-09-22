@@ -27,12 +27,6 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from xarm.wrapper import XArmAPI
 
-def build_source_keys(camera_serial: str,) -> dict[str, str]:
-    return {
-        **SOURCE_KEYS,
-        "pixels": f"sensors/cameras/{camera_serial}",
-    }
-
 
 SOURCE_KEYS = {
     "ee_pos_quat": "arms/ee_pos_quat",
