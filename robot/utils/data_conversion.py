@@ -35,7 +35,7 @@ def build_source_keys(
     return {
         **SOURCE_KEYS,
         "pixels": f"sensors/cameras/{pixels_camera_serial}",
-        "wrist": f"sensors/cameras/{wrist_camera_serial}",
+        "wrist_pixels": f"sensors/cameras/{wrist_camera_serial}",
     }
 
 
