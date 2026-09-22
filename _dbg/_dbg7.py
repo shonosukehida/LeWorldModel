@@ -1,7 +1,7 @@
 import h5py
 import numpy as np
 
-file_path = "/data/hida/flip_mug/ep200_tm300_multiview_demo/per_episode/episode_35.h5"
+file_path = "/home/hida/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/per_episode/episode_200.h5"
 
 
 def inspect_h5(name, obj):

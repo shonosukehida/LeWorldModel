@@ -37,7 +37,7 @@ robot:
       - 70.0   # wrist
 
 
-    auto_white_balance: true
+    auto_white_balance: false
 
     white_balances:
       - 3300.0  # overhead
@@ -45,8 +45,9 @@ robot:
 
 
 dataset:
-  episode: 1
+  is_val: true
+  episode: 10
   fps: 10
   max_frames: 300
   teleop_hz: 50
-  suffix: test
+  suffix: multiview

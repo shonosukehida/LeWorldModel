@@ -152,6 +152,8 @@ def xarm_collect() -> None:
     dataset_dir = f"ep{str(cfg.dataset.episode)}_tm{cfg.dataset.max_frames}"
     if cfg.dataset.suffix is not None:
         dataset_dir += "_" + str(cfg.dataset.suffix)
+    if cfg.dataset.is_val:
+        dataset_dir = "val_" + dataset_dir
 
     
     

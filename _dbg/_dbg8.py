@@ -4,7 +4,7 @@ import h5py
 
 
 data_dir = Path(
-    "/data/hida/flip_mug/ep200_tm300_multiview_demo/per_episode"
+    "/home/hida/.stable_worldmodel/datasets/flip_mug/val_ep10_tm300_multiview/per_episode"
 )
 
 
