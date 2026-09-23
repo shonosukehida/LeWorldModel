@@ -1,33 +1,37 @@
-import cv2
-import os
+from xarm.wrapper import XArmAPI
 
-video_path = "/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview/per_episode/videos/episode_0_main.mp4"
+ROBOT_IP = "192.168.1.240"
 
-output_dir = os.path.join(
-    os.path.dirname(video_path),
-    "episode_0_main_frames"
-)
-os.makedirs(output_dir, exist_ok=True)
+arm = XArmAPI(ROBOT_IP, is_radian=True)
 
-cap = cv2.VideoCapture(video_path)
+try:
+    # ロボット本体のエラー
+    code, err_warn = arm.get_err_warn_code()
+    print("Robot error/warn:", code, err_warn)
+    print("arm.error_code:", arm.error_code)
 
-frame_idx = 0
+    # F/T Sensorのエラー
+    code, ft_error = arm.get_ft_sensor_error()
+    print("FT sensor error:", code, ft_error)
 
-while True:
-    ret, frame = cap.read()
+    # F/T Sensorの設定
+    code, config = arm.get_ft_sensor_config()
 
-    if not ret:
-        break
+    print("FT config code:", code)
 
-    output_path = os.path.join(
-        output_dir,
-        f"frame_{frame_idx:06d}.png"
-    )
+    if code == 0:
+        print("FT mode:", config[0])
+        print("FT enabled:", config[1])
+        print("FT type:", config[2])
+        print("FT ID:", config[3])
+        print("FT frequency:", config[4])
+        print("FT mass:", config[5])
 
-    cv2.imwrite(output_path, frame)
-    frame_idx += 1
+    # 読み出し結果とAPI戻り値を確認
+    code, ft_data = arm.get_ft_sensor_data()
 
-cap.release()
+    print("FT read code:", code)
+    print("FT data:", ft_data)
 
-print(f"Saved {frame_idx} frames to:")
-print(output_dir)
+finally:
+    arm.disconnect()

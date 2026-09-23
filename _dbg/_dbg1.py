@@ -1,78 +1,96 @@
-import h5py
+
+import time
+
 import numpy as np
-import imageio.v2 as imageio
-from pathlib import Path
+from xarm.wrapper import XArmAPI
 
-episode_path = Path(
-    "/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview/per_episode/episode_3.h5"
-)
 
-output_dir = episode_path.parent / "videos"
-output_dir.mkdir(parents=True, exist_ok=True)
+# ============================================================
+# Configuration
+# ============================================================
 
-with h5py.File(episode_path, "r") as f:
-    print("=== HDF5 structure ===")
+ROBOT_IP = "192.168.1.240"
+READ_HZ = 10
 
-    def print_structure(name, obj):
-        if isinstance(obj, h5py.Dataset):
-            print(
-                f"{name}: "
-                f"shape={obj.shape}, "
-                f"dtype={obj.dtype}"
+
+def main():
+
+    # --------------------------------------------------------
+    # Connect to xArm
+    # --------------------------------------------------------
+
+    arm = XArmAPI(ROBOT_IP, is_radian=True)
+
+    sensor_enabled = False
+
+    try:
+
+        # ----------------------------------------------------
+        # Enable F/T Sensor
+        # ----------------------------------------------------
+
+        code = arm.set_ft_sensor_enable(1)
+
+        if code != 0:
+            raise RuntimeError(
+                f"Failed to enable F/T sensor: code={code}"
             )
 
-    f.visititems(print_structure)
+        sensor_enabled = True
 
-    camera_group = f["sensors"]["cameras"]
+        time.sleep(0.5)
 
-    print("\n=== Cameras ===")
-    print("camera keys:", list(camera_group.keys()))
+        print("F/T Sensor enabled.")
+        print("Press Ctrl+C to stop.\n")
 
-    for camera_name in camera_group.keys():
-        frames = camera_group[camera_name][:]
+        # ----------------------------------------------------
+        # Read F/T Sensor
+        # ----------------------------------------------------
 
-        print(
-            f"{camera_name}: "
-            f"shape={frames.shape}, "
-            f"dtype={frames.dtype}, "
-            f"min={frames.min()}, "
-            f"max={frames.max()}"
-        )
+        while True:
 
-        # 想定:
-        # (T, C, H, W) -> (T, H, W, C)
-        if frames.ndim == 4 and frames.shape[1] == 3:
-            frames = np.transpose(frames, (0, 2, 3, 1))
+            code, ft_data = arm.get_ft_sensor_data()
 
-        # float画像への対応
-        if np.issubdtype(frames.dtype, np.floating):
-            if frames.max() <= 1.0:
-                frames = frames * 255.0
+            if code != 0:
+                raise RuntimeError(
+                    f"Failed to read F/T sensor: code={code}"
+                )
 
-            frames = np.clip(
-                frames,
-                0,
-                255,
-            ).astype(np.uint8)
+            ft = np.asarray(ft_data, dtype=np.float32)
 
-        elif frames.dtype != np.uint8:
-            frames = np.clip(
-                frames,
-                0,
-                255,
-            ).astype(np.uint8)
+            fx, fy, fz, tx, ty, tz = ft
 
-        output_path = (
-            output_dir
-            / f"episode_0_{camera_name}.mp4"
-        )
+            # Force magnitude
+            force = np.linalg.norm(ft[:3])
 
-        imageio.mimwrite(
-            output_path,
-            frames,
-            fps=10,
-            codec="libx264",
-            quality=8,
-        )
+            # Torque magnitude
+            torque = np.linalg.norm(ft[3:])
 
-        print("saved:", output_path)
+            print(
+                f"Fx={fx:8.3f} N | "
+                f"Fy={fy:8.3f} N | "
+                f"Fz={fz:8.3f} N | "
+                f"Tx={tx:8.3f} Nm | "
+                f"Ty={ty:8.3f} Nm | "
+                f"Tz={tz:8.3f} Nm | "
+                f"Force={force:8.3f} N | "
+                f"Torque={torque:8.3f} Nm"
+            )
+
+            time.sleep(1.0 / READ_HZ)
+
+    except KeyboardInterrupt:
+        print("\nF/T Sensor test stopped.")
+
+    finally:
+
+        if sensor_enabled:
+            arm.set_ft_sensor_enable(0)
+
+        arm.disconnect()
+
+        print("Disconnected.")
+
+
+if __name__ == "__main__":
+    main()
