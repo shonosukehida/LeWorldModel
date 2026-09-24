@@ -308,6 +308,7 @@ def validate(
     config_name="diffusion_policy",
 )
 def run(cfg):
+    print("cfg:", cfg)
 
     # --------------------------------------------------------
     # Seed
@@ -339,11 +340,47 @@ def run(cfg):
 
     dataset_cfg = dict(cfg.data.dataset)
 
-    dataset_cfg["num_steps"] = (cfg.policy.pred_horizon)
+    dataset_cfg["num_steps"] = cfg.policy.pred_horizon
 
-    dataset_cfg["keys_to_load"] = ["pixels", "wrist_pixels", cfg.policy.action_key,]
+    dataset_cfg["keys_to_load"] = [
+        "pixels",
+        "wrist_pixels",
+        cfg.policy.action_key,
+    ]
 
-    dataset_cfg["keys_to_cache"] = [cfg.policy.action_key,]
+    dataset_cfg["keys_to_cache"] = [
+        cfg.policy.action_key,
+    ]
+
+    # Resolve optional explicit path.
+    if dataset_cfg.get("path") is not None:
+
+        dataset_path = Path(
+            dataset_cfg["path"]
+        ).expanduser()
+
+        if not dataset_path.is_absolute():
+            raise ValueError(
+                f"Dataset path must be absolute: {dataset_path}"
+            )
+
+        if dataset_path.suffix == "":
+            dataset_path = dataset_path.with_suffix(".h5")
+
+        if not dataset_path.is_file():
+            raise FileNotFoundError(
+                f"Dataset not found: {dataset_path}"
+            )
+
+        dataset_cfg["path"] = str(dataset_path)
+
+        print("dataset path:", dataset_path)
+
+    else:
+        # Preserve the conventional name-based lookup.
+        dataset_cfg.pop("path", None)
+
+        print("dataset name:", dataset_cfg["name"])
 
     dataset = swm.data.HDF5Dataset(
         **dataset_cfg,
@@ -352,9 +389,10 @@ def run(cfg):
 
     action_dim = dataset.get_dim(cfg.policy.action_key)
 
-    print("dataset:", cfg.data.dataset.name,)
-    print("num samples:", len(dataset),)
-    print("action_dim:", action_dim,)
+    print("num samples:", len(dataset))
+    print("action_dim:", action_dim)
+
+
 
 
 
@@ -585,6 +623,7 @@ def run(cfg):
         ),
     )
 
+
     # --------------------------------------------------------
     # Output directory
     # --------------------------------------------------------
@@ -593,8 +632,24 @@ def run(cfg):
         "%Y%m%d_%H%M%S"
     )
 
-    task_name = cfg.data.dataset.name.split("/")[0]
-    dataset_name =  cfg.data.dataset.name.split("/")[1]
+    if cfg.data.dataset.name is not None:
+
+        # Conventional logical dataset name.
+        dataset_name_parts = Path(cfg.data.dataset.name)
+
+        task_name = dataset_name_parts.parts[0]
+        dataset_name = dataset_name_parts.parts[1]
+
+    else:
+
+        # Derive names from the explicit dataset path.
+        dataset_path = Path(cfg.data.dataset.path)
+
+        task_name = dataset_path.parent.parent.name
+        dataset_name = dataset_path.parent.name
+
+
+
 
     run_dir = Path(
         swm.data.utils.get_cache_dir(),
