@@ -1,5 +1,10 @@
 dataset:
   name: flip_mug/ep200_tm300/push
+  # Optional absolute path to an HDF5 dataset.
+  # null: use the conventional dataset name.
+  path: /home/hida/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/push.h5
+
+
   num_steps: ${eval:'${wm.num_preds} + ${wm.history_size}'}
   frameskip: 1
 

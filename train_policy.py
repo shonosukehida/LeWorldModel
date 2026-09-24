@@ -332,6 +332,29 @@ def run(cfg):
 
     dataset_cfg["keys_to_cache"] = [cfg.policy.action_key,]
 
+    # Optional absolute path; preserve name-based lookup when path is null.
+    if dataset_cfg.get("path") is not None:
+        dataset_path = Path(dataset_cfg["path"]).expanduser()
+
+        if not dataset_path.is_absolute():
+            raise ValueError(
+                f"Dataset path must be absolute: {dataset_path}"
+            )
+
+        if dataset_path.suffix == "":
+            dataset_path = dataset_path.with_suffix(".h5")
+
+        if not dataset_path.is_file():
+            raise FileNotFoundError(
+                f"Dataset not found: {dataset_path}"
+            )
+
+        dataset_cfg["path"] = str(dataset_path)
+        print("dataset path:", dataset_path)
+    else:
+        dataset_cfg.pop("path", None)
+        print("dataset name:", dataset_cfg["name"])
+
     dataset = swm.data.HDF5Dataset(
         **dataset_cfg,
         transform=None,

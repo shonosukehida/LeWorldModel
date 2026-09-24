@@ -1,4 +1,9 @@
 dataset:
-  name: flip_mug/ep2_tm300/push
+  name: flip_mug/ep200_tm300/push
+  # Optional absolute path to an HDF5 dataset.
+  # null: use the conventional dataset name.
+  path: /data/hida/flip_mug/ep200_tm300/push.h5
+
+
   num_steps: 16
   frameskip: 1
