@@ -84,18 +84,52 @@ def run(cfg):
 
     pl.seed_everything(cfg.learning_seed, workers = True)
 
+
+
     #########################
     ##       dataset       ##
     #########################
-    # print("cfg:", cfg)
-    # print("cfg.wm.action_dim:", cfg.wm.action_dim)
 
-    # print("cfg.data.dataset:", cfg.data.dataset)
-    dataset = swm.data.HDF5Dataset(**cfg.data.dataset, transform=None)
-    # print("dataset path: ", dataset.h5_path)
-    # print("dataset name:", cfg.data.dataset.name)
-   
+    dataset_cfg = dict(cfg.data.dataset)
+
+    # Resolve optional explicit path.
+    if dataset_cfg.get("path") is not None:
+
+        dataset_path = Path(
+            dataset_cfg["path"]
+        ).expanduser()
+
+        if not dataset_path.is_absolute():
+            raise ValueError(
+                f"Dataset path must be absolute: {dataset_path}"
+            )
+
+        if dataset_path.suffix == "":
+            dataset_path = dataset_path.with_suffix(".h5")
+
+        if not dataset_path.is_file():
+            raise FileNotFoundError(
+                f"Dataset not found: {dataset_path}"
+            )
+
+        dataset_cfg["path"] = str(dataset_path)
+
+        print("dataset path:", dataset_path)
+
+    else:
+        # Preserve the conventional name-based lookup.
+        dataset_cfg.pop("path", None)
+
+        print("dataset name:", dataset_cfg["name"])
+
+    dataset = swm.data.HDF5Dataset(
+        **dataset_cfg,
+        transform=None,
+    )
+
     print("cfg.image_size:", cfg.img_size)
+    
+    
     transforms = [get_img_preprocessor(source='pixels', target='pixels', img_size=cfg.img_size)]
     
     #この中でaction_dimを決定している
