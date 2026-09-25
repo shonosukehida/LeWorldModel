@@ -68,6 +68,12 @@ def xarm_collect() -> None:
     from robopy.utils.h5_handler import H5Handler
 
     cfg = load_robot_config()
+    use_admittance = bool(cfg.robot.admittance.enabled)
+
+    logger.info(
+        "Admittance enabled: %s",
+        use_admittance,
+    )
 
     camera_serial_numbers = [
         str(serial)
@@ -172,14 +178,32 @@ def xarm_collect() -> None:
     logger.info("Next episode index: %d", episode_index)
     logger.info("Save path: %s", save_path)
 
+
+    admittance_attempted = False
+
     try:
         logger.info("Connecting robot...")
-        robot.connect() #XArm, GELLO, realsense を接続
+
+        robot.connect()
+
         logger.info("Robot and sensors connected")
 
-        
-        
-        input("GELLO と xArm の姿勢を確認し、Enter で収集開始...")
+        input(
+            "GELLO と xArm の姿勢を確認し、Enter で収集開始..."
+        )
+
+        follower = robot.robot_system.follower
+
+
+        if use_admittance:
+            admittance_attempted = True
+
+            follower.enable_admittance_control()
+
+            # enable時に停止した通常の位置指令を再開
+            follower.resume_motion_commands()
+
+            logger.info("Admittance control enabled.")
 
         logger.info(
             "Recording started: fps=%d, max_frames=%d",
@@ -187,11 +211,26 @@ def xarm_collect() -> None:
             max_frames,
         )
 
-        observation = robot.record_parallel(
-            max_frame=max_frames,
-            fps=fps,
-            teleop_hz=teleop_hz,
-        )
+        try:
+            observation = robot.record_parallel(
+                max_frame=max_frames,
+                fps=fps,
+                teleop_hz=teleop_hz,
+            )
+
+        finally:
+
+            if use_admittance and admittance_attempted:
+
+                with follower._control_lock:
+                    follower._motion_paused = True
+
+                follower.disable_admittance_control()
+
+                admittance_attempted = False
+
+                logger.info("Admittance control disabled.")
+
         
         logger.info("leader shape: %s", observation.arms.leader.shape)
         logger.info("follower shape: %s", observation.arms.follower.shape)
@@ -220,6 +259,27 @@ def xarm_collect() -> None:
         logger.info("Recording interrupted by user.")
 
     finally:
+        if admittance_attempted:
+
+            follower = robot.robot_system.follower
+
+            try:
+                with follower._control_lock:
+                    follower._motion_paused = True
+
+            except Exception:
+                logger.exception(
+                    "Failed to pause motion commands."
+                )
+
+            try:
+                follower.disable_admittance_control()
+
+            except Exception:
+                logger.exception(
+                    "Failed to disable admittance control."
+                )
+
         robot.disconnect()
 
 

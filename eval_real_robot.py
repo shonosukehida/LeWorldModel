@@ -438,6 +438,8 @@ class XArmInferenceEnv:
 
         # Robopy owns the xArm connection/control thread.
         self._follower = None
+        self._admittance_enabled = False
+        self._admittance_attempted = False
 
         # Read-only access to the XArmAPI instance owned by XArmFollower.
         # This is retained for SDK FK, TCP/world offsets, and qvel queries.
@@ -669,17 +671,74 @@ class XArmInferenceEnv:
                 dtype=np.float32,
             )
 
-    def close(self):
-        if self._pipeline is not None:
-            self._pipeline.stop()
-            self._pipeline = None
 
-        if self._follower is not None:
-            # XArmFollower stops its background control thread and disconnects
-            # the XArmAPI object it owns.
-            self._follower.disconnect()
+    def enable_admittance(self):
+        if self.dry_run:
+            return
+
+        if self._follower is None:
+            raise RuntimeError(
+                "XArmFollower is not connected"
+            )
+
+        self._admittance_attempted = True
+
+        self._follower.enable_admittance_control()
+
+        self._admittance_enabled = True
+
+        # 通常の位置指令を再開する
+        self._follower.resume_motion_commands()
+
+        print("Admittance control enabled.")
+
+
+    def disable_admittance(self):
+        if self.dry_run or self._follower is None:
+            return
+
+        # 通常の位置指令を停止
+        with self._follower._control_lock:
+            self._follower._motion_paused = True
+
+        # 無効化が成功した場合のみフラグを戻す
+        self._follower.disable_admittance_control()
+
+        self._admittance_enabled = False
+        self._admittance_attempted = False
+
+        print("Admittance control disabled.")
+
+
+
+
+    def close(self):
+        try:
+            if self._follower is not None:
+
+                try:
+                    # 終了前に通常の位置指令を停止
+                    with self._follower._control_lock:
+                        self._follower._motion_paused = True
+
+                    if self._admittance_attempted:
+                        self.disable_admittance()
+
+                finally:
+                    # SDK接続はXArmFollowerが管理する
+                    self._follower.disconnect()
+
+        finally:
             self._follower = None
             self._robot = None
+
+            self._admittance_enabled = False
+            self._admittance_attempted = False
+
+            # 単視点カメラの終了処理
+            if self._pipeline is not None:
+                self._pipeline.stop()
+                self._pipeline = None
 
     def get_image(self):
         if self.dry_run:
@@ -1674,6 +1733,20 @@ def run_xarm_task(cfg, policy, process, results_path):
         )
         if not real_cfg.non_interactive:
             input("Place the scene in the START state, then press Enter to run: ")
+
+
+        use_admittance = bool(
+            OmegaConf.select(
+                cfg,
+                "eval.real_robot.admittance.enabled",
+                default=False,
+            )
+        )
+
+        if use_admittance:
+            env.enable_admittance()
+
+
 
         started = time.monotonic()
         period = 1.0 / float(real_cfg.control_hz)

@@ -65,6 +65,8 @@ eval:
   # layout: [x, y, z, qx, qy, qz, qw, gripper], where gripper is normalized
   # to 0=open and 1=closed.
   real_robot:
+    admittance:
+      enabled: false
     execute: true
     dry_run: true #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
