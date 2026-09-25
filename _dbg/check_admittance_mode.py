@@ -73,7 +73,7 @@ try:
     print("Admittance control enabled")
 
     # 6. 10秒間動作
-    time.sleep(10)
+    time.sleep(30)
 
 finally:
     # 7. 通常モードに戻す
