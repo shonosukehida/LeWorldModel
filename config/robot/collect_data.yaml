@@ -18,6 +18,9 @@ robot:
     max_y: 207.3
     min_z: 0.0
     max_z: 475.2
+
+  admittance: #アドミッタンス制御を導入する
+    enabled: true
   
   camera:
     width: 640
