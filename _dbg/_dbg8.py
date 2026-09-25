@@ -1,10 +1,12 @@
+#per_episode の中に観測の欠損データがないか確認
+
 from pathlib import Path
 
 import h5py
 
 
 data_dir = Path(
-    "/home/hida/.stable_worldmodel/datasets/flip_mug/val_ep10_tm300_multiview/per_episode"
+    "/home/hida/.stable_worldmodel/datasets/flip_mug/ep100_tm300_multiview_play/per_episode"
 )
 
 
