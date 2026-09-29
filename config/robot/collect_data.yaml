@@ -19,8 +19,15 @@ robot:
     min_z: 0.0
     max_z: 475.2
 
-  admittance: #アドミッタンス制御を導入する
+  admittance: #アドミッタンス制御
     enabled: true
+    translational_mass: 0.06  # kg
+    rotational_inertia_mass_ratio: 0.01  # m^2; J = M * ratio
+    position_stiffness: 1200.0  # N/m
+    orientation_stiffness: 4.0  # Nm/rad
+    damping: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # SDK six-axis B array (reserved)
+    reference_frame: 0  # 0 = base frame, 1 = tool frame
+    compliant_axis: [0, 0, 1, 0, 0, 0]  # [x, y, z, rx, ry, rz], each 0 or 1
   
   camera:
     width: 640
@@ -49,8 +56,8 @@ robot:
 
 dataset:
   is_val: false
-  episode: 100
+  episode: 200
   fps: 10
   max_frames: 300
   teleop_hz: 50
-  suffix: multiview_play
+  suffix: multiview_demo

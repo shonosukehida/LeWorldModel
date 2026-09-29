@@ -462,6 +462,7 @@ class XArmInferenceEnv:
         if not self.dry_run:
             try:
                 from robopy.config.robot_config import (
+                    XArmAdmittanceConfig,
                     XArmConfig,
                     XArmWorkspaceBounds,
                 )
@@ -496,9 +497,22 @@ class XArmInferenceEnv:
                 max_z=float(bounds[2, 1] * 1000.0),
             )
 
+            admittance_config = XArmAdmittanceConfig(
+                translational_mass=float(robot_cfg.admittance.translational_mass),
+                rotational_inertia_mass_ratio=float(
+                    robot_cfg.admittance.rotational_inertia_mass_ratio
+                ),
+                position_stiffness=float(robot_cfg.admittance.position_stiffness),
+                orientation_stiffness=float(robot_cfg.admittance.orientation_stiffness),
+                damping=tuple(float(value) for value in robot_cfg.admittance.damping),
+                reference_frame=int(robot_cfg.admittance.reference_frame),
+                compliant_axis=tuple(int(value) for value in robot_cfg.admittance.compliant_axis),
+            )
+
             # Defaults intentionally match Robopy XArmConfig defaults used by
             # the collection script when these fields were not specified.
             follower_cfg = XArmConfig(
+                admittance=admittance_config,
                 follower_ip=str(robot_cfg.follower_ip),
                 workspace_bounds=workspace,
                 control_frequency=float(
@@ -516,9 +530,10 @@ class XArmInferenceEnv:
                 collision_sensitivity=int(
                     _optional_cfg("collision_sensitivity", 3)
                 ),
-                gripper_open=int(robot_cfg.gripper.open_position),
-                gripper_close=int(robot_cfg.gripper.closed_position),
+                gripper_open=float(robot_cfg.gripper.open_position),
+                gripper_close=float(robot_cfg.gripper.closed_position),
                 gripper_speed=int(robot_cfg.gripper.speed),
+                gripper_force=int(robot_cfg.gripper.force),
             )
 
             self._follower = XArmFollower(follower_cfg)
