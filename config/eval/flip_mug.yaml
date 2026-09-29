@@ -67,6 +67,13 @@ eval:
   real_robot:
     admittance:
       enabled: false
+      translational_mass: 0.06  # kg
+      rotational_inertia_mass_ratio: 0.01  # m^2; J = M * ratio
+      position_stiffness: 1200.0  # N/m
+      orientation_stiffness: 4.0  # Nm/rad
+      damping: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # SDK six-axis B array (reserved)
+      reference_frame: 0  # 0 = base frame, 1 = tool frame
+      compliant_axis: [0, 0, 1, 0, 0, 0]  # [x, y, z, rx, ry, rz], each 0 or 1
     execute: true
     dry_run: true #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/start_state_0.png
@@ -99,9 +106,10 @@ eval:
       - [-0.2168, 0.2073]
       - [0.0, 0.4752]
     gripper:
-      open_position: 850
-      closed_position: 0
-      speed: 2000
+      open_position: 84.0
+      closed_position: 0.0
+      speed: 200
+      force: 50
       max_delta: 0.10
       command_threshold: 0.03
     camera:

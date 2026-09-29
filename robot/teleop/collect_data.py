@@ -10,6 +10,7 @@ import yaml
 from box import Box
 
 from robopy.config.robot_config import (
+    XArmAdmittanceConfig,
     XArmConfig,
     XArmWorkspaceBounds,
     XArmSensorParams,
@@ -57,6 +58,51 @@ def get_next_episode_index(save_dir: Path) -> int:
         return 0
 
     return max(indices) + 1
+
+
+def validate_camera_recording(
+    observation,
+    expected_camera_names: list[str],
+    expected_frames: int,
+) -> None:
+    """Reject an episode when a configured camera was not fully recorded."""
+    if observation.sensors is None:
+        raise RuntimeError(
+            "Camera recording failed: sensor observations are missing."
+        )
+
+    cameras = observation.sensors.cameras
+    missing = [name for name in expected_camera_names if name not in cameras]
+    invalid: list[str] = []
+
+    for name in expected_camera_names:
+        if name not in cameras:
+            continue
+
+        frames = cameras[name]
+        if frames is None:
+            invalid.append(f"{name}: no frames")
+            continue
+
+        array = np.asarray(frames)
+        if array.size == 0:
+            invalid.append(f"{name}: empty array")
+        elif array.shape[0] != expected_frames:
+            invalid.append(
+                f"{name}: expected {expected_frames} frames, "
+                f"got {array.shape[0]}"
+            )
+
+    if missing or invalid:
+        details = []
+        if missing:
+            details.append(f"missing cameras={missing}")
+        if invalid:
+            details.append(f"invalid cameras={invalid}")
+        raise RuntimeError(
+            "Camera recording validation failed; episode will not be saved: "
+            + "; ".join(details)
+        )
 
 
 def xarm_collect() -> None:
@@ -107,7 +153,20 @@ def xarm_collect() -> None:
             "as robot.camera.serial_numbers"
         )
 
+    admittance_config = XArmAdmittanceConfig(
+        translational_mass=float(cfg.robot.admittance.translational_mass),
+        rotational_inertia_mass_ratio=float(
+            cfg.robot.admittance.rotational_inertia_mass_ratio
+        ),
+        position_stiffness=float(cfg.robot.admittance.position_stiffness),
+        orientation_stiffness=float(cfg.robot.admittance.orientation_stiffness),
+        damping=tuple(float(value) for value in cfg.robot.admittance.damping),
+        reference_frame=int(cfg.robot.admittance.reference_frame),
+        compliant_axis=tuple(int(value) for value in cfg.robot.admittance.compliant_axis),
+    )
+
     robot_config = XArmConfig(
+        admittance=admittance_config,
         follower_ip=cfg.robot.follower_ip,
         leader_port=cfg.robot.leader_port,
         workspace_bounds=XArmWorkspaceBounds(
@@ -235,6 +294,12 @@ def xarm_collect() -> None:
         logger.info("leader shape: %s", observation.arms.leader.shape)
         logger.info("follower shape: %s", observation.arms.follower.shape)
         logger.info("ee shape: %s", observation.arms.ee_pos_quat.shape)
+
+        validate_camera_recording(
+            observation=observation,
+            expected_camera_names=camera_serial_numbers,
+            expected_frames=max_frames,
+        )
 
         data = asdict(observation)
 
