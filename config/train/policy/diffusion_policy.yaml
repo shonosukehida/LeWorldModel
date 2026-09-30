@@ -81,7 +81,7 @@ optimizer:
 
 
 trainer:
-  max_epochs: 1
+  max_epochs: 5
   gradient_clip_val: 1.0
 
 
