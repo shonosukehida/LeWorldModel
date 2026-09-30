@@ -105,8 +105,8 @@ def lejepa_forward(self, batch, stage, cfg):
     if cfg.loss.idm.use:
         output["loss"] = output["loss"] + lambd_idm * output["idm_loss"]
 
-    losses_dict = {f"{stage}/{k}": v.detach() for k, v in output.items() if "loss" in k}
-    self.log_dict(losses_dict, on_step=True, on_epoch=True, sync_dist=True)
+    losses_dict = {f"{stage}/{k}_epoch": v.detach() for k, v in output.items() if "loss" in k}
+    self.log_dict(losses_dict, on_step=False, on_epoch=True, sync_dist=True)
     return output
 
 @hydra.main(version_base=None, config_path="./config/train", config_name="lewm")
@@ -341,6 +341,9 @@ def run(cfg):
         
         logger = WandbLogger(**cfg.wandb.config)
         logger.log_hyperparams(OmegaConf.to_container(cfg))
+        logger.experiment.define_metric("epoch")
+        logger.experiment.define_metric("fit/*", step_metric="epoch")
+        logger.experiment.define_metric("validate/*", step_metric="epoch")
 
     run_dir.mkdir(parents=True, exist_ok=True)
     with open(run_dir / "config.yaml", "w") as f:

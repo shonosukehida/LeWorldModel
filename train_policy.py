@@ -235,11 +235,6 @@ def train_one_epoch(
         total_loss += loss.item()
         num_batches += 1
 
-        if wandb_run is not None:
-            wandb_run.log({
-                "train/step_loss": loss.item(),
-            })
-
     return total_loss / max(num_batches, 1,)
 
 
@@ -272,11 +267,6 @@ def validate(
 
         total_loss += loss.item()
         num_batches += 1
-
-        if wandb_run is not None:
-            wandb_run.log({
-                "val/step_loss": loss.item(),
-            })
 
     return total_loss / max(
         num_batches,
@@ -641,6 +631,11 @@ def run(cfg):
 
             config=OmegaConf.to_container(cfg, resolve=True,),
         )
+
+        if wandb_run is not None:
+            wandb_run.define_metric("epoch")
+            wandb_run.define_metric("train/loss", step_metric="epoch")
+            wandb_run.define_metric("val/loss", step_metric="epoch")
 
     # --------------------------------------------------------
     # Training
