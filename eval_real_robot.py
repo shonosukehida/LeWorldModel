@@ -437,6 +437,7 @@ class XArmInferenceEnv:
         self._last_gripper = np.float32(0.0)
 
         # Robopy owns the xArm connection/control thread.
+        self._robot_owner = None
         self._follower = None
         self._admittance_enabled = False
         self._admittance_attempted = False
@@ -465,20 +466,14 @@ class XArmInferenceEnv:
                     XArmAdmittanceConfig,
                     XArmConfig,
                     XArmWorkspaceBounds,
+                    XArmSensorParams,
                 )
-                from robopy.robots.xarm.xarm_follower import XArmFollower
+                from robopy.config.sensor_config.params_config import CameraParams
+                from robopy.robots.xarm import XArmRobot
             except ImportError as exc:
                 raise ImportError(
                     "Real execution requires robopy with xArm support"
                 ) from exc
-
-            if self.use_camera:
-                try:
-                    import pyrealsense2 as rs
-                except ImportError as exc:
-                    raise ImportError(
-                        "RealSense execution requires pyrealsense2"
-                    ) from exc
 
             def _optional_cfg(name, default):
                 try:
@@ -536,130 +531,79 @@ class XArmInferenceEnv:
                 gripper_force=int(robot_cfg.gripper.force),
             )
 
-            self._follower = XArmFollower(follower_cfg)
-            self._follower.connect()
-
-            # XArmFollower owns this XArmAPI object. Do not connect/disconnect
-            # it separately.
-            self._robot = self._follower._robot
-            if self._robot is None:
-                raise RuntimeError(
-                    "Robopy XArmFollower connected without an XArmAPI handle"
-                )
-
-            print(
-                "Robopy follower control_frequency:",
-                follower_cfg.control_frequency,
-            )
-            print(
-                "Robopy follower max_delta:",
-                follower_cfg.max_delta,
-            )
-
-            tcp_offset = getattr(self._robot, "tcp_offset", None)
-            world_offset = getattr(self._robot, "world_offset", None)
-
-            print("SDK tcp_offset:", tcp_offset)
-            print("SDK world_offset:", world_offset)
-
-            self._ik_solver = XArm7IK(
-                "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
-                "libxarm7_capi.so",
-                tcp_offset=tcp_offset,
-                world_offset=world_offset,
-            )
-
-            self._fk_solver = XArm7FK(
-                "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
-                "libxarm7_capi.so",
-                tcp_offset=tcp_offset,
-                world_offset=world_offset,
-            )
-
             if self.use_camera:
-                pipeline = rs.pipeline()
-                rs_cfg = rs.config()
-                if robot_cfg.camera.serial:
-                    rs_cfg.enable_device(str(robot_cfg.camera.serial))
-                rs_cfg.enable_stream(
-                    rs.stream.color,
-                    int(robot_cfg.camera.width),
-                    int(robot_cfg.camera.height),
-                    rs.format.bgr8,
-                    int(robot_cfg.camera.fps),
+                camera_cfg = robot_cfg.camera
+                camera_params = [
+                    CameraParams(
+                        name=str(camera_cfg.serial),
+                        serial_no=str(camera_cfg.serial),
+                        width=int(camera_cfg.width),
+                        height=int(camera_cfg.height),
+                        fps=int(camera_cfg.fps),
+                        auto_exposure=bool(camera_cfg.auto_exposure),
+                        exposure=camera_cfg.exposure,
+                        auto_white_balance=bool(camera_cfg.auto_white_balance),
+                        white_balance=camera_cfg.white_balance,
+                    )
+                ]
+            else:
+                camera_params = []
+            follower_cfg.sensors = XArmSensorParams(cameras=camera_params)
+            self._robot_owner = XArmRobot(follower_cfg)
+            try:
+                self._robot_owner.connect(
+                    connect_leader=bool(_optional_cfg("connect_leader", False))
+                )
+                self._follower = self._robot_owner.robot_system.follower
+                # Borrow the SDK handle; XArmRobot owns the connection.
+                self._robot = self._follower._robot
+                if self._robot is None:
+                    raise RuntimeError(
+                        "Robopy XArmFollower connected without an XArmAPI handle"
+                    )
+
+                print(
+                    "Robopy follower control_frequency:",
+                    follower_cfg.control_frequency,
+                )
+                print(
+                    "Robopy follower max_delta:",
+                    follower_cfg.max_delta,
                 )
 
+                tcp_offset = getattr(self._robot, "tcp_offset", None)
+                world_offset = getattr(self._robot, "world_offset", None)
 
-                profile = pipeline.start(rs_cfg)
+                print("SDK tcp_offset:", tcp_offset)
+                print("SDK world_offset:", world_offset)
 
-                device = profile.get_device()
-                color_sensor = device.first_color_sensor()
+                self._ik_solver = XArm7IK(
+                    "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
+                    "libxarm7_capi.so",
+                    tcp_offset=tcp_offset,
+                    world_offset=world_offset,
+                )
 
-                # -------------------------
-                # Exposure settings
-                # -------------------------
-                if color_sensor.supports(rs.option.enable_auto_exposure):
-                    color_sensor.set_option(
-                        rs.option.enable_auto_exposure,
-                        1.0 if bool(robot_cfg.camera.auto_exposure) else 0.0,
-                    )
+                self._fk_solver = XArm7FK(
+                    "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
+                    "libxarm7_capi.so",
+                    tcp_offset=tcp_offset,
+                    world_offset=world_offset,
+                )
 
-                if (
-                    not bool(robot_cfg.camera.auto_exposure)
-                    and robot_cfg.camera.exposure is not None
-                    and color_sensor.supports(rs.option.exposure)
-                ):
-                    color_sensor.set_option(
-                        rs.option.exposure,
-                        float(robot_cfg.camera.exposure),
-                    )
-
-                    actual_exposure = color_sensor.get_option(
-                        rs.option.exposure
-                    )
-                    print(
-                        "RealSense exposure: "
-                        f"requested={float(robot_cfg.camera.exposure):.1f}, "
-                        f"actual={actual_exposure:.1f}"
-                    )
-
-                # -------------------------
-                # White balance settings
-                # -------------------------
-                if color_sensor.supports(rs.option.enable_auto_white_balance):
-                    color_sensor.set_option(
-                        rs.option.enable_auto_white_balance,
-                        1.0 if bool(robot_cfg.camera.auto_white_balance) else 0.0,
-                    )
-
-                if (
-                    not bool(robot_cfg.camera.auto_white_balance)
-                    and robot_cfg.camera.white_balance is not None
-                    and color_sensor.supports(rs.option.white_balance)
-                ):
-                    color_sensor.set_option(
-                        rs.option.white_balance,
-                        float(robot_cfg.camera.white_balance),
-                    )
-
-                    actual_white_balance = color_sensor.get_option(
-                        rs.option.white_balance
-                    )
-                    print(
-                        "RealSense white balance: "
-                        f"requested={float(robot_cfg.camera.white_balance):.1f}, "
-                        f"actual={actual_white_balance:.1f}"
-                    )
-
-                self._pipeline = pipeline
-
-                # Discard initial camera frames.
-                for _ in range(15):
-                    pipeline.wait_for_frames()
-
-
-
-
+                if self.use_camera:
+                    managed_cameras = {
+                        camera.name: camera
+                        for camera in self._robot_owner.sensors.cameras
+                    }
+                    self._pipeline = managed_cameras[str(robot_cfg.camera.serial)]
+            except BaseException:
+                # Preserve the original initialization error, including Ctrl-C.
+                try:
+                    self.close()
+                except Exception:
+                    pass
+                raise
 
         self._dry_run_image = None
         if self.dry_run:
@@ -728,32 +672,26 @@ class XArmInferenceEnv:
 
 
     def close(self):
+        owner = self._robot_owner
         try:
             if self._follower is not None:
+                # Stop ordinary motion before disabling admittance.
+                with self._follower._control_lock:
+                    self._follower._motion_paused = True
 
-                try:
-                    # 終了前に通常の位置指令を停止
-                    with self._follower._control_lock:
-                        self._follower._motion_paused = True
-
-                    if self._admittance_attempted:
-                        self.disable_admittance()
-
-                finally:
-                    # SDK接続はXArmFollowerが管理する
-                    self._follower.disconnect()
-
+                if self._admittance_attempted:
+                    self.disable_admittance()
         finally:
-            self._follower = None
-            self._robot = None
-
-            self._admittance_enabled = False
-            self._admittance_attempted = False
-
-            # 単視点カメラの終了処理
-            if self._pipeline is not None:
-                self._pipeline.stop()
+            try:
+                if owner is not None:
+                    owner.disconnect()
+            finally:
+                self._robot_owner = None
+                self._follower = None
+                self._robot = None
                 self._pipeline = None
+                self._admittance_enabled = False
+                self._admittance_attempted = False
 
     def get_image(self):
         if self.dry_run:
@@ -769,18 +707,12 @@ class XArmInferenceEnv:
                 "Camera is disabled for this XArmInferenceEnv instance"
             )
 
-        frames = self._pipeline.wait_for_frames(timeout_ms=3000)
-        frame = frames.get_color_frame()
-
-        if not frame:
+        frame_chw = np.asarray(self._pipeline.read(specific_color="rgb"))
+        if frame_chw.ndim != 3 or frame_chw.shape[0] != 3:
             raise RuntimeError(
-                "RealSense did not return a color frame"
+                f"Unexpected RealSense frame shape: {frame_chw.shape}"
             )
-
-        return cv2.cvtColor(
-            np.asanyarray(frame.get_data()),
-            cv2.COLOR_BGR2RGB,
-        )
+        return np.transpose(frame_chw, (1, 2, 0)).clip(0, 255).astype(np.uint8)
 
     @staticmethod
     def _sdk_value(result, name):
@@ -2395,29 +2327,29 @@ def run(cfg: DictConfig):
 
     
     if policy != "random":
-        model = swm.policy.AutoCostModel(cfg.policy) #cfg.policy: flip_mug/ep200_tm300_gripper/lewm
-        
-        if cfg.eval.probing.get("use_random_encoder", False):
-            print("Using a randomly reinitialized encoder")
-            old_encoder = model.encoder
-            device = next(old_encoder.parameters()).device
-            dtype = next(old_encoder.parameters()).dtype
-
-            torch.manual_seed(0)
-
-            model.encoder = ViTModel(old_encoder.config)
-            model.encoder = model.encoder.to(device=device, dtype=dtype)
-            model.encoder.eval()
-            print("set random encoder")
-                
-        model = model.to("cuda")
-        model = model.eval()
-        model.requires_grad_(False)
-        model.interpolate_pos_encoding = True
-        
-        
-        
         policy_type = cfg.get("policy_type", "world_model",)
+        model = None
+
+        if policy_type in ("world_model", "gpc"):
+            model = swm.policy.AutoCostModel(cfg.policy) #cfg.policy: flip_mug/ep200_tm300_gripper/lewm
+
+            if cfg.eval.probing.get("use_random_encoder", False):
+                print("Using a randomly reinitialized encoder")
+                old_encoder = model.encoder
+                device = next(old_encoder.parameters()).device
+                dtype = next(old_encoder.parameters()).dtype
+
+                torch.manual_seed(0)
+
+                model.encoder = ViTModel(old_encoder.config)
+                model.encoder = model.encoder.to(device=device, dtype=dtype)
+                model.encoder.eval()
+                print("set random encoder")
+
+            model = model.to("cuda")
+            model = model.eval()
+            model.requires_grad_(False)
+            model.interpolate_pos_encoding = True
 
         if policy_type == "world_model":
 
