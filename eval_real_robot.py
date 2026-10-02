@@ -246,19 +246,15 @@ class XArmInferenceEnv:
                     XArmConfig,
                     XArmWorkspaceBounds,
                 )
+                from robopy.config.sensor_config.visual_config.camera_config import (
+                    RealsenseCameraConfig,
+                )
+                from robopy.sensors.visual.realsense_camera import RealsenseCamera
                 from robopy.robots.xarm.xarm_follower import XArmFollower
             except ImportError as exc:
                 raise ImportError(
                     "Real execution requires robopy with xArm support"
                 ) from exc
-
-            if self.use_camera:
-                try:
-                    import pyrealsense2 as rs
-                except ImportError as exc:
-                    raise ImportError(
-                        "RealSense execution requires pyrealsense2"
-                    ) from exc
 
             def _optional_cfg(name, default):
                 try:
@@ -358,93 +354,28 @@ class XArmInferenceEnv:
 
 
             def _start_camera(camera_cfg):
-                pipeline = rs.pipeline()
-                rs_cfg = rs.config()
-
-                rs_cfg.enable_device(str(camera_cfg.serial))
-
-                rs_cfg.enable_stream(
-                    rs.stream.color,
-                    int(camera_cfg.width),
-                    int(camera_cfg.height),
-                    rs.format.rgb8,
-                    int(camera_cfg.fps),
+                config = RealsenseCameraConfig(
+                    name=str(camera_cfg.serial),
+                    width=int(camera_cfg.width),
+                    height=int(camera_cfg.height),
+                    fps=int(camera_cfg.fps),
+                    serial_no=str(camera_cfg.serial),
+                    auto_exposure=bool(camera_cfg.auto_exposure),
+                    exposure=camera_cfg.exposure,
+                    auto_white_balance=bool(camera_cfg.auto_white_balance),
+                    white_balance=camera_cfg.white_balance,
                 )
+                camera = RealsenseCamera(config)
+                camera.connect()
+                return camera
 
-                profile = pipeline.start(rs_cfg)
-
-                device = profile.get_device()
-                color_sensor = device.first_color_sensor()
-
-                # -------------------------
-                # Exposure settings
-                # -------------------------
-                if color_sensor.supports(rs.option.enable_auto_exposure):
-                    color_sensor.set_option(
-                        rs.option.enable_auto_exposure,
-                        1.0 if bool(camera_cfg.auto_exposure) else 0.0,
-                    )
-
-                if (
-                    not bool(camera_cfg.auto_exposure)
-                    and camera_cfg.exposure is not None
-                    and color_sensor.supports(rs.option.exposure)
-                ):
-                    color_sensor.set_option(
-                        rs.option.exposure,
-                        float(camera_cfg.exposure),
-                    )
-
-                    actual_exposure = color_sensor.get_option(
-                        rs.option.exposure
-                    )
-                    print(
-                        f"RealSense {camera_cfg.serial} exposure: "
-                        f"requested={float(camera_cfg.exposure):.1f}, "
-                        f"actual={actual_exposure:.1f}"
-                    )
-
-                # -------------------------
-                # White balance settings
-                # -------------------------
-                if color_sensor.supports(rs.option.enable_auto_white_balance):
-                    color_sensor.set_option(
-                        rs.option.enable_auto_white_balance,
-                        1.0 if bool(camera_cfg.auto_white_balance) else 0.0,
-                    )
-
-                if (
-                    not bool(camera_cfg.auto_white_balance)
-                    and camera_cfg.white_balance is not None
-                    and color_sensor.supports(rs.option.white_balance)
-                ):
-                    color_sensor.set_option(
-                        rs.option.white_balance,
-                        float(camera_cfg.white_balance),
-                    )
-
-                    actual_white_balance = color_sensor.get_option(
-                        rs.option.white_balance
-                    )
-                    print(
-                        f"RealSense {camera_cfg.serial} white balance: "
-                        f"requested={float(camera_cfg.white_balance):.1f}, "
-                        f"actual={actual_white_balance:.1f}"
-                    )
-
-                # Discard initial camera frames.
-                for _ in range(15):
-                    pipeline.wait_for_frames()
-
-                return pipeline
-
-
-            self._overhead_pipeline = _start_camera(
-                robot_cfg.cameras.overhead
-            )
 
             self._wrist_pipeline = _start_camera(
                 robot_cfg.cameras.wrist
+            )
+
+            self._overhead_pipeline = _start_camera(
+                robot_cfg.cameras.overhead
             )
 
         self._dry_run_overhead_image = None
@@ -597,27 +528,21 @@ class XArmInferenceEnv:
             self._admittance_enabled = False
 
             if self._overhead_pipeline is not None:
-                self._overhead_pipeline.stop()
+                self._overhead_pipeline.disconnect()
                 self._overhead_pipeline = None
 
             if self._wrist_pipeline is not None:
-                self._wrist_pipeline.stop()
+                self._wrist_pipeline.disconnect()
                 self._wrist_pipeline = None
 
 
     def _get_image_from_pipeline(self, pipeline):
-        frames = pipeline.wait_for_frames(
-            timeout_ms=3000
-        )
-
-        frame = frames.get_color_frame()
-
-        if not frame:
+        frame_chw = pipeline.read(specific_color="rgb")
+        if frame_chw.ndim != 3 or frame_chw.shape[0] != 3:
             raise RuntimeError(
-                "RealSense did not return a color frame"
+                f"Unexpected RealSense frame shape: {frame_chw.shape}"
             )
-
-        return np.asanyarray(frame.get_data()).copy()
+        return np.transpose(frame_chw, (1, 2, 0)).clip(0, 255).astype(np.uint8)
 
 
     def get_images(self):
