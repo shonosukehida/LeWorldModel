@@ -367,7 +367,7 @@ class XArmInferenceEnv:
                     rs.stream.color,
                     int(camera_cfg.width),
                     int(camera_cfg.height),
-                    rs.format.bgr8,
+                    rs.format.rgb8,
                     int(camera_cfg.fps),
                 )
 
@@ -617,10 +617,7 @@ class XArmInferenceEnv:
                 "RealSense did not return a color frame"
             )
 
-        return cv2.cvtColor(
-            np.asanyarray(frame.get_data()),
-            cv2.COLOR_BGR2RGB,
-        )
+        return np.asanyarray(frame.get_data()).copy()
 
 
     def get_images(self):
