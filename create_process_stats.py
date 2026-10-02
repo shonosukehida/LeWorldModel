@@ -21,7 +21,11 @@ class HDF5Columns:
 
 def create_process_stats(dataset, output, keys=None, *, overwrite=True):
     dataset = Path(dataset).expanduser().resolve()
-    output = Path(output).expanduser().resolve()
+    output_dir = Path(output).expanduser().resolve()
+    if output_dir.exists() and not output_dir.is_dir():
+        raise NotADirectoryError(f"Output path is not a directory: {output_dir}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output = output_dir / "process_stats.npz"
     if dataset == output or (
         dataset.exists() and output.exists() and dataset.samefile(output)
     ):
@@ -66,7 +70,11 @@ def create_process_stats(dataset, output, keys=None, *, overwrite=True):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", required=True, help="Input HDF5 dataset")
-    parser.add_argument("--output", required=True, help="Output statistics path")
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Output directory; process_stats.npz is written inside it",
+    )
     parser.add_argument("--keys", nargs="+", default=["action_cartesian", "proprio"])
     parser.add_argument("--no-overwrite", action="store_true", help="Reject an existing output")
     args = parser.parse_args()
