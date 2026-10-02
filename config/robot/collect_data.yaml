@@ -56,8 +56,8 @@ robot:
 
 dataset:
   is_val: false
-  episode: 200
+  episode: 100
   fps: 10
   max_frames: 300
   teleop_hz: 50
-  suffix: multiview_demo
+  suffix: multiview_play
