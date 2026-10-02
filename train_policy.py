@@ -187,6 +187,8 @@ def train_one_epoch(
     optimizer,
     device,
     gradient_clip_val,
+    epoch,
+    log_step,
     wandb_run = None,
 ):
     policy.model.train()
@@ -232,10 +234,19 @@ def train_one_epoch(
 
         optimizer.step()
 
+        if wandb_run is not None:
+            wandb_run.log({
+                "log_step": log_step,
+                "epoch": epoch,
+                "train/loss_step": loss.item(),
+            })
+
+        log_step += 1
+
         total_loss += loss.item()
         num_batches += 1
 
-    return total_loss / max(num_batches, 1,)
+    return total_loss / max(num_batches, 1,), log_step
 
 
 @torch.no_grad()
@@ -243,6 +254,8 @@ def validate(
     policy,
     loader,
     device,
+    epoch,
+    log_step,
     wandb_run = None,
 ):
     policy.model.eval()
@@ -265,13 +278,22 @@ def validate(
             batch
         )
 
+        if wandb_run is not None:
+            wandb_run.log({
+                "log_step": log_step,
+                "epoch": epoch,
+                "val/loss_step": loss.item(),
+            })
+
+        log_step += 1
+
         total_loss += loss.item()
         num_batches += 1
 
     return total_loss / max(
         num_batches,
         1,
-    )
+    ), log_step
 
 
 # ============================================================
@@ -634,20 +656,24 @@ def run(cfg):
 
         if wandb_run is not None:
             wandb_run.define_metric("epoch")
-            wandb_run.define_metric("train/loss", step_metric="epoch")
-            wandb_run.define_metric("val/loss", step_metric="epoch")
+            wandb_run.define_metric("log_step")
+            wandb_run.define_metric("train/loss_epoch", step_metric="epoch")
+            wandb_run.define_metric("val/loss_epoch", step_metric="epoch")
+            wandb_run.define_metric("train/loss_step", step_metric="log_step")
+            wandb_run.define_metric("val/loss_step", step_metric="log_step")
 
     # --------------------------------------------------------
     # Training
     # --------------------------------------------------------
 
     best_val_loss = float("inf")
+    log_step = 0
 
     for epoch in range(
         cfg.trainer.max_epochs
     ):
 
-        train_loss = train_one_epoch(
+        train_loss, log_step = train_one_epoch(
             policy=policy,
             loader=train_loader,
             optimizer=optimizer,
@@ -655,13 +681,17 @@ def run(cfg):
             gradient_clip_val=(
                 cfg.trainer.gradient_clip_val
             ),
+            epoch=epoch + 1,
+            log_step=log_step,
             wandb_run = wandb_run
         )
 
-        val_loss = validate(
+        val_loss, log_step = validate(
             policy=policy,
             loader=val_loader,
             device=device,
+            epoch=epoch + 1,
+            log_step=log_step,
             wandb_run = wandb_run,
         )
 
@@ -682,10 +712,10 @@ def run(cfg):
                     "epoch":
                         epoch + 1,
 
-                    "train/loss":
+                    "train/loss_epoch":
                         train_loss,
 
-                    "val/loss":
+                    "val/loss_epoch":
                         val_loss,
                 }
             )

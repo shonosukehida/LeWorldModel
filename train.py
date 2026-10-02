@@ -105,8 +105,29 @@ def lejepa_forward(self, batch, stage, cfg):
     if cfg.loss.idm.use:
         output["loss"] = output["loss"] + lambd_idm * output["idm_loss"]
 
-    losses_dict = {f"{stage}/{k}_epoch": v.detach() for k, v in output.items() if "loss" in k}
-    self.log_dict(losses_dict, on_step=False, on_epoch=True, sync_dist=True)
+    losses_epoch_dict = {
+        f"{stage}/{key}_epoch": value.detach()
+        for key, value in output.items()
+        if "loss" in key
+    }
+    losses_step_dict = {
+        f"{stage}/{key}_step": value.detach()
+        for key, value in output.items()
+        if "loss" in key
+    }
+
+    self.log_dict(
+        losses_epoch_dict,
+        on_step=False,
+        on_epoch=True,
+        sync_dist=True,
+    )
+    self.log_dict(
+        losses_step_dict,
+        on_step=True,
+        on_epoch=False,
+        sync_dist=True,
+    )
     return output
 
 @hydra.main(version_base=None, config_path="./config/train", config_name="lewm")
