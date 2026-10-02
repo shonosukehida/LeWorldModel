@@ -15,11 +15,12 @@ from utils import get_img_preprocessor
 
 
 IMG_SIZE = 224
+OBS_HORIZON = 2
 
 
 def build_train_transform():
     """
-    train_policy.py と同じ transform
+    train_policy.py と同じ画像 transform
     """
     return get_img_preprocessor(
         source="pixels",
@@ -50,7 +51,8 @@ def build_inference_transform():
 
 
 def print_stats(name, x):
-    print(f"\n{name}:")
+    print(f"\n{name}")
+    print("  type :", type(x))
     print("  shape:", tuple(x.shape))
     print("  dtype:", x.dtype)
     print("  min  :", x.min().item())
@@ -61,181 +63,248 @@ def print_stats(name, x):
 
 def main():
 
-    rng = np.random.default_rng(42)
+    torch.manual_seed(42)
 
     # ============================================================
-    # 元となる同一画像
-    # HWC / uint8 / RGB
+    # 1. 実際の学習データと同じ形式を作る
+    #
+    # 実測:
+    # raw pixels = torch.Tensor [T, C, H, W], float32
+    #
+    # 本番 dataset は [0,255] 相当の float32 を保持している想定
     # ============================================================
 
-    image_hwc = rng.integers(
+    raw_train = torch.randint(
         low=0,
         high=256,
-        size=(480, 640, 3),
-        dtype=np.uint8,
+        size=(16, 3, 480, 640),
+        dtype=torch.uint8,
+    ).float()
+
+    # train_policy.py:
+    # pixels = sample["pixels"][:obs_horizon]
+    train_input = raw_train[:OBS_HORIZON].clone()
+
+    print_stats(
+        "raw train input",
+        train_input,
     )
 
-    print("raw HWC:")
-    print("  shape:", image_hwc.shape)
-    print("  dtype:", image_hwc.dtype)
-
     # ============================================================
-    # 1. 学習時
+    # 2. 学習側 transform
     #
-    # stable_pretraining.ToImage は numpy HWC を受け取り、
-    # 内部で HWC -> CHW にする
+    # 入力:
+    # [To, C, H, W]
     # ============================================================
 
     train_transform = build_train_transform()
 
     train_data = {
-        "pixels": image_hwc.copy(),
+        "pixels": train_input.clone(),
     }
 
     train_out = train_transform(train_data)
 
-    train_img = train_out["pixels"]
-
-    if not torch.is_tensor(train_img):
-        train_img = torch.as_tensor(train_img)
-
-    train_img = train_img.float()
-
-    # ============================================================
-    # 2. 推論時
-    #
-    # eval_real_robot.py:
-    #
-    # camera:
-    #   HWC
-    #
-    # _prepare_info():
-    #   HWC -> CHW
-    #
-    # img_transform():
-    #   CHW tensor/image を受け取る
-    #
-    # そのためここでは _prepare_info() の transpose を再現する
-    # ============================================================
-
-    inference_input_chw = np.transpose(
-        image_hwc,
-        (2, 0, 1),
-    )
-
-    inference_transform = build_inference_transform()
-
-    inference_img = inference_transform(
-        tv_tensors.Image(
-            inference_input_chw.copy()
-        )
-    )
-
-    inference_img = inference_img.float()
-
-    # ============================================================
-    # 3. 結果
-    # ============================================================
+    train_img = train_out["pixels"].float()
 
     print_stats(
-        "train transform",
+        "train transform output",
         train_img,
     )
 
+    # ============================================================
+    # 3. 推論側を再現
+    #
+    # eval_real_robot.py 側では、各時刻の camera image は
+    # HWC uint8 RGB
+    #
+    # dp_info:
+    # [B, To, H, W, C]
+    #
+    # _prepare_info():
+    # HWC -> CHW
+    #
+    # その後 inference transform
+    # ============================================================
+
+    # 学習入力と完全に同じ画素値を使う
+    #
+    # train_input:
+    # [To, C, H, W]
+    #
+    # camera形式に戻す:
+    # [To, H, W, C]
+    inference_raw_hwc = (
+        train_input
+        .permute(0, 2, 3, 1)
+        .cpu()
+        .numpy()
+        .clip(0, 255)
+        .astype(np.uint8)
+    )
+
+    print("\ninference raw HWC:")
+    print("  shape:", inference_raw_hwc.shape)
+    print("  dtype:", inference_raw_hwc.dtype)
+
+    inference_transform = build_inference_transform()
+
+    inference_outputs = []
+
+    for t in range(OBS_HORIZON):
+
+        image_hwc = inference_raw_hwc[t]
+
+        # eval_real_robot.py / _prepare_info() を再現:
+        # HWC -> CHW
+        image_chw = np.transpose(
+            image_hwc,
+            (2, 0, 1),
+        )
+
+        image_tensor = tv_tensors.Image(
+            image_chw.copy()
+        )
+
+        transformed = inference_transform(
+            image_tensor
+        )
+
+        inference_outputs.append(
+            transformed.float()
+        )
+
+    inference_img = torch.stack(
+        inference_outputs,
+        dim=0,
+    )
+
     print_stats(
-        "inference transform",
+        "inference transform output",
         inference_img,
     )
 
-    print("\n=== shape ===")
-    print("train     :", tuple(train_img.shape))
-    print("inference :", tuple(inference_img.shape))
-
     # ============================================================
-    # 4. まず同shapeか
+    # 4. shape確認
     # ============================================================
 
-    if train_img.shape == inference_img.shape:
+    print("\n==============================")
+    print("SHAPE CHECK")
+    print("==============================")
 
-        diff = train_img - inference_img
+    print(
+        "train     :",
+        tuple(train_img.shape),
+    )
 
-        print("\n=== direct comparison ===")
-        print(
-            "max abs diff :",
-            diff.abs().max().item(),
+    print(
+        "inference :",
+        tuple(inference_img.shape),
+    )
+
+    assert (
+        train_img.shape
+        == inference_img.shape
+    ), (
+        "Shape mismatch:\n"
+        f"train     = {train_img.shape}\n"
+        f"inference = {inference_img.shape}"
+    )
+
+    # ============================================================
+    # 5. 数値比較
+    # ============================================================
+
+    diff = (
+        train_img
+        - inference_img
+    )
+
+    abs_diff = diff.abs()
+
+    max_abs_diff = abs_diff.max().item()
+    mean_abs_diff = abs_diff.mean().item()
+
+    rmse = torch.sqrt(
+        torch.mean(
+            diff ** 2
         )
+    ).item()
+
+    allclose = torch.allclose(
+        train_img,
+        inference_img,
+        atol=1e-6,
+        rtol=1e-5,
+    )
+
+    print("\n==============================")
+    print("NUMERICAL CHECK")
+    print("==============================")
+
+    print(
+        "max abs diff :",
+        max_abs_diff,
+    )
+
+    print(
+        "mean abs diff:",
+        mean_abs_diff,
+    )
+
+    print(
+        "RMSE         :",
+        rmse,
+    )
+
+    print(
+        "allclose     :",
+        allclose,
+    )
+
+    # ============================================================
+    # 6. 各時刻でも確認
+    # ============================================================
+
+    print("\n==============================")
+    print("PER-FRAME CHECK")
+    print("==============================")
+
+    for t in range(OBS_HORIZON):
+
+        frame_diff = (
+            train_img[t]
+            - inference_img[t]
+        ).abs()
+
         print(
-            "mean abs diff:",
-            diff.abs().mean().item(),
+            f"t={t}: "
+            f"max={frame_diff.max().item():.10f}, "
+            f"mean={frame_diff.mean().item():.10f}, "
+            f"allclose={torch.allclose(train_img[t], inference_img[t], atol=1e-6, rtol=1e-5)}"
         )
+
+    # ============================================================
+    # 7. 最終判定
+    # ============================================================
+
+    print("\n==============================")
+    print("RESULT")
+    print("==============================")
+
+    if allclose:
+
         print(
-            "RMSE         :",
-            torch.sqrt(
-                torch.mean(diff ** 2)
-            ).item(),
-        )
-        print(
-            "allclose     :",
-            torch.allclose(
-                train_img,
-                inference_img,
-                atol=1e-6,
-                rtol=1e-5,
-            ),
+            "PASS: "
+            "train and inference image transforms are numerically equivalent."
         )
 
     else:
-        print("\nDIRECT SHAPE MISMATCH")
 
-        # ========================================================
-        # H/Wだけ逆なら、それも確認
-        # ========================================================
-
-        if (
-            train_img.ndim == 3
-            and inference_img.ndim == 3
-            and train_img.shape[0] == inference_img.shape[0]
-            and train_img.shape[1] == inference_img.shape[2]
-            and train_img.shape[2] == inference_img.shape[1]
-        ):
-
-            print(
-                "The shapes differ only by H/W transpose."
-            )
-
-            inference_transposed = (
-                inference_img.transpose(1, 2)
-            )
-
-            diff = (
-                train_img
-                - inference_transposed
-            )
-
-            print("\n=== comparison after H/W transpose ===")
-            print(
-                "max abs diff :",
-                diff.abs().max().item(),
-            )
-            print(
-                "mean abs diff:",
-                diff.abs().mean().item(),
-            )
-            print(
-                "RMSE         :",
-                torch.sqrt(
-                    torch.mean(diff ** 2)
-                ).item(),
-            )
-            print(
-                "allclose     :",
-                torch.allclose(
-                    train_img,
-                    inference_transposed,
-                    atol=1e-6,
-                    rtol=1e-5,
-                ),
-            )
+        print(
+            "FAIL: "
+            "train and inference image transforms differ."
+        )
 
 
 if __name__ == "__main__":
