@@ -2327,29 +2327,29 @@ def run(cfg: DictConfig):
 
     
     if policy != "random":
-        model = swm.policy.AutoCostModel(cfg.policy) #cfg.policy: flip_mug/ep200_tm300_gripper/lewm
-        
-        if cfg.eval.probing.get("use_random_encoder", False):
-            print("Using a randomly reinitialized encoder")
-            old_encoder = model.encoder
-            device = next(old_encoder.parameters()).device
-            dtype = next(old_encoder.parameters()).dtype
-
-            torch.manual_seed(0)
-
-            model.encoder = ViTModel(old_encoder.config)
-            model.encoder = model.encoder.to(device=device, dtype=dtype)
-            model.encoder.eval()
-            print("set random encoder")
-                
-        model = model.to("cuda")
-        model = model.eval()
-        model.requires_grad_(False)
-        model.interpolate_pos_encoding = True
-        
-        
-        
         policy_type = cfg.get("policy_type", "world_model",)
+        model = None
+
+        if policy_type in ("world_model", "gpc"):
+            model = swm.policy.AutoCostModel(cfg.policy) #cfg.policy: flip_mug/ep200_tm300_gripper/lewm
+
+            if cfg.eval.probing.get("use_random_encoder", False):
+                print("Using a randomly reinitialized encoder")
+                old_encoder = model.encoder
+                device = next(old_encoder.parameters()).device
+                dtype = next(old_encoder.parameters()).dtype
+
+                torch.manual_seed(0)
+
+                model.encoder = ViTModel(old_encoder.config)
+                model.encoder = model.encoder.to(device=device, dtype=dtype)
+                model.encoder.eval()
+                print("set random encoder")
+
+            model = model.to("cuda")
+            model = model.eval()
+            model.requires_grad_(False)
+            model.interpolate_pos_encoding = True
 
         if policy_type == "world_model":
 
