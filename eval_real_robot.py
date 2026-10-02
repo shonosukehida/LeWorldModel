@@ -217,6 +217,7 @@ class XArmInferenceEnv:
         self._last_gripper = np.float32(0.0)
 
         # Robopy owns the xArm connection/control thread.
+        self._robot_owner = None
         self._follower = None
         self._admittance_enabled = False
 
@@ -245,12 +246,10 @@ class XArmInferenceEnv:
                     XArmAdmittanceConfig,
                     XArmConfig,
                     XArmWorkspaceBounds,
+                    XArmSensorParams,
                 )
-                from robopy.config.sensor_config.visual_config.camera_config import (
-                    RealsenseCameraConfig,
-                )
-                from robopy.sensors.visual.realsense_camera import RealsenseCamera
-                from robopy.robots.xarm.xarm_follower import XArmFollower
+                from robopy.config.sensor_config.params_config import CameraParams
+                from robopy.robots.xarm import XArmRobot
             except ImportError as exc:
                 raise ImportError(
                     "Real execution requires robopy with xArm support"
@@ -312,71 +311,86 @@ class XArmInferenceEnv:
                 gripper_force=int(robot_cfg.gripper.force),
             )
 
-            self._follower = XArmFollower(follower_cfg)
-            self._follower.connect()
+            camera_configs = {
+                "overhead": robot_cfg.cameras.overhead,
+                "wrist": robot_cfg.cameras.wrist,
+            }
+            follower_cfg.sensors = XArmSensorParams(
+                cameras=[
+                    CameraParams(
+                        name=str(camera.serial),
+                        serial_no=str(camera.serial),
+                        width=int(camera.width),
+                        height=int(camera.height),
+                        fps=int(camera.fps),
+                        auto_exposure=bool(camera.auto_exposure),
+                        exposure=camera.exposure,
+                        auto_white_balance=bool(camera.auto_white_balance),
+                        white_balance=camera.white_balance,
+                    )
+                    for camera in camera_configs.values()
+                ] if self.use_camera else []
+            )
+            start_joints = _optional_cfg("start_joints", None)
+            if start_joints is not None:
+                follower_cfg.start_joints = np.deg2rad(start_joints).astype(np.float32)
+            follower_cfg.leader_port = _optional_cfg("leader_port", None)
+            self._robot_owner = XArmRobot(follower_cfg)
+            try:
+                self._robot_owner.connect(
+                    connect_leader=bool(_optional_cfg("connect_leader", False))
+                )
+                self._follower = self._robot_owner.robot_system.follower
+                # SDK handle is borrowed from the robot-owned follower.
+                self._robot = self._follower._robot
+                if self._robot is None:
+                    raise RuntimeError(
+                        "Robopy XArmFollower connected without an XArmAPI handle"
+                    )
 
-            # XArmFollower owns this XArmAPI object. Do not connect/disconnect
-            # it separately.
-            self._robot = self._follower._robot
-            if self._robot is None:
-                raise RuntimeError(
-                    "Robopy XArmFollower connected without an XArmAPI handle"
+                print(
+                    "Robopy follower control_frequency:",
+                    follower_cfg.control_frequency,
+                )
+                print(
+                    "Robopy follower max_delta:",
+                    follower_cfg.max_delta,
                 )
 
-            print(
-                "Robopy follower control_frequency:",
-                follower_cfg.control_frequency,
-            )
-            print(
-                "Robopy follower max_delta:",
-                follower_cfg.max_delta,
-            )
+                tcp_offset = getattr(self._robot, "tcp_offset", None)
+                world_offset = getattr(self._robot, "world_offset", None)
 
-            tcp_offset = getattr(self._robot, "tcp_offset", None)
-            world_offset = getattr(self._robot, "world_offset", None)
+                print("SDK tcp_offset:", tcp_offset)
+                print("SDK world_offset:", world_offset)
 
-            print("SDK tcp_offset:", tcp_offset)
-            print("SDK world_offset:", world_offset)
-
-            self._ik_solver = XArm7IK(
-                "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
-                "libxarm7_capi.so",
-                tcp_offset=tcp_offset,
-                world_offset=world_offset,
-            )
-
-            self._fk_solver = XArm7FK(
-                "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
-                "libxarm7_capi.so",
-                tcp_offset=tcp_offset,
-                world_offset=world_offset,
-            )
-
-
-            def _start_camera(camera_cfg):
-                config = RealsenseCameraConfig(
-                    name=str(camera_cfg.serial),
-                    width=int(camera_cfg.width),
-                    height=int(camera_cfg.height),
-                    fps=int(camera_cfg.fps),
-                    serial_no=str(camera_cfg.serial),
-                    auto_exposure=bool(camera_cfg.auto_exposure),
-                    exposure=camera_cfg.exposure,
-                    auto_white_balance=bool(camera_cfg.auto_white_balance),
-                    white_balance=camera_cfg.white_balance,
+                self._ik_solver = XArm7IK(
+                    "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
+                    "libxarm7_capi.so",
+                    tcp_offset=tcp_offset,
+                    world_offset=world_offset,
                 )
-                camera = RealsenseCamera(config)
-                camera.connect()
-                return camera
+
+                self._fk_solver = XArm7FK(
+                    "xarm_kinematics_user_lib_20251009_x86_64_fPIC_gcc9/"
+                    "libxarm7_capi.so",
+                    tcp_offset=tcp_offset,
+                    world_offset=world_offset,
+                )
 
 
-            self._wrist_pipeline = _start_camera(
-                robot_cfg.cameras.wrist
-            )
-
-            self._overhead_pipeline = _start_camera(
-                robot_cfg.cameras.overhead
-            )
+                if self.use_camera:
+                    managed_cameras = {
+                        camera.name: camera for camera in self._robot_owner.sensors.cameras
+                    }
+                    self._overhead_pipeline = managed_cameras[str(camera_configs["overhead"].serial)]
+                    self._wrist_pipeline = managed_cameras[str(camera_configs["wrist"].serial)]
+            except BaseException:
+                # Cleanup must not replace the initialization error (including Ctrl-C).
+                try:
+                    self.close()
+                except Exception:
+                    pass
+                raise
 
         self._dry_run_overhead_image = None
         self._dry_run_wrist_image = None
@@ -509,35 +523,30 @@ class XArmInferenceEnv:
 
 
     def close(self):
+        owner = self._robot_owner
         try:
             if self._follower is not None:
-                try:
-                    # 接続が生きている場合は、終了前に通常の位置指令を停止
-                    with self._follower._control_lock:
-                        self._follower._motion_paused = True
-
-                    if self._admittance_enabled:
-                        self.disable_admittance()
-                finally:
-                    # SDK接続の管理はXArmFollowerに任せる
-                    self._follower.disconnect()
-
+                with self._follower._control_lock:
+                    self._follower._motion_paused = True
+                if self._admittance_enabled:
+                    self.disable_admittance()
         finally:
-            self._follower = None
-            self._robot = None
-            self._admittance_enabled = False
-
-            if self._overhead_pipeline is not None:
-                self._overhead_pipeline.disconnect()
+            try:
+                if owner is not None:
+                    owner.disconnect()
+            finally:
+                self._robot_owner = None
+                self._follower = None
+                self._robot = None
+                self._admittance_enabled = False
                 self._overhead_pipeline = None
-
-            if self._wrist_pipeline is not None:
-                self._wrist_pipeline.disconnect()
                 self._wrist_pipeline = None
 
 
     def _get_image_from_pipeline(self, pipeline):
-        frame_chw = pipeline.read(specific_color="rgb")
+        if pipeline is None:
+            raise RuntimeError("RealSense camera is not enabled or connected")
+        frame_chw = np.asarray(pipeline.read(specific_color="rgb"))
         if frame_chw.ndim != 3 or frame_chw.shape[0] != 3:
             raise RuntimeError(
                 f"Unexpected RealSense frame shape: {frame_chw.shape}"
@@ -1448,6 +1457,14 @@ def run_xarm_task(cfg, policy, process, results_path):
     real_cfg = cfg.eval.real_robot
     env = XArmInferenceEnv(real_cfg, cfg.plan_config)
 
+    try:
+        return _run_xarm_task_with_env(cfg, policy, process, results_path, env)
+    finally:
+        env.close()
+
+
+def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
+    real_cfg = cfg.eval.real_robot
     policy.set_env(env)
 
     # --------------------------------------------------
@@ -1581,8 +1598,7 @@ def run_xarm_task(cfg, policy, process, results_path):
                 break
             tick = time.monotonic()
             image, wrist_image = env.get_images()
-            print("overhead:", image.shape, image.dtype)
-            print("wrist:", wrist_image.shape, wrist_image.dtype)
+
             qpos, qvel, ee = env.get_robot_state()
 
             current_proprio = np.concatenate(
@@ -1905,12 +1921,11 @@ def run_xarm_task(cfg, policy, process, results_path):
             )
 
 
-        # pixels を rollout.mp4 として保存
-        if len(records["pixels"]) > 0:
-            raw_video_path = run_dir / "rollout_raw.mp4"
-            video_path = run_dir / "rollout.mp4"
+        def save_rollout_video(frames, video_name):
+            raw_video_path = run_dir / f"{video_name}_raw.mp4"
+            video_path = run_dir / f"{video_name}.mp4"
 
-            frames = np.asarray(records["pixels"])
+            frames = np.asarray(frames)
             height, width = frames[0].shape[:2]
 
             # 一旦 mp4v で保存
@@ -1959,6 +1974,12 @@ def run_xarm_task(cfg, policy, process, results_path):
                 f"Real-robot rollout video saved to: "
                 f"{video_path}"
             )
+
+        # Keep the legacy output and save both camera views explicitly.
+        if len(records["pixels"]) > 0:
+            save_rollout_video(records["pixels"], "rollout")
+            save_rollout_video(records["pixels"], "rollout_overhead")
+            save_rollout_video(records["wrist_pixels"], "rollout_wrist")
     return run_dir
 
 

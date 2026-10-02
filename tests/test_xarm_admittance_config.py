@@ -104,12 +104,16 @@ class AdmittanceConfigTests(unittest.TestCase):
         robot_cfg.dry_run = False
         follower = Mock()
         follower._control_lock = threading.Lock()
-        realsense = Mock()
-        sensor = realsense.pipeline.return_value.start.return_value.get_device.return_value.first_color_sensor.return_value
-        sensor.get_option.return_value = 120.0
-        with patch('robopy.robots.xarm.xarm_follower.XArmFollower', return_value=follower) as factory, \
-             patch.dict(sys.modules, {'pyrealsense2': realsense}):
+        owner = Mock()
+        owner.robot_system.follower = follower
+        owner.sensors.cameras = [Mock(name=str(camera.serial)) for camera in
+                                 (robot_cfg.cameras.overhead, robot_cfg.cameras.wrist)]
+        for camera, config in zip(owner.sensors.cameras,
+                                  (robot_cfg.cameras.overhead, robot_cfg.cameras.wrist)):
+            camera.name = str(config.serial)
+        with patch('robopy.robots.xarm.XArmRobot', return_value=owner) as factory:
             env = load_inference_class()(robot_cfg, plan_cfg)
+        owner.connect.assert_called_once_with(connect_leader=False)
         config = factory.call_args.args[0]
         self.assert_custom(config)
         self.assertEqual((config.gripper_open, config.gripper_close,
@@ -121,15 +125,18 @@ class AdmittanceConfigTests(unittest.TestCase):
             env.enable_admittance()
         finally:
             env.close()
-        self.assertEqual(follower.method_calls, [call.connect(), call.enable_admittance_control(),
-                         call.resume_motion_commands(), call.disable_admittance_control(), call.disconnect()])
+        self.assertEqual(follower.method_calls, [call.enable_admittance_control(),
+                         call.resume_motion_commands(), call.disable_admittance_control()])
+        owner.disconnect.assert_called_once_with()
+        env.close()
+        owner.disconnect.assert_called_once_with()
         self.assertTrue(follower._motion_paused)
 
     def test_inference_missing_parameter_fails_before_connection(self):
         robot_cfg, plan_cfg = self.eval_config()
         robot_cfg.dry_run = False
         del robot_cfg.admittance.position_stiffness
-        with patch('robopy.robots.xarm.xarm_follower.XArmFollower') as factory, \
+        with patch('robopy.robots.xarm.XArmRobot') as factory, \
              patch.dict(sys.modules, {'pyrealsense2': Mock()}):
             with self.assertRaises(AttributeError):
                 load_inference_class()(robot_cfg, plan_cfg)
@@ -138,7 +145,7 @@ class AdmittanceConfigTests(unittest.TestCase):
     def test_inference_dry_run_never_constructs_follower(self):
         robot_cfg, plan_cfg = self.eval_config()
         robot_cfg.dry_run = True
-        with patch('robopy.robots.xarm.xarm_follower.XArmFollower') as factory:
+        with patch('robopy.robots.xarm.XArmRobot') as factory:
             env = load_inference_class()(robot_cfg, plan_cfg)
             env.enable_admittance()
             env.disable_admittance()

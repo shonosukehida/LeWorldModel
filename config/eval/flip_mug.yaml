@@ -81,7 +81,8 @@ eval:
     dry_run_image_path: config/eval/start_state/flip_mug/overhead_start_image.png
     dry_run_wrist_image_path: config/eval/start_state/flip_mug/wrist_start_image.png
     follower_ip: "192.168.1.240"
-    max_steps: 5 #50
+    connect_leader: false  # Inference uses the follower and sensors without GELLO.
+    max_steps: 300 #50
     control_hz: 10 #0.5
     control_frequency: 50
     non_interactive: false
@@ -117,21 +118,22 @@ eval:
       max_delta: 0.10
       command_threshold: 0.03
     cameras:
+
       overhead: 
-        serial: 937622072677
+        serial: "937622072677"
         width: 640
         height: 480
-        fps: 15 #30
+        fps: 30 #30
         auto_exposure: false
         exposure: 120 #120
         auto_white_balance: false
         white_balance: 3300.0 #3300.
 
       wrist:
-        serial: 044322070202
+        serial: "044322070202"
         width: 640
         height: 480
-        fps: 15 #30
+        fps: 30 #30
         auto_exposure: false
         exposure: 70. #70.
         auto_white_balance: false
@@ -192,5 +194,3 @@ eval:
 
 output:
   filename: franka_push_results.txt
-
-

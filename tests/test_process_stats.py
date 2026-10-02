@@ -37,7 +37,7 @@ class ProcessStatsTests(unittest.TestCase):
 
     def test_cli_round_trip(self):
         result = subprocess.run([sys.executable, str(ROOT / 'create_process_stats.py'),
-                                 '--dataset', str(self.dataset), '--output', str(self.output)],
+                                 '--dataset', str(self.dataset), '--output', str(self.output.parent)],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         process, action_key = load_normalization_process(self.output)
@@ -61,15 +61,15 @@ class ProcessStatsTests(unittest.TestCase):
 
     def test_errors_leave_no_output(self):
         with self.assertRaisesRegex(FileNotFoundError, str(self.root / 'missing.h5')):
-            create_process_stats(self.root / 'missing.h5', self.output)
-        with self.assertRaisesRegex(ValueError, str(self.dataset)):
+            create_process_stats(self.root / 'missing.h5', self.output.parent)
+        with self.assertRaisesRegex(NotADirectoryError, str(self.dataset)):
             create_process_stats(self.dataset, self.dataset)
         for column in ('proprio', 'action_cartesian'):
             with h5py.File(self.dataset, 'a') as file:
                 data = file[column][:]
                 del file[column]
             with self.assertRaisesRegex(KeyError, column):
-                create_process_stats(self.dataset, self.output)
+                create_process_stats(self.dataset, self.output.parent)
             self.assertFalse(self.output.exists())
             with h5py.File(self.dataset, 'a') as file:
                 file[column] = data
@@ -80,22 +80,23 @@ class ProcessStatsTests(unittest.TestCase):
                 del file['proprio']
                 file['proprio'] = values
             with self.assertRaisesRegex(ValueError, message):
-                create_process_stats(self.dataset, self.output)
+                create_process_stats(self.dataset, self.output.parent)
             self.assertFalse(self.output.exists())
 
     def test_overwrite_and_hardlink(self):
-        create_process_stats(self.dataset, self.output)
+        create_process_stats(self.dataset, self.output.parent)
         before = self.output.read_bytes()
         with self.assertRaisesRegex(FileExistsError, str(self.output)):
-            create_process_stats(self.dataset, self.output, overwrite=False)
+            create_process_stats(self.dataset, self.output.parent, overwrite=False)
         self.assertEqual(before, self.output.read_bytes())
-        link = self.root / 'linked.h5'
-        link.hardlink_to(self.dataset)
+        same_dir = self.root / 'same'
+        same_dir.mkdir()
+        (same_dir / 'process_stats.npz').hardlink_to(self.dataset)
         with self.assertRaisesRegex(ValueError, str(self.dataset)):
-            create_process_stats(self.dataset, link)
+            create_process_stats(self.dataset, same_dir)
 
     def test_diffusion_evaluation_without_datasets_or_world_checkpoint(self):
-        create_process_stats(self.dataset, self.output)
+        create_process_stats(self.dataset, self.output.parent)
         # A present training dataset must also be ignored when statistics exist.
         (self.root / 'datasets').mkdir()
         (self.root / 'datasets/push.h5').hardlink_to(self.dataset)
