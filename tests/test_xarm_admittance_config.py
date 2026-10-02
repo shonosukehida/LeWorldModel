@@ -113,7 +113,9 @@ class AdmittanceTests(unittest.TestCase):
                 cfg.eval.real_robot.admittance.enabled = enabled
                 follower = Mock()
                 follower._control_lock = threading.Lock()
-                with patch('robopy.robots.xarm.xarm_follower.XArmFollower', return_value=follower) as factory:
+                owner = Mock()
+                owner.robot_system.follower = follower
+                with patch('robopy.robots.xarm.XArmRobot', return_value=owner) as factory:
                     env = inference_namespace()['XArmInferenceEnv'](
                         cfg.eval.real_robot, cfg.plan_config, use_camera=False)
                 self.assert_config(factory.call_args.args[0])
@@ -126,11 +128,16 @@ class AdmittanceTests(unittest.TestCase):
                     rollout_enable(cfg, env)
                 finally:
                     env.close()
-                expected = [call.connect()]
+                expected = []
                 if enabled:
                     expected += [call.enable_admittance_control(), call.resume_motion_commands(),
                                  call.disable_admittance_control()]
-                self.assertEqual(follower.method_calls, expected + [call.disconnect()])
+                self.assertEqual(follower.method_calls, expected)
+                owner.connect.assert_called_once_with(connect_leader=False)
+                owner.disconnect.assert_called_once_with()
+                self.assertEqual(fc.sensors.cameras, [])
+                env.close()
+                owner.disconnect.assert_called_once_with()
                 self.assertTrue(follower._motion_paused)
 
     def test_missing_parameters_fail_before_connection(self):
@@ -139,7 +146,7 @@ class AdmittanceTests(unittest.TestCase):
                 cfg = self.eval_cfg()
                 cfg.eval.real_robot.dry_run = False
                 del cfg.eval.real_robot.admittance[key]
-                with patch('robopy.robots.xarm.xarm_follower.XArmFollower') as factory:
+                with patch('robopy.robots.xarm.XArmRobot') as factory:
                     with self.assertRaisesRegex(AttributeError, key):
                         inference_namespace()['XArmInferenceEnv'](
                             cfg.eval.real_robot, cfg.plan_config, use_camera=False)
@@ -149,7 +156,7 @@ class AdmittanceTests(unittest.TestCase):
         cfg = self.eval_cfg()
         cfg.eval.real_robot.dry_run = True
         cfg.eval.real_robot.admittance.enabled = True
-        with patch('robopy.robots.xarm.xarm_follower.XArmFollower') as factory:
+        with patch('robopy.robots.xarm.XArmRobot') as factory:
             env = inference_namespace()['XArmInferenceEnv'](
                 cfg.eval.real_robot, cfg.plan_config, use_camera=False)
             rollout_enable(cfg, env)
