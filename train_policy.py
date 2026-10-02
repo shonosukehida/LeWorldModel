@@ -467,6 +467,15 @@ def run(cfg):
         action_transform=action_transform,
     )
 
+    raw_sample = dataset[0]
+    pixels = raw_sample["pixels"]
+
+    print("raw pixels shape:", pixels.shape)
+    print("raw pixels dtype:", pixels.dtype)
+    print("raw pixels min :", pixels.min().item())
+    print("raw pixels max :", pixels.max().item())
+    print("raw pixels mean:", pixels.mean().item())
+    print("raw pixels std :", pixels.std().item())
 
 
     # --------------------------------------------------------
