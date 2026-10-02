@@ -4,11 +4,67 @@ from pathlib import Path
 from stable_pretraining import data as dt
 from lightning.pytorch.callbacks import Callback
 
-def get_img_preprocessor(source: str, target: str, img_size: int = 224):
+def get_img_preprocessor(
+    source: str,
+    target: str,
+    img_size: int = 224,
+):
     imagenet_stats = dt.dataset_stats.ImageNet
-    to_image = dt.transforms.ToImage(**imagenet_stats, source=source, target=target)
-    resize = dt.transforms.Resize(img_size, source=source, target=target)
-    return dt.transforms.Compose(to_image, resize)
+
+    def scale_to_unit_range(x):
+        x = x.float()
+
+        min_val = x.min()
+        max_val = x.max()
+
+        # 想定外の負値は弾く
+        if min_val < 0:
+            raise ValueError(
+                f"Unexpected image range: "
+                f"min={min_val.item()}, "
+                f"max={max_val.item()}"
+            )
+
+        # すでに [0,1] ならそのまま
+        if max_val <= 1.0 + 1e-6:
+            return x
+
+        # [0,255] なら [0,1] に変換
+        if max_val <= 255.0 + 1e-6:
+            return x / 255.0
+
+        raise ValueError(
+            f"Unexpected image range: "
+            f"min={min_val.item()}, "
+            f"max={max_val.item()}"
+        )
+
+    scale = dt.transforms.WrapTorchTransform(
+        scale_to_unit_range,
+        source=source,
+        target=target,
+    )
+
+    to_image = dt.transforms.ToImage(
+        dtype=torch.float32,
+        scale=False,
+        mean=imagenet_stats["mean"],
+        std=imagenet_stats["std"],
+        source=source,
+        target=target,
+    )
+
+    resize = dt.transforms.Resize(
+        img_size,
+        source=source,
+        target=target,
+    )
+
+    return dt.transforms.Compose(
+        scale,
+        to_image,
+        resize,
+    )
 
 
 def get_column_normalizer(dataset, source: str, target: str):
