@@ -49,6 +49,14 @@ class DiffusionPolicyDataset(Dataset):
 
         pixels = sample["pixels"][:self.obs_horizon]
 
+        if idx == 0:
+            print(
+                "RAW TRAIN pixels:",
+                type(pixels),
+                pixels.shape,
+                pixels.dtype,
+            )
+
         wrist_pixels = sample["wrist_pixels"][:self.obs_horizon]
 
         action = sample[self.action_key]
