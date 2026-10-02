@@ -38,9 +38,9 @@ dataset:
 
 seed: 42
 policy: lewm_weights 
-policy_type: world_model #world_model/gpc/diffusion
+policy_type: diffusion #world_model/gpc/diffusion
 gpc:
-  diffusion_checkpoint: null
+  diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep100_tm300_multiview_demo/seed_41/20260930_175954/best.ckpt
   num_candidates: 50
 
 
@@ -75,7 +75,9 @@ eval:
       reference_frame: 0  # 0 = base frame, 1 = tool frame
       compliant_axis: [0, 0, 1, 0, 0, 0]  # [x, y, z, rx, ry, rz], each 0 or 1
     execute: true
-    dry_run: true #ハードは動かさずにソフトだけをテストする
+
+
+    dry_run: false #ハードは動かさずにソフトだけをテストする
     dry_run_image_path: config/eval/start_state/flip_mug/overhead_start_image.png
     dry_run_wrist_image_path: config/eval/start_state/flip_mug/wrist_start_image.png
     follower_ip: "192.168.1.240"

@@ -33,6 +33,12 @@ import matplotlib.pyplot as plt
 import json
 import subprocess
 
+from normalization_stats import (
+    SafeStandardScaler,
+    build_normalization_process,
+    save_normalization_process,
+    load_normalization_process,
+)
 from action_projector import XArmActionProjector
 
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
@@ -166,232 +172,6 @@ def polar_to_xyz(polar, center):
         center[1] + r * np.sin(theta),
         z,
     ], dtype=np.float32)
-
-
-
-class SafeStandardScaler:
-    def __init__(self, eps=1e-4):
-        self.eps = eps
-        self.mean_ = None
-        self.scale_ = None
-        self.raw_min_ = 1000000000000.
-        self.raw_max_ = -1000000000000.
-        self.normed_min_ = 1000000000000. 
-        self.normed_max_ = -1000000000000.
-        
-
-    def fit(self, x):
-        self.mean_ = np.mean(x, axis=0, keepdims=True)
-        std = np.std(x, axis=0, keepdims=True, ddof=1,)
-        self.scale_ = np.where(std < self.eps, 1.0, std)
-        return self
-
-    def transform(self, x):
-        return (x - self.mean_) / self.scale_
-
-    def inverse_transform(self, x):
-        return x * self.scale_ + self.mean_
-
-
-def build_normalization_process(stats_dataset, keys_to_cache):
-    """
-    データセットから正規化processorを作成する。
-    """
-    process = {}
-    action_key = ""
-
-    action_keys = {
-        "action",
-        "action_cartesian",
-        "action_joint",
-    }
-
-    for col in keys_to_cache:
-        if col == "pixels":
-            continue
-
-        col_data = stats_dataset.get_col_data(col)
-        col_data = np.asarray(col_data)
-
-        # shape (N,) のデータにも対応
-        if col_data.ndim == 1:
-            col_data = col_data[:, None]
-
-        valid_mask = ~np.isnan(col_data).any(axis=1)
-        col_data = col_data[valid_mask]
-
-        if len(col_data) == 0:
-            raise ValueError(
-                f"No valid samples are available for normalization: {col}"
-            )
-
-        processor = SafeStandardScaler(eps=1e-4)
-        processor.fit(col_data)
-
-        processor.raw_min_ = col_data.min(
-            axis=0,
-            keepdims=True,
-        )
-        processor.raw_max_ = col_data.max(
-            axis=0,
-            keepdims=True,
-        )
-        processor.normed_min_ = processor.transform(
-            processor.raw_min_
-        )
-        processor.normed_max_ = processor.transform(
-            processor.raw_max_
-        )
-
-        process[col] = processor
-
-        if col in action_keys:
-            action_key = col
-        else:
-            # 元の実装と同じprocessorを共有する
-            process[f"goal_{col}"] = processor
-
-    return process, action_key
-
-
-def save_normalization_process(
-    stats_path,
-    process,
-    action_key,
-):
-    """
-    process内のSafeStandardScalerをnpzファイルに保存する。
-
-    goal_qposなどの別名は保存せず、元の列だけを保存する。
-    ロード時にgoal_*を再構成する。
-    """
-    stats_path = Path(stats_path).expanduser()
-    stats_path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    base_keys = [
-        key
-        for key in process.keys()
-        if not key.startswith("goal_")
-    ]
-
-    metadata = {
-        "version": 1,
-        "keys": base_keys,
-        "action_key": action_key,
-    }
-
-    arrays = {
-        "metadata": np.asarray(
-            json.dumps(metadata),
-        ),
-    }
-
-    for index, key in enumerate(base_keys):
-        processor = process[key]
-        prefix = f"processor_{index}"
-
-        arrays[f"{prefix}_mean"] = np.asarray(
-            processor.mean_,
-        )
-        arrays[f"{prefix}_scale"] = np.asarray(
-            processor.scale_,
-        )
-        arrays[f"{prefix}_raw_min"] = np.asarray(
-            processor.raw_min_,
-        )
-        arrays[f"{prefix}_raw_max"] = np.asarray(
-            processor.raw_max_,
-        )
-        arrays[f"{prefix}_normed_min"] = np.asarray(
-            processor.normed_min_,
-        )
-        arrays[f"{prefix}_normed_max"] = np.asarray(
-            processor.normed_max_,
-        )
-        arrays[f"{prefix}_eps"] = np.asarray(
-            processor.eps,
-            dtype=np.float64,
-        )
-
-    np.savez_compressed(stats_path, **arrays)
-    print(
-        f"Saved normalization statistics to: "
-        f"{stats_path}"
-    )
-
-
-def load_normalization_process(stats_path):
-    """
-    npzファイルからprocessを復元する。
-    """
-    stats_path = Path(stats_path).expanduser()
-
-    if not stats_path.is_file():
-        raise FileNotFoundError(
-            "Normalization statistics file was not found: "
-            f"{stats_path}"
-        )
-
-    process = {}
-
-    with np.load(
-        stats_path,
-        allow_pickle=False,
-    ) as stats:
-        metadata = json.loads(
-            str(stats["metadata"].item())
-        )
-
-        if metadata.get("version") != 1:
-            raise ValueError(
-                "Unsupported normalization statistics version: "
-                f"{metadata.get('version')}"
-            )
-
-        keys = metadata["keys"]
-        action_key = metadata.get("action_key", "")
-
-        for index, key in enumerate(keys):
-            prefix = f"processor_{index}"
-
-            processor = SafeStandardScaler(
-                eps=float(stats[f"{prefix}_eps"].item())
-            )
-            processor.mean_ = stats[
-                f"{prefix}_mean"
-            ].copy()
-            processor.scale_ = stats[
-                f"{prefix}_scale"
-            ].copy()
-            processor.raw_min_ = stats[
-                f"{prefix}_raw_min"
-            ].copy()
-            processor.raw_max_ = stats[
-                f"{prefix}_raw_max"
-            ].copy()
-            processor.normed_min_ = stats[
-                f"{prefix}_normed_min"
-            ].copy()
-            processor.normed_max_ = stats[
-                f"{prefix}_normed_max"
-            ].copy()
-
-            process[key] = processor
-
-            if key != action_key:
-                process[f"goal_{key}"] = processor
-
-    print(
-        f"Loaded normalization statistics from: "
-        f"{stats_path}"
-    )
-    print(f"Normalization keys: {list(process.keys())}")
-    print(f"action_key: {action_key}")
-
-    return process, action_key
 
 
 
@@ -2477,7 +2257,19 @@ def run(cfg: DictConfig):
 
     dataset = None
 
-    if dataset_path.is_file():
+    if stats_path.is_file():
+        print(
+            "Loading saved normalization statistics."
+        )
+        print(f"dataset_path: {dataset_path}")
+
+        process, action_key = (
+            load_normalization_process(
+                stats_path
+            )
+        )
+
+    elif dataset_path.is_file():
         print(
             "Training dataset was found. "
             "Computing normalization statistics."
@@ -2500,19 +2292,6 @@ def run(cfg: DictConfig):
             stats_path=stats_path,
             process=process,
             action_key=action_key,
-        )
-
-    elif stats_path.is_file():
-        print(
-            "Training dataset was not found. "
-            "Loading saved normalization statistics."
-        )
-        print(f"dataset_path: {dataset_path}")
-
-        process, action_key = (
-            load_normalization_process(
-                stats_path
-            )
         )
 
     else:
@@ -2547,29 +2326,29 @@ def run(cfg: DictConfig):
 
     
     if policy != "random":
-        model = swm.policy.AutoCostModel(cfg.policy) #cfg.policy: flip_mug/ep200_tm300_gripper/lewm
-        
-        if cfg.eval.probing.get("use_random_encoder", False):
-            print("Using a randomly reinitialized encoder")
-            old_encoder = model.encoder
-            device = next(old_encoder.parameters()).device
-            dtype = next(old_encoder.parameters()).dtype
-
-            torch.manual_seed(0)
-
-            model.encoder = ViTModel(old_encoder.config)
-            model.encoder = model.encoder.to(device=device, dtype=dtype)
-            model.encoder.eval()
-            print("set random encoder")
-                
-        model = model.to("cuda")
-        model = model.eval()
-        model.requires_grad_(False)
-        model.interpolate_pos_encoding = True
-        
-        
-        
         policy_type = cfg.get("policy_type", "world_model",)
+
+        model = None
+        if policy_type in ("world_model", "gpc"):
+            model = swm.policy.AutoCostModel(cfg.policy) #cfg.policy: flip_mug/ep200_tm300_gripper/lewm
+
+            if cfg.eval.probing.get("use_random_encoder", False):
+                print("Using a randomly reinitialized encoder")
+                old_encoder = model.encoder
+                device = next(old_encoder.parameters()).device
+                dtype = next(old_encoder.parameters()).dtype
+
+                torch.manual_seed(0)
+
+                model.encoder = ViTModel(old_encoder.config)
+                model.encoder = model.encoder.to(device=device, dtype=dtype)
+                model.encoder.eval()
+                print("set random encoder")
+
+            model = model.to("cuda")
+            model = model.eval()
+            model.requires_grad_(False)
+            model.interpolate_pos_encoding = True
 
         if policy_type == "world_model":
 
@@ -2633,11 +2412,9 @@ def run(cfg: DictConfig):
 
 
 
-    dataset = get_dataset(cfg, cfg.eval.probing.dataset_name)
-    val_dataset = get_dataset(cfg, cfg.eval.probing.val_dataset_name)
-
-
     if cfg.eval.probing.exe_probe:
+        dataset = get_dataset(cfg, cfg.eval.probing.dataset_name)
+        val_dataset = get_dataset(cfg, cfg.eval.probing.val_dataset_name)
         results_path = (
             Path(swm.data.utils.get_cache_dir(), "eval", cfg.policy).parent
         ) #results_path: /home/shonosukehida/.stable_worldmodel/eval/flip_mug/ep200_tm300_gripper
