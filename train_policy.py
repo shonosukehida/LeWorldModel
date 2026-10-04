@@ -270,13 +270,10 @@ def train_one_epoch(
 
 
 @torch.no_grad()
-def validate(
+def evaluate(
     policy,
     loader,
     device,
-    epoch,
-    global_step,
-    wandb_run = None,
 ):
     policy.model.eval()
     policy.obs_encoder.eval()
@@ -299,22 +296,13 @@ def validate(
             batch
         )
 
-        if wandb_run is not None:
-            wandb_run.log({
-                "global_step": global_step,
-                "epoch": epoch,
-                "val/loss": loss.item(),
-            })
-
-        global_step += 1
-
         total_loss += loss.item()
         num_batches += 1
 
     return total_loss / max(
         num_batches,
         1,
-    ), global_step
+    )
 
 
 # ============================================================
@@ -509,6 +497,16 @@ def run(cfg):
         persistent_workers=(cfg.loader.persistent_workers),
         drop_last=True,
         generator=generator,
+    )
+
+    train_eval_loader = DataLoader(
+        train_set,
+        batch_size=cfg.loader.batch_size,
+        shuffle=False,
+        num_workers=cfg.loader.num_workers,
+        pin_memory=cfg.loader.pin_memory,
+        persistent_workers=(cfg.loader.persistent_workers),
+        drop_last=False,
     )
 
     val_loader = DataLoader(
@@ -730,9 +728,9 @@ def run(cfg):
         if wandb_run is not None:
             wandb_run.define_metric("global_step")
             wandb_run.define_metric("train/loss", step_metric="global_step")
-            wandb_run.define_metric("val/loss", step_metric="global_step")
             wandb_run.define_metric("epoch")
             wandb_run.define_metric("train/epoch_loss", step_metric="epoch")
+            wandb_run.define_metric("train/eval_epoch_loss", step_metric="epoch")
             wandb_run.define_metric("val/epoch_loss", step_metric="epoch")
 
     # --------------------------------------------------------
@@ -759,13 +757,16 @@ def run(cfg):
             wandb_run = wandb_run
         )
 
-        val_loss, global_step = validate(
+        train_eval_loss = evaluate(
+            policy=policy,
+            loader=train_eval_loader,
+            device=device,
+        )
+
+        val_loss = evaluate(
             policy=policy,
             loader=val_loader,
             device=device,
-            epoch=epoch + 1,
-            global_step=global_step,
-            wandb_run = wandb_run,
         )
 
         print(
@@ -774,6 +775,8 @@ def run(cfg):
             f"{cfg.trainer.max_epochs:03d}] "
             f"train_loss="
             f"{train_loss:.6f} "
+            f"train_eval_loss="
+            f"{train_eval_loss:.6f} "
             f"val_loss="
             f"{val_loss:.6f}"
         )
@@ -787,6 +790,9 @@ def run(cfg):
 
                     "train/epoch_loss":
                         train_loss,
+
+                    "train/eval_epoch_loss":
+                        train_eval_loss,
 
                     "val/epoch_loss":
                         val_loss,
