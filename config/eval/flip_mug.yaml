@@ -40,7 +40,7 @@ seed: 42
 policy: lewm_weights 
 policy_type: diffusion #world_model/gpc/diffusion
 gpc:
-  diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep100_tm300_multiview_demo/seed_41/20260930_175954/best.ckpt
+  diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261002_195624/best.ckpt
   num_candidates: 50
 
 
@@ -54,10 +54,9 @@ plan_config:
 
 eval:
   num_eval: 1 #1
-  eval_budget: 50 #50
   img_size: 224 
-  dataset_name: flip_mug/ep100_tm300_multiview_demo/push
-  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep100_tm300_multiview_demo/process_stats.npz
+  dataset_name: flip_mug/ep200_tm300_multiview_demo/push
+  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz
   ac_cost_dataset_name: null
 
 
@@ -99,13 +98,12 @@ eval:
       - -0.014609  # qw
       - 0.005000  # gripper
     output_dir: ${hydra:runtime.cwd}/real_robot_rollouts/flip_mug
-    max_cartesian_delta_m: 0.02 #現在位置との差分 [m] #0.02 #0.04
-    max_orientation_delta_rad: 0.0872665  # 0.0872665 = 5deg
-    # max_joint_delta_rad: 100 #0.03 #action_projector適用時に使用
+    max_cartesian_delta_m: 0.1 #現在位置との差分 [m] #0.02 #0.04
+    max_orientation_delta_rad: 0.52  # 0.0872665 = 5deg
     cartesian_speed_mm_s: 300.
     cartesian_mvacc: 1000
     collision_sensitivity: 3
-    max_delta: 0.05 #joint差分ベクトルの最大ノルム
+    max_delta: 100.0 #joint差分ベクトルの最大ノルム #0.05
     workspace_bounds_m:
       - [0.4995, 100.0]
       - [-0.2168, 0.2073]
@@ -114,9 +112,8 @@ eval:
       open_position: 84.0
       closed_position: 0.0
       speed: 200
-      force: 50
-      max_delta: 0.10
-      command_threshold: 0.03
+      force: 100 #[%]
+      max_delta: 1.0 #0.10
     cameras:
 
       overhead: 
