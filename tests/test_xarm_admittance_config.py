@@ -117,7 +117,9 @@ class AdmittanceConfigTests(unittest.TestCase):
         config = factory.call_args.args[0]
         self.assert_custom(config)
         self.assertEqual((config.gripper_open, config.gripper_close,
-                          config.gripper_speed, config.gripper_force), (84., 0., 200, 50))
+                          config.gripper_speed, config.gripper_force),
+                         (robot_cfg.gripper.open_position, robot_cfg.gripper.closed_position,
+                          robot_cfg.gripper.speed, robot_cfg.gripper.force))
         self.assertIsInstance(config.gripper_open, float)
         self.assertIsInstance(config.gripper_close, float)
         follower.enable_admittance_control.assert_not_called()

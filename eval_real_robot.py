@@ -309,6 +309,7 @@ class XArmInferenceEnv:
                 gripper_close=float(robot_cfg.gripper.closed_position),
                 gripper_speed=int(robot_cfg.gripper.speed),
                 gripper_force=int(robot_cfg.gripper.force),
+                gripper_wait=bool(getattr(robot_cfg.gripper, "wait", False)),
             )
 
             camera_configs = {

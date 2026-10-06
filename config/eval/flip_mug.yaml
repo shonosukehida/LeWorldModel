@@ -40,7 +40,7 @@ seed: 42
 policy: lewm_weights 
 policy_type: diffusion #world_model/gpc/diffusion
 gpc:
-  diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261002_195624/best.ckpt
+  diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261003_085301/best.ckpt
   num_candidates: 50
 
 
@@ -81,8 +81,8 @@ eval:
     dry_run_wrist_image_path: config/eval/start_state/flip_mug/wrist_start_image.png
     follower_ip: "192.168.1.240"
     connect_leader: false  # Inference uses the follower and sensors without GELLO.
-    max_steps: 300 #50
-    control_hz: 10 #0.5
+    max_steps: 600 #50
+    control_hz: 10 #0.5 #eval時の評価ループ #学習データセットのhzに合わせる
     control_frequency: 50
     non_interactive: false
     use_action_projector: false
@@ -98,9 +98,9 @@ eval:
       - -0.014609  # qw
       - 0.005000  # gripper
     output_dir: ${hydra:runtime.cwd}/real_robot_rollouts/flip_mug
-    max_cartesian_delta_m: 0.1 #現在位置との差分 [m] #0.02 #0.04
-    max_orientation_delta_rad: 0.52  # 0.0872665 = 5deg
-    cartesian_speed_mm_s: 300.
+    max_cartesian_delta_m: 100.0 #現在位置との差分 [m] #0.02 #0.04
+    max_orientation_delta_rad: 100  # 0.0872665 = 5deg
+    cartesian_speed_mm_s: 40. #300.
     cartesian_mvacc: 1000
     collision_sensitivity: 3
     max_delta: 100.0 #joint差分ベクトルの最大ノルム #0.05
@@ -113,6 +113,7 @@ eval:
       closed_position: 0.0
       speed: 200
       force: 100 #[%]
+      wait: true
       max_delta: 1.0 #0.10
     cameras:
 
