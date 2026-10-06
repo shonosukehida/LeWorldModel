@@ -796,7 +796,7 @@ class XArmInferenceEnv:
         ).astype(np.float32)
 
         try:
-            code, gripper_position = self._robot.get_gripper_position()
+            code, gripper_position = self._robot.get_gripper_g2_position()
             if code == 0:
                 open_pos = float(self.cfg.gripper.open_position)
                 closed_pos = float(self.cfg.gripper.closed_position)
