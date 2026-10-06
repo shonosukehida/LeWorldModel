@@ -110,6 +110,7 @@ eval:
       closed_position: 0.0
       speed: 200
       force: 50
+      wait: true
       max_delta: 0.10
       command_threshold: 0.03
     camera:
