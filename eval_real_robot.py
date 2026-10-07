@@ -74,7 +74,7 @@ def get_episodes_length(dataset, episodes):
     return np.array(lengths)
 
 
-def get_dataset(cfg, dataset_name):
+def get_dataset(cfg, dataset_name, num_steps=1):
     dataset_path = Path(cfg.cache_dir or swm.data.utils.get_cache_dir())
     
     keys_to_load = list(cfg.dataset.keys_to_cache)
@@ -97,6 +97,7 @@ def get_dataset(cfg, dataset_name):
         
     dataset = swm.data.HDF5Dataset(
         dataset_name,
+        num_steps=num_steps,
         # keys_to_load=keys_to_load,
         keys_to_cache=cfg.dataset.keys_to_cache,
         cache_dir=dataset_path,
@@ -2353,8 +2354,12 @@ def run(cfg: DictConfig):
 
 
     if cfg.eval.probing.exe_probe:
-        dataset = get_dataset(cfg, cfg.eval.probing.dataset_name)
-        val_dataset = get_dataset(cfg, cfg.eval.probing.val_dataset_name)
+        # One-step JEPA probing needs the complete context plus its target.
+        num_steps = 1
+        if cfg.eval.probing.plot_open_data and getattr(model, "prop_encoder", None) is not None:
+            num_steps = ProbingEvaluator.resolve_history_size(cfg.eval.probing, model) + 1
+        dataset = get_dataset(cfg, cfg.eval.probing.dataset_name, num_steps=num_steps)
+        val_dataset = get_dataset(cfg, cfg.eval.probing.val_dataset_name, num_steps=num_steps)
         results_path = (
             Path(swm.data.utils.get_cache_dir(), "eval", cfg.policy).parent
         ) #results_path: /home/shonosukehida/.stable_worldmodel/eval/flip_mug/ep200_tm300_gripper
