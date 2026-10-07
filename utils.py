@@ -18,7 +18,7 @@ def get_img_preprocessor(
         min_val = x.min()
         max_val = x.max()
 
-        if min_val < 0:
+        if not torch.isfinite(x).all() or min_val < 0:
             raise ValueError(
                 f"Unexpected image range: "
                 f"min={min_val.item()}, max={max_val.item()}"
@@ -63,6 +63,22 @@ def get_img_preprocessor(
         to_image,
         resize,
     )
+
+
+class _EvalImagePreprocessor:
+    """Adapt the training dictionary transform to a single image tensor."""
+
+    def __init__(self, img_size):
+        self.transform = get_img_preprocessor("pixels", "pixels", img_size)
+
+    def __call__(self, image):
+        return self.transform({"pixels": image})["pixels"]
+
+
+def get_eval_img_preprocessor(img_size: int = 224):
+    """Use exactly the training scaling, normalization and resize in evaluation."""
+    return _EvalImagePreprocessor(img_size)
+
 
 def get_column_normalizer(dataset, source: str, target: str):
     """Get normalizer for a specific column in the dataset."""
