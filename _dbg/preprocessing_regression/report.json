@@ -1,0 +1,56 @@
+{
+  "checkpoint": "/home/shonosukehida/.stable_worldmodel/checkpoints/flip_mug/ep200_tm300/lewm_object.ckpt",
+  "dataset": "/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/val_ep10_tm300_prop/push.h5",
+  "stats": "/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep2_tm300/process_stats.npz",
+  "swm_source": "/home/shonosukehida/work/stable-worldmodel-main/stable_worldmodel/__init__.py",
+  "input": {
+    "dtype": "torch.float32",
+    "min": 0.0,
+    "max": 218.0,
+    "mean": 128.7899627685547,
+    "std": 51.517330169677734
+  },
+  "train_output": {
+    "dtype": "torch.float32",
+    "min": -2.1179044246673584,
+    "max": 1.9919260740280151,
+    "mean": 0.2486262172460556,
+    "std": 0.892575740814209
+  },
+  "probe_output": {
+    "dtype": "torch.float32",
+    "min": -2.1179044246673584,
+    "max": 1.9919260740280151,
+    "mean": 0.2486262172460556,
+    "std": 0.892575740814209
+  },
+  "max_abs_diff": 0.0,
+  "mean_abs_diff": 0.0,
+  "fixed": {
+    "transitions": 16,
+    "pred_mse": 3.505871057510376
+  },
+  "train": {
+    "transitions": 16,
+    "pred_mse": 3.505871057510376
+  },
+  "old": {
+    "transitions": 16,
+    "pred_mse": 2.85143780708313
+  },
+  "forward_differences": {
+    "current_z": {
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    },
+    "true_z": {
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    },
+    "pred_z": {
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    }
+  },
+  "pca_generated": true
+}

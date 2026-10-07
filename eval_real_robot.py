@@ -44,8 +44,14 @@ from stable_worldmodel.diffusion import (
 from stable_worldmodel.reward import latent_goal_reward
 
 from collections import deque
+from utils import get_eval_img_preprocessor
 
 def img_transform(cfg):
+    return get_eval_img_preprocessor(cfg.eval.img_size)
+
+
+def dp_img_transform(cfg):
+    """Preserve the diffusion policy image preprocessing."""
     transform = transforms.Compose(
         [
             transforms.ToImage(),
@@ -2370,7 +2376,7 @@ def run(cfg: DictConfig):
 
             policy = load_diffusion_policy(
                 checkpoint_path=cfg.gpc.diffusion_checkpoint,
-                image_transform=img_transform(cfg),
+                image_transform=dp_img_transform(cfg),
                 device="cuda",
             )
 
@@ -2379,7 +2385,7 @@ def run(cfg: DictConfig):
 
             diffusion_policy = load_diffusion_policy(
                 checkpoint_path=cfg.gpc.diffusion_checkpoint,
-                image_transform=img_transform(cfg),
+                image_transform=dp_img_transform(cfg),
                 device="cuda",
             )
 

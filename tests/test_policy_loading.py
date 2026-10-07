@@ -36,7 +36,7 @@ class PolicyLoadingTests(unittest.TestCase):
         ns = dict(cfg=cfg, swm=Config(policy=factories, PlanConfig=Mock()),
                   hydra=Config(utils=Config(instantiate=Mock())), torch=Mock(),
                   ViTModel=Mock(return_value=replacement), load_diffusion_policy=Mock(),
-                  img_transform=Mock(return_value='image-transform'), process={}, transform={},
+                  dp_img_transform=Mock(return_value='image-transform'), process={}, transform={},
                   latent_goal_reward=object())
         exec(compile(ast.Module(body=run.body[start:start + 2], type_ignores=[]),
                      'eval_real_robot.py', 'exec'), ns)
