@@ -46,6 +46,65 @@ from stable_worldmodel.reward import latent_goal_reward
 from collections import deque
 from utils import get_eval_img_preprocessor
 
+
+def _reinforced_diffusion_action(policy, observation, ee, state, config, gripper_config):
+    """Select a Cartesian command using a monotonic deadline, not step count."""
+    now = time.monotonic()
+    if state.get("deadline") is not None and now >= state["deadline"]:
+        state.clear()
+    if not state:
+        result = policy.get_action(observation)
+        action = result[0] if isinstance(result, tuple) else result
+        action = np.asarray(action).reshape(-1)
+        if action.size != 8:
+            raise ValueError("Gripper reinforcement requires an 8D Cartesian action")
+        policy_command = float(action[7])  # Already inverse-transformed by DP.
+        if policy_command > float(config.threshold):
+            state["pose"] = np.asarray(ee, dtype=np.float32).copy()
+            state["deadline"] = time.monotonic() + float(config.duration_sec)
+        else:
+            return result, False, policy_command
+    else:
+        policy_command = float("nan")
+    command = (float(config.target_opening_mm) - float(gripper_config.open_position)) / (
+        float(gripper_config.closed_position) - float(gripper_config.open_position)
+    )
+    # execute() retains Cartesian/IK safety and gripper.max_delta clipping.
+    # Its 8D follower command replaces the persistent background target;
+    # Robopy only reissues G2 commands when that target changes. gripper.wait
+    # controls SDK waiting in that thread, not this monotonic deadline.
+    return np.concatenate([state["pose"], [command]]), True, policy_command
+
+
+def plot_commanded_vs_actual_gripper(commanded_action, actual_gripper, save_path):
+    """Compare command[t, 7] with pre-command measurement[t+1].
+
+    Missing measurements remain NaN gaps. The final command has no later
+    observation. Joint-only actions have no gripper command and are skipped.
+    """
+    commands = np.asarray(commanded_action, dtype=np.float32)
+    actual = np.asarray(actual_gripper, dtype=np.float32)
+    if commands.size == 0 or commands.ndim != 2 or commands.shape[1] < 8:
+        return
+    if actual.ndim != 1 or len(actual) != len(commands):
+        raise ValueError("Gripper measurements must match command steps")
+    steps = np.arange(1, len(commands))
+    fig, ax = plt.subplots(figsize=(12, 4))
+    try:
+        ax.plot(steps, commands[:-1, 7], marker="o", label="Command (previous step)")
+        ax.plot(steps, actual[1:], marker="o", label="Actual (G2 measurement)")
+        ax.set_xlabel("Observation step")
+        ax.set_ylabel("Gripper (0=open, 1=closed)")
+        ax.set_ylim(-0.05, 1.05)
+        ax.set_title("Commanded vs Actual Gripper")
+        ax.legend()
+        ax.grid(True)
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    finally:
+        plt.close(fig)
+
+
 def img_transform(cfg):
     return get_eval_img_preprocessor(cfg.eval.img_size)
 
@@ -441,6 +500,7 @@ class XArmInferenceEnv:
             dtype=np.float32,
         )
         self._last_gripper = np.float32(0.0)
+        self._last_actual_gripper = np.float32(np.nan)
 
         # Robopy owns the xArm connection/control thread.
         self._robot_owner = None
@@ -731,6 +791,8 @@ class XArmInferenceEnv:
         return np.asarray(value, dtype=np.float32)
 
     def get_robot_state(self):
+        # Measurement only: never reuse an old sample or substitute a command.
+        self._last_actual_gripper = np.float32(np.nan)
         if self.dry_run:
             return self._last_qpos, self._last_qvel, self._last_ee
 
@@ -808,12 +870,13 @@ class XArmInferenceEnv:
                 closed_pos = float(self.cfg.gripper.closed_position)
                 denominator = closed_pos - open_pos
                 if abs(denominator) > 1e-6:
-                    self._last_gripper = np.float32(np.clip(
+                    self._last_actual_gripper = np.float32(np.clip(
                         (float(gripper_position) - open_pos) / denominator,
                         0.0,
                         1.0,
                     ))
-        except (AttributeError, TypeError, ValueError):
+                    self._last_gripper = self._last_actual_gripper
+        except (AttributeError, TypeError, ValueError, RuntimeError, OSError):
             pass
         self._last_qpos, self._last_qvel, self._last_ee = qpos, qvel, ee
         return qpos, qvel, ee
@@ -1585,6 +1648,27 @@ def run_xarm_task(cfg, policy, process, results_path):
 
     """Run MPC against xArm and persist synchronized observations/actions."""
     real_cfg = cfg.eval.real_robot
+    reinforcement_config = getattr(real_cfg, "gripper_reinforcement", None)
+    reinforcement_enabled = (
+        isinstance(policy, swm.policy.DiffusionPolicy)
+        and reinforcement_config is not None
+        and bool(reinforcement_config.enabled)
+    )
+    reinforcement_state = {}
+
+    if reinforcement_enabled:
+        if str(cfg.plan_config.action_space) != "cartesian":
+            raise ValueError("Gripper reinforcement requires Cartesian control")
+        values = [float(reinforcement_config.threshold),
+                  float(reinforcement_config.target_opening_mm),
+                  float(reinforcement_config.duration_sec)]
+        open_mm = float(real_cfg.gripper.open_position)
+        closed_mm = float(real_cfg.gripper.closed_position)
+        if (not np.isfinite(values).all() or not 0 <= values[0] <= 1
+                or values[2] <= 0 or not np.isfinite([open_mm, closed_mm]).all()
+                or open_mm <= closed_mm or not closed_mm <= values[1] <= open_mm):
+            raise ValueError("Invalid gripper reinforcement configuration")
+
     env = XArmInferenceEnv(real_cfg, cfg.plan_config)
 
     policy.set_env(env)
@@ -1660,6 +1744,11 @@ def run_xarm_task(cfg, policy, process, results_path):
         "qvel",
         "ee_pos_quat",
         "gripper",
+        "actual_gripper",
+        "gripper_reinforcement_active",
+        "gripper_policy_command",
+        "gripper_command",
+        "gripper_actual",
         "timestamp",
     )}
 
@@ -1710,6 +1799,8 @@ def run_xarm_task(cfg, policy, process, results_path):
             tick = time.monotonic()
             image = env.get_image()
             qpos, qvel, ee = env.get_robot_state()
+            # Snapshot before execute, which may read state again.
+            actual_gripper = env._last_actual_gripper
 
             current_proprio = np.concatenate(
                 [
@@ -1752,8 +1843,18 @@ def run_xarm_task(cfg, policy, process, results_path):
             projection_state = {"qpos": qpos, "ee": ee, "gripper": env._last_gripper,}
 
 
-            if isinstance(policy, swm.policy.DiffusionPolicy,):
+            reinforcement_active = False
+            policy_gripper_command = float("nan")
+            if reinforcement_enabled:
+                action_result, reinforcement_active, policy_gripper_command = _reinforced_diffusion_action(
+                    policy, dp_info, ee, reinforcement_state, reinforcement_config, real_cfg.gripper
+                )
+            elif isinstance(policy, swm.policy.DiffusionPolicy,):
                 action_result = policy.get_action(dp_info)
+                dp_action = action_result[0] if isinstance(action_result, tuple) else action_result
+                dp_action = np.asarray(dp_action).reshape(-1)
+                if dp_action.size == 8:
+                    policy_gripper_command = float(dp_action[7])
 
 
             elif isinstance(policy, swm.policy.GPCPolicy,):
@@ -1793,6 +1894,8 @@ def run_xarm_task(cfg, policy, process, results_path):
                 )
                 
             # action = action_result[0] if isinstance(action_result, tuple) else action_result 
+            if stop_requested:
+                break
             commanded = env.execute(action, str(cfg.plan_config.action_space))
 
             records["pixels"].append(image)
@@ -1804,6 +1907,11 @@ def run_xarm_task(cfg, policy, process, results_path):
             records["qvel"].append(qvel)
             records["ee_pos_quat"].append(ee)
             records["gripper"].append(env._last_gripper)
+            records["actual_gripper"].append(actual_gripper)
+            records["gripper_reinforcement_active"].append(reinforcement_active)
+            records["gripper_policy_command"].append(policy_gripper_command)
+            records["gripper_command"].append(float(commanded[7]) if len(commanded) == 8 else np.nan)
+            records["gripper_actual"].append(actual_gripper)
             records["timestamp"].append(time.monotonic() - started)
             remaining = period - (time.monotonic() - tick)
             if remaining > 0:
@@ -1828,6 +1936,16 @@ def run_xarm_task(cfg, policy, process, results_path):
                     data=array,
                     **kwargs
                 )
+
+            h5["actual_gripper"].attrs["open_position"] = float(real_cfg.gripper.open_position)
+            h5["actual_gripper"].attrs["closed_position"] = float(real_cfg.gripper.closed_position)
+            h5["actual_gripper"].attrs["sampling"] = (
+                "Normalized: 0=open, 1=closed. Before inference/command at t; compare command[t] with measurement[t+1]."
+            )
+
+            for key in ("gripper_actual", "gripper_command", "gripper_policy_command"):
+                h5[key].attrs["units"] = "normalized: 0=open, 1=closed"
+            h5["gripper_actual"].attrs["sampling"] = h5["actual_gripper"].attrs["sampling"]
 
             h5.create_dataset(
                 "goal",
@@ -2011,6 +2129,11 @@ def run_xarm_task(cfg, policy, process, results_path):
                 f"saved to: {joint_plot_path}"
             )
 
+
+        plot_commanded_vs_actual_gripper(
+            records["commanded_action"], records["actual_gripper"],
+            run_dir / "commanded_vs_actual_gripper.png",
+        )
 
         # pixels を rollout.mp4 として保存
         if len(records["pixels"]) > 0:
