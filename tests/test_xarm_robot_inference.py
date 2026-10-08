@@ -13,6 +13,9 @@ from unittest.mock import Mock, patch
 
 import cv2
 import h5py
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 from omegaconf import OmegaConf
 from scipy.spatial.transform import Rotation
@@ -206,10 +209,10 @@ class InferenceTests(unittest.TestCase):
             policy = Diffusion()
             ns = dict(XArmInferenceEnv=cls, swm=SimpleNamespace(policy=SimpleNamespace(
                 WorldModelPolicy=type('WM', (), {}), DiffusionPolicy=Diffusion, GPCPolicy=type('GPC', (), {}))),
-                np=np, cv2=cv2, h5py=h5py, time=time, signal=signal, OmegaConf=OmegaConf,
+                np=np, plt=plt, cv2=cv2, h5py=h5py, time=time, signal=signal, OmegaConf=OmegaConf,
                 deque=deque, subprocess=subprocess, _load_or_capture_goal=lambda env, cfg:
                 (*env.get_images(), np.zeros(8, np.float32)))
-            ns = load_functions({'run_xarm_task', '_run_xarm_task_with_env', '_policy_observation'}, ns)
+            ns = load_functions({'run_xarm_task', '_run_xarm_task_with_env', '_policy_observation', 'plot_commanded_vs_actual_gripper'}, ns)
             with patch('robopy.robots.xarm.XArmRobot') as owner:
                 ns['run_xarm_task'](cfg, policy, {}, root)
             owner.assert_not_called()
@@ -219,6 +222,8 @@ class InferenceTests(unittest.TestCase):
             with h5py.File(root / 'rollout.h5', 'r') as file:
                 self.assertEqual(file['pixels'].shape, (1, 16, 16, 3))
                 self.assertEqual(file['wrist_pixels'].shape, (1, 16, 16, 3))
+                self.assertTrue(np.isnan(file['actual_gripper'][:]).all())
+            self.assertTrue((root / 'commanded_vs_actual_gripper.png').exists())
             for name in ('rollout_overhead.mp4', 'rollout_wrist.mp4'):
                 self.assertGreater((root / name).stat().st_size, 0)
             # Exercise the actual rollout exception path, including Ctrl-C.

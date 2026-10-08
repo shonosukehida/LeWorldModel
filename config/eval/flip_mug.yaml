@@ -108,10 +108,15 @@ eval:
       - [0.4995, 100.0]
       - [-0.2168, 0.2073]
       - [0.0, 0.4752]
+    gripper_reinforcement:
+      enabled: true
+      threshold: 0.2 #補強閾値 (0~1) 0:開放, 1:閉鎖
+      target_opening_mm: 0.0 #補強時開口長[mm]
+      duration_sec: 5.0 #補強持続時間[s]
     gripper:
       open_position: 84.0
       closed_position: 0.0
-      speed: 200
+      speed: 225
       force: 100 #[%]
       wait: true
       max_delta: 1.0 #0.10

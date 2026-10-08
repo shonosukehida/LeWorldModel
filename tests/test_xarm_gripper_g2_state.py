@@ -44,18 +44,21 @@ class GripperG2StateTests(unittest.TestCase):
                 env._robot.get_gripper_g2_position.return_value = (0, position)
                 env.get_robot_state()
                 self.assertEqual(env._last_gripper, expected)
+                self.assertEqual(env._last_actual_gripper, expected)
                 env._robot.get_gripper_g2_position.assert_called_once_with()
                 env._robot.get_gripper_position.assert_not_called()
 
     def test_failed_reads_keep_follower_state(self):
-        for result in ((1, 0.), AttributeError(), TypeError(), ValueError()):
+        for result in ((1, 0.), AttributeError(), TypeError(), ValueError(), RuntimeError(), OSError()):
             with self.subTest(result=result):
                 env = self.env()
                 if isinstance(result, Exception):
                     env._robot.get_gripper_g2_position.side_effect = result
                 else:
                     env._robot.get_gripper_g2_position.return_value = result
+                env._last_actual_gripper = np.float32(1.)
                 env.get_robot_state()
+                self.assertTrue(np.isnan(env._last_actual_gripper))
                 self.assertEqual(env._last_gripper, 0.25)
                 env._robot.get_gripper_position.assert_not_called()
 
