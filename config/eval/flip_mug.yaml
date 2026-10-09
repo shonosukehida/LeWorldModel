@@ -38,10 +38,10 @@ dataset:
 
 seed: 42
 policy: lewm_weights 
-policy_type: diffusion #world_model/gpc/diffusion
+policy_type: gpc #world_model/gpc/diffusion
 gpc:
   diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261003_085301/best.ckpt
-  num_candidates: 50
+  num_candidates: 1
 
 
 plan_config:
@@ -55,8 +55,8 @@ plan_config:
 eval:
   num_eval: 1 #1
   img_size: 224 
-  dataset_name: flip_mug/ep200_tm300_multiview_demo/push
-  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz
+  dataset_name: flip_mug/ep100_tm300_multiview_play/push #flip_mug/ep200_tm300_multiview_demo/push
+  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep100_tm300_multiview_play/process_stats.npz #${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz
   ac_cost_dataset_name: null
 
 

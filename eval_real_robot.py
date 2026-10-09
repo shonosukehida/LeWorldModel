@@ -82,6 +82,41 @@ def _reinforced_diffusion_action(policy, observation, ee, state, config, gripper
     return np.concatenate([state["pose"], [command]]), True, policy_command
 
 
+def _reinforced_gpc_action(policy, observation, dp_info, projection_state, ee,
+                           state, config, gripper_config):
+    """Hold the observed EE pose after GPC selects a physical closing action."""
+    values = [float(config.threshold), float(config.target_opening_mm),
+              float(config.duration_sec)]
+    open_mm = float(gripper_config.open_position)
+    closed_mm = float(gripper_config.closed_position)
+    if (not np.isfinite(values).all() or not 0 <= values[0] <= 1
+            or values[2] <= 0 or not np.isfinite([open_mm, closed_mm]).all()
+            or open_mm <= closed_mm or not closed_mm <= values[1] <= open_mm):
+        raise ValueError("Invalid GPC gripper reinforcement configuration")
+    now = time.monotonic()
+    if state.get("deadline") is not None and now >= state["deadline"]:
+        state.clear()
+    if not state:
+        result = policy.get_action(
+            observation, dp_info_dict=dp_info, projection_state=projection_state,
+        )
+        action = np.asarray(result[0] if isinstance(result, tuple) else result)
+        if action.shape not in ((8,), (1, 8)) or not np.isfinite(action).all():
+            raise ValueError("GPC reinforcement requires a finite 8D Cartesian action")
+        policy_command = float(action.reshape(-1)[7])
+        if policy_command <= values[0]:
+            return result, False, policy_command
+        pose = np.asarray(ee, dtype=np.float32)
+        if pose.shape != (7,) or not np.isfinite(pose).all():
+            raise ValueError("GPC reinforcement requires a finite 7D EE pose")
+        state["pose"] = pose.copy()
+        state["deadline"] = time.monotonic() + values[2]
+    else:
+        policy_command = float("nan")
+    command = (values[1] - open_mm) / (closed_mm - open_mm)
+    return np.concatenate([state["pose"], [command]]), True, policy_command
+
+
 def plot_commanded_vs_actual_gripper(commanded_action, actual_gripper, save_path):
     """Compare command[t, 7] with pre-command measurement[t+1].
 
@@ -1619,6 +1654,15 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
                 or open_mm <= closed_mm or not closed_mm <= values[1] <= open_mm):
             raise ValueError("Invalid gripper reinforcement configuration")
 
+    gpc_reinforcement_enabled = (
+        isinstance(policy, swm.policy.GPCPolicy)
+        and reinforcement_config is not None
+        and bool(reinforcement_config.enabled)
+    )
+    gpc_reinforcement_state = {}
+    if gpc_reinforcement_enabled and str(cfg.plan_config.action_space) != "cartesian":
+        raise ValueError("GPC gripper reinforcement requires Cartesian control")
+
     previous_sigint = signal.signal(signal.SIGINT, request_stop)
     records = {key: [] for key in (
         "pixels",
@@ -1767,6 +1811,11 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
                     policy_gripper_command = float(dp_action[7])
 
 
+            elif gpc_reinforcement_enabled:
+                action_result, reinforcement_active, policy_gripper_command = _reinforced_gpc_action(
+                    policy, info, dp_info, projection_state, ee,
+                    gpc_reinforcement_state, reinforcement_config, real_cfg.gripper,
+                )
             elif isinstance(policy, swm.policy.GPCPolicy,):
 
                 action_result = policy.get_action(

@@ -86,7 +86,7 @@ def namespace(clock):
               _load_or_capture_goal=lambda env, cfg: (np.zeros((16,16,3), np.uint8),
                   np.zeros((16,16,3), np.uint8), np.zeros(8)))
     names = {'_run_xarm_task_with_env', '_policy_observation',
-             '_reinforced_diffusion_action', 'plot_commanded_vs_actual_gripper'}
+             '_reinforced_diffusion_action', '_reinforced_gpc_action', 'plot_commanded_vs_actual_gripper'}
     nodes = [n for n in ast.parse((ROOT/'eval_real_robot.py').read_text()).body
              if isinstance(n, ast.FunctionDef) and n.name in names]
     exec(compile(ast.Module(body=nodes, type_ignores=[]), 'eval_real_robot.py', 'exec'), ns)
@@ -134,11 +134,82 @@ class ReinforcementTests(unittest.TestCase):
         self.assertFalse(logs['gripper_reinforcement_active'].any())
         np.testing.assert_allclose(np.array(env.sent)[:,7], .9)
 
-    def test_gpc_is_not_reinforced(self):
-        env, policy, logs = self.rollout(commands=[.9]*6, policy_class=GPC)
+    def test_gpc_disabled_preserves_actions(self):
+        env, policy, logs = self.rollout(False, commands=[.9]*6, policy_class=GPC)
         self.assertEqual(len(policy.observations),6)
         self.assertFalse(logs['gripper_reinforcement_active'].any())
         np.testing.assert_allclose(np.array(env.sent)[:,7], .9)
+
+    def test_gpc_hold_resume_history_and_logs(self):
+        env, policy, logs = self.rollout(policy_class=GPC)
+        _, _, dp_logs = self.rollout()
+        self.assertEqual(set(logs), set(dp_logs))
+        np.testing.assert_array_equal(logs['gripper_reinforcement_active'], [1,1,1,0,1,1])
+        self.assertEqual(len(policy.observations), 3)
+        np.testing.assert_array_equal(policy.observations[1]['pixels'][0,:,0,0,0], [2,3])
+        np.testing.assert_allclose(np.array(env.sent)[:3,:7], np.tile(env.sent[0][:7], (3,1)))
+        np.testing.assert_allclose(env.sent[0][:7], [.5,0,.3,0,0,0,1])
+        np.testing.assert_allclose(logs['gripper_command'], [64/84]*3+[.1]+[64/84]*2)
+        np.testing.assert_allclose(logs['gripper_policy_command'], [.9,np.nan,np.nan,.1,.8,np.nan], equal_nan=True)
+        np.testing.assert_allclose(logs['commanded_action'][:,7], logs['gripper_command'])
+        np.testing.assert_allclose(logs['gripper_actual'][1:], logs['gripper_command'][:-1])
+
+    def test_gpc_threshold_is_strict(self):
+        env, policy, logs = self.rollout(commands=[.1,.2,0,.2,.1,.2], policy_class=GPC)
+        self.assertEqual(len(policy.observations), 6)
+        self.assertFalse(logs['gripper_reinforcement_active'].any())
+        np.testing.assert_allclose(np.array(env.sent)[:,7], [.1,.2,0,.2,.1,.2])
+
+    def test_gpc_validation_and_monotonic_deadline(self):
+        clock = Clock()
+        select = namespace(clock)['_reinforced_gpc_action']
+        cfg = SimpleNamespace(threshold=.2, target_opening_mm=0., duration_sec=5.)
+        gripper = SimpleNamespace(open_position=84., closed_position=0.)
+        pose = np.array([.5,0,.3,0,0,0,1])
+        policy = Mock()
+        result = np.array([[.7,.1,.2,0,0,0,1,.9]])
+        policy.get_action.return_value = result
+        state = {}
+        obs, dp_obs, projection = {}, {'pixels': 1}, {'ee': pose}
+        action, active, command = select(policy, obs, dp_obs, projection, pose, state, cfg, gripper)
+        self.assertTrue(active)
+        self.assertEqual(command, .9)
+        self.assertEqual(action[7], 1.)
+        policy.get_action.assert_called_once_with(obs, dp_info_dict=dp_obs, projection_state=projection)
+        pose[0] = 99
+        for now in [0., 1., 4.999]:
+            clock.now = now
+            held, active, command = select(policy, obs, dp_obs, projection, pose, state, cfg, gripper)
+            np.testing.assert_array_equal(held, action)
+            self.assertTrue(active)
+            self.assertTrue(np.isnan(command))
+        self.assertEqual(policy.get_action.call_count, 1)
+        clock.now = 5.
+        result[0,7] = .1
+        resumed, active, _ = select(policy, obs, dp_obs, projection, pose, state, cfg, gripper)
+        self.assertIs(resumed, result)
+        self.assertFalse(active)
+        self.assertFalse(state)
+        self.assertEqual(policy.get_action.call_count, 2)
+        for bad in [np.zeros(7), np.zeros((2,8)), np.zeros((2,4)), np.full((1,8), np.nan)]:
+            with self.subTest(shape=bad.shape), self.assertRaises(ValueError):
+                policy.get_action.return_value = bad
+                select(policy, obs, dp_obs, projection, pose, {}, cfg, gripper)
+        policy.get_action.return_value = np.array([[0,0,0,0,0,0,1,.9]])
+        for bad_pose in [np.zeros(6), np.full(7, np.nan)]:
+            with self.assertRaises(ValueError):
+                select(policy, obs, dp_obs, projection, bad_pose, {}, cfg, gripper)
+        for field, value in [('threshold', -1), ('threshold', float('nan')),
+                             ('duration_sec', 0), ('duration_sec', float('inf')),
+                             ('target_opening_mm', 85), ('target_opening_mm', -1)]:
+            bad_cfg = SimpleNamespace(**vars(cfg))
+            setattr(bad_cfg, field, value)
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                select(policy, obs, dp_obs, projection, pose, {}, bad_cfg, gripper)
+        for bad_gripper in [SimpleNamespace(open_position=0., closed_position=0.),
+                            SimpleNamespace(open_position=float('nan'), closed_position=0.)]:
+            with self.assertRaises(ValueError):
+                select(policy, obs, dp_obs, projection, pose, {}, cfg, bad_gripper)
 
     def test_threshold_is_strict(self):
         _, policy, logs = self.rollout(commands=[.1,.2,0,.2,.1,.2])
