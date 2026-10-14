@@ -53,19 +53,58 @@ from collections import deque
 from utils import get_eval_img_preprocessor
 
 
-def _reinforced_diffusion_action(policy, observation, ee, state, config, gripper_config):
-    """Select a Cartesian command using a monotonic deadline, not step count."""
-    now = time.monotonic()
+def _validate_gripper_reinforcement(config, gripper_config):
+    """Validate physical settings and the explicit legacy sentinel."""
+    try:
+        threshold = float(config.threshold)
+        rearm = float(getattr(config, "rearm_threshold", 1.0))
+        target = float(config.target_opening_mm)
+        duration = float(config.duration_sec)
+        open_mm = float(gripper_config.open_position)
+        closed_mm = float(gripper_config.closed_position)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Invalid gripper reinforcement configuration: expected numeric values") from exc
+    if (not np.isfinite([threshold, rearm, target, duration, open_mm, closed_mm]).all()
+            or not 0 <= threshold <= 1
+            or not ((rearm == 1.0 and threshold < 1) or 0 <= rearm < threshold)
+            or duration <= 0 or open_mm <= closed_mm
+            or not closed_mm <= target <= open_mm):
+        raise ValueError("Invalid gripper reinforcement configuration: require "
+                         "0 <= rearm_threshold < threshold <= 1, or rearm_threshold == 1 with threshold < 1; "
+                         "finite values, positive duration and valid opening range")
+    return rearm
+
+
+def _expire_gripper_reinforcement(state, now, rearm):
     if state.get("deadline") is not None and now >= state["deadline"]:
         state.clear()
-    if not state:
+        if rearm != 1.0:
+            state["disarmed"] = True
+
+
+def _gripper_reinforcement_allowed(state, policy_command, rearm):
+    """Only raw policy output can rearm; the rearming step never triggers."""
+    if state.get("disarmed", False):
+        if policy_command <= rearm:
+            state.clear()
+        return False
+    return True
+
+
+def _reinforced_diffusion_action(policy, observation, ee, state, config, gripper_config):
+    """Select a Cartesian command using a monotonic deadline, not step count."""
+    rearm = _validate_gripper_reinforcement(config, gripper_config)
+    now = time.monotonic()
+    _expire_gripper_reinforcement(state, now, rearm)
+    if state.get("deadline") is None:
         result = policy.get_action(observation)
         action = result[0] if isinstance(result, tuple) else result
         action = np.asarray(action).reshape(-1)
         if action.size != 8:
             raise ValueError("Gripper reinforcement requires an 8D Cartesian action")
         policy_command = float(action[7])  # Already inverse-transformed by DP.
-        if policy_command > float(config.threshold):
+        if (_gripper_reinforcement_allowed(state, policy_command, rearm)
+                and policy_command > float(config.threshold)):
             state["pose"] = np.asarray(ee, dtype=np.float32).copy()
             state["deadline"] = time.monotonic() + float(config.duration_sec)
         else:
@@ -85,18 +124,14 @@ def _reinforced_diffusion_action(policy, observation, ee, state, config, gripper
 def _reinforced_gpc_action(policy, observation, dp_info, projection_state, ee,
                            state, config, gripper_config):
     """Hold the observed EE pose after GPC selects a physical closing action."""
+    rearm = _validate_gripper_reinforcement(config, gripper_config)
     values = [float(config.threshold), float(config.target_opening_mm),
               float(config.duration_sec)]
     open_mm = float(gripper_config.open_position)
     closed_mm = float(gripper_config.closed_position)
-    if (not np.isfinite(values).all() or not 0 <= values[0] <= 1
-            or values[2] <= 0 or not np.isfinite([open_mm, closed_mm]).all()
-            or open_mm <= closed_mm or not closed_mm <= values[1] <= open_mm):
-        raise ValueError("Invalid GPC gripper reinforcement configuration")
     now = time.monotonic()
-    if state.get("deadline") is not None and now >= state["deadline"]:
-        state.clear()
-    if not state:
+    _expire_gripper_reinforcement(state, now, rearm)
+    if state.get("deadline") is None:
         result = policy.get_action(
             observation, dp_info_dict=dp_info, projection_state=projection_state,
         )
@@ -104,7 +139,8 @@ def _reinforced_gpc_action(policy, observation, dp_info, projection_state, ee,
         if action.shape not in ((8,), (1, 8)) or not np.isfinite(action).all():
             raise ValueError("GPC reinforcement requires a finite 8D Cartesian action")
         policy_command = float(action.reshape(-1)[7])
-        if policy_command <= values[0]:
+        if (not _gripper_reinforcement_allowed(state, policy_command, rearm)
+                or policy_command <= values[0]):
             return result, False, policy_command
         pose = np.asarray(ee, dtype=np.float32)
         if pose.shape != (7,) or not np.isfinite(pose).all():
@@ -1644,15 +1680,7 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
     if reinforcement_enabled:
         if str(cfg.plan_config.action_space) != "cartesian":
             raise ValueError("Gripper reinforcement requires Cartesian control")
-        values = [float(reinforcement_config.threshold),
-                  float(reinforcement_config.target_opening_mm),
-                  float(reinforcement_config.duration_sec)]
-        open_mm = float(real_cfg.gripper.open_position)
-        closed_mm = float(real_cfg.gripper.closed_position)
-        if (not np.isfinite(values).all() or not 0 <= values[0] <= 1
-                or values[2] <= 0 or not np.isfinite([open_mm, closed_mm]).all()
-                or open_mm <= closed_mm or not closed_mm <= values[1] <= open_mm):
-            raise ValueError("Invalid gripper reinforcement configuration")
+        _validate_gripper_reinforcement(reinforcement_config, real_cfg.gripper)
 
     gpc_reinforcement_enabled = (
         isinstance(policy, swm.policy.GPCPolicy)

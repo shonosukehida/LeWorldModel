@@ -85,7 +85,8 @@ def namespace(clock):
                   GPCPolicy=GPC, WorldModelPolicy=type('WM', (), {}))),
               _load_or_capture_goal=lambda env, cfg: (np.zeros((16,16,3), np.uint8),
                   np.zeros((16,16,3), np.uint8), np.zeros(8)))
-    names = {'_run_xarm_task_with_env', '_policy_observation',
+    names = {'_validate_gripper_reinforcement', '_expire_gripper_reinforcement',
+             '_gripper_reinforcement_allowed', '_run_xarm_task_with_env', '_policy_observation',
              '_reinforced_diffusion_action', '_reinforced_gpc_action', 'plot_commanded_vs_actual_gripper'}
     nodes = [n for n in ast.parse((ROOT/'eval_real_robot.py').read_text()).body
              if isinstance(n, ast.FunctionDef) and n.name in names]
@@ -94,12 +95,14 @@ def namespace(clock):
 
 
 class ReinforcementTests(unittest.TestCase):
-    def rollout(self, enabled=True, commands=(.9, .1, .8), stop_at=None, max_delta=1., policy_class=Diffusion):
+    def rollout(self, enabled=True, commands=(.9, .1, .8), stop_at=None, max_delta=1., policy_class=Diffusion, rearm=None):
         cfg = OmegaConf.create({'plan_config': {'action_space':'cartesian'}, 'eval': {
             'real_robot': {'max_steps':6, 'control_hz':10, 'non_interactive':True,
                 'gripper': {'open_position':84., 'closed_position':0., 'max_delta': max_delta},
                 'gripper_reinforcement': {'enabled':enabled, 'threshold':.2,
                     'target_opening_mm':20., 'duration_sec':.25}}}})
+        if rearm is not None:
+            cfg.eval.real_robot.gripper_reinforcement.rearm_threshold = rearm
         env, policy = FakeEnv(stop_at, max_delta), policy_class(commands)
         clock = Clock()
         handler = signal.getsignal(signal.SIGINT)
@@ -246,6 +249,128 @@ class ReinforcementTests(unittest.TestCase):
         self.assertFalse(select(policy, {'latest':3}, pose, state, cfg, gripper)[1])
         self.assertEqual(policy.observations, [{'latest':0}, {'latest':3}])
         self.assertFalse(state)
+
+    def test_exact_legacy_regression(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'legacy', ROOT/'tests/legacy_gripper_reinforcement.py')
+        legacy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(legacy)
+        for policy_type, name in [(Diffusion, '_reinforced_diffusion_action'),
+                                  (GPC, '_reinforced_gpc_action')]:
+            for rearm in [None, 1.0]:
+                with self.subTest(policy=policy_type.__name__, rearm=rearm):
+                    clocks = [Clock(), Clock()]
+                    legacy.time = clocks[0]
+                    functions = [getattr(legacy, name), namespace(clocks[1])[name]]
+                    policies = [policy_type([.2, .3, .8, .1, .9, .1]) for _ in range(2)]
+                    states = [{}, {}]
+                    cfg = SimpleNamespace(threshold=.2, target_opening_mm=20., duration_sec=5.)
+                    if rearm is not None:
+                        cfg.rearm_threshold = rearm
+                    gripper = SimpleNamespace(open_position=84., closed_position=0.)
+                    for step, now in enumerate([0., 1., 1., 5.999, 6., 10.999, 11., 12., 17.]):
+                        pose = np.array([.5 + step*.01, 0, .3, 0, 0, 0, 1])
+                        outputs = []
+                        for i in range(2):
+                            clocks[i].now = now
+                            args = (policies[i], {'step':step})
+                            if policy_type is GPC:
+                                args += ({'step':step}, {'ee':pose})
+                            outputs.append(functions[i](*args, pose, states[i], cfg, gripper))
+                        np.testing.assert_array_equal(outputs[0][0], outputs[1][0])
+                        self.assertEqual(outputs[0][1], outputs[1][1])
+                        np.testing.assert_equal(outputs[0][2], outputs[1][2])
+                        self.assertEqual(states[0].keys(), states[1].keys())
+                        for key in states[0]:
+                            np.testing.assert_array_equal(states[0][key], states[1][key])
+                        self.assertEqual(policies[0].observations, policies[1].observations)
+
+    def test_hysteresis_both_policies(self):
+        for policy_type, name in [(Diffusion, '_reinforced_diffusion_action'),
+                                  (GPC, '_reinforced_gpc_action')]:
+            with self.subTest(policy=policy_type.__name__):
+                clock = Clock()
+                select = namespace(clock)[name]
+                policy = policy_type([0., .1, .2, .21, .8, .7, .1001, .1, .6])
+                cfg = SimpleNamespace(threshold=.2, rearm_threshold=.1,
+                                      target_opening_mm=0., duration_sec=5.)
+                gripper = SimpleNamespace(open_position=84., closed_position=0.)
+                state = {}
+                for step, (now, active, calls) in enumerate([
+                        (0, False, 1), (1, False, 2), (2, False, 3), (3, True, 4),
+                        (3, True, 4), (7.999, True, 4), (8, False, 5),
+                        (9, False, 6), (10, False, 7), (11, False, 8), (12, True, 9)]):
+                    clock.now = now
+                    pose = np.array([.5+step*.01, 0, .3, 0, 0, 0, 1])
+                    args = (policy, {'step':step})
+                    if policy_type is GPC:
+                        args += ({'step':step}, {'ee':pose})
+                    action, actual_active, raw = select(*args, pose, state, cfg, gripper)
+                    self.assertEqual(actual_active, active)
+                    self.assertEqual(len(policy.observations), calls)
+                    if active:
+                        np.testing.assert_array_equal(np.asarray(action)[:7], state['pose'])
+                        self.assertEqual(action[7], 1.)
+                    if 6 <= step <= 8:
+                        self.assertTrue(state['disarmed'])
+                        self.assertGreater(raw, cfg.rearm_threshold)
+                        self.assertEqual(np.asarray(action).reshape(-1)[7], raw)
+                    if step == 9:
+                        self.assertFalse(state)
+
+    def test_hysteresis_rollout_logs_and_disabled(self):
+        for policy_type in [Diffusion, GPC]:
+            with self.subTest(policy=policy_type.__name__):
+                _, policy, logs = self.rollout(commands=[.9, .8, .7, .1],
+                                              policy_class=policy_type, rearm=.1)
+                np.testing.assert_array_equal(logs['gripper_reinforcement_active'], [1,1,1,0,0,0])
+                np.testing.assert_allclose(logs['gripper_policy_command'],
+                                           [.9,np.nan,np.nan,.8,.7,.1], equal_nan=True)
+                np.testing.assert_allclose(logs['commanded_action'][:,7], logs['gripper_command'])
+                self.assertEqual(len(policy.observations), 4)
+                _, _, legacy_logs = self.rollout(policy_class=policy_type)
+                self.assertEqual(set(logs), set(legacy_logs))
+                for key in logs:
+                    self.assertEqual(logs[key].dtype, legacy_logs[key].dtype)
+                    self.assertEqual(logs[key].shape, legacy_logs[key].shape)
+                _, policy, logs = self.rollout(False, commands=[.9]*6,
+                                              policy_class=policy_type, rearm=float('nan'))
+                self.assertEqual(len(policy.observations), 6)
+                self.assertFalse(logs['gripper_reinforcement_active'].any())
+
+    def test_threshold_one_only_allowed_in_hysteresis(self):
+        validate = namespace(Clock())['_validate_gripper_reinforcement']
+        cfg = SimpleNamespace(threshold=1., rearm_threshold=.1,
+                              target_opening_mm=0., duration_sec=5.)
+        gripper = SimpleNamespace(open_position=84., closed_position=0.)
+        self.assertEqual(validate(cfg, gripper), .1)
+        cfg.rearm_threshold = 1.
+        with self.assertRaises(ValueError):
+            validate(cfg, gripper)
+
+    def test_invalid_hysteresis_configuration_both_policies(self):
+        for name in ['_reinforced_diffusion_action', '_reinforced_gpc_action']:
+            select = namespace(Clock())[name]
+            for field, value in [('rearm_threshold', -.1), ('rearm_threshold', .2),
+                                 ('rearm_threshold', .3), ('rearm_threshold', 1.01),
+                                 ('rearm_threshold', float('nan')),
+                                 ('rearm_threshold', float('inf')),
+                                 ('rearm_threshold', None), ('rearm_threshold', 'invalid'),
+                                 ('threshold', 1.01), ('threshold', -.1),
+                                 ('threshold', float('nan')), ('threshold', float('inf')),
+                                 ('duration_sec', 0), ('duration_sec', float('inf')),
+                                 ('target_opening_mm', float('nan'))]:
+                with self.subTest(name=name, field=field, value=value):
+                    cfg = SimpleNamespace(threshold=.2, rearm_threshold=.1,
+                                          target_opening_mm=0., duration_sec=5.)
+                    setattr(cfg, field, value)
+                    policy = Mock()
+                    args = (policy, {}) + (({}, {}) if 'gpc' in name else ())
+                    with self.assertRaisesRegex(ValueError, 'configuration'):
+                        select(*args, np.zeros(7), {}, cfg,
+                               SimpleNamespace(open_position=84., closed_position=0.))
+                    policy.get_action.assert_not_called()
 
     def test_plot_has_only_command_and_actual(self):
         from unittest.mock import patch

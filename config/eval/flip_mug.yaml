@@ -41,7 +41,7 @@ policy: lewm_weights
 policy_type: gpc #world_model/gpc/diffusion
 gpc:
   diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261003_085301/best.ckpt
-  num_candidates: 1
+  num_candidates: 50
 
 
 plan_config:
@@ -111,6 +111,7 @@ eval:
     gripper_reinforcement:
       enabled: true
       threshold: 0.2 #補強閾値 (0~1) 0:開放, 1:閉鎖
+      rearm_threshold: 0.1 #再補強を許可する開放閾値。1.0または未指定で従来互換
       target_opening_mm: 0.0 #補強時開口長[mm]
       duration_sec: 5.0 #補強持続時間[s]
     gripper:
