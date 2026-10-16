@@ -156,6 +156,82 @@ class UpperJEPATests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 model.rollout(info, a[:, :, :-1])
 
+    def test_rollout_one_observation_grows_history_and_aligns_macros(self):
+        class EchoAction(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.inputs = []
+            def forward(self, macro):
+                self.inputs.append(macro.clone())
+                return macro[..., :1].expand(*macro.shape[:-1], 416)
+        class Add(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.calls = []
+            def forward(self, z, a):
+                self.calls.append((z.clone(), a.clone()))
+                return z + a
+        for n, hs in ((2, 3), (5, 3), (5, 2)):
+            with self.subTest(macros=n, history_size=hs):
+                h, b, samples = 4, 2, 2
+                mean, scale = torch.arange(8.) / 10, torch.arange(1., 9.)
+                mean[0], scale[0] = 10., 2.
+                delta_mean, delta_scale = torch.arange(8.) / 4, torch.arange(1., 9.)
+                model = make_model(h, predictor=Add(), pred_proj=nn.Identity(),
+                                   action_mean=mean, action_scale=scale,
+                                   delta_mean=delta_mean, delta_scale=delta_scale)
+                model.action_encoder = EchoAction()
+                initial = torch.zeros(b, 1, 416)
+                model.encode = Mock(return_value={'emb': initial})
+                info = dict(pixels=torch.zeros(b, samples, 1, 3, 2, 2),
+                            wrist_pixels=torch.zeros(b, samples, 1, 3, 2, 2),
+                            proprio=torch.zeros(b, samples, 1, 8))
+                a = actions(n*h).view(b, 1, n*h, 8).expand(-1, samples, -1, -1).clone()
+                increments = torch.tensor([1., 2., 4., 8., 16.])[:n].expand(b, samples, n).clone()
+                increments[:, 1, 0] = 11.
+                a[:, :, ::h, 0] = increments * scale[0] + mean[0]
+                result = model.rollout(info, a, history_size=hs)['predicted_emb']
+                self.assertEqual(result.shape, (b, samples, n+1, 416))
+                states = torch.cat((torch.zeros(b, samples, 1), increments.cumsum(-1)), -1)
+                torch.testing.assert_close(result[..., 0], states)
+                self.assertEqual(model.encode.call_args.args[0]['pixels'].shape[1], 1)
+                self.assertEqual(len(model.predictor.calls), n)  # Includes final macro.
+                for index, (z, act) in enumerate(model.predictor.calls):
+                    length = min(index+1, hs)
+                    start = index+1-length
+                    self.assertEqual(z.shape, (b*samples, length, 416))
+                    self.assertEqual(act.shape, z.shape)
+                    torch.testing.assert_close(z[..., 0].reshape(b, samples, length), states[..., start:index+1])
+                    torch.testing.assert_close(act[..., 0].reshape(b, samples, length), increments[..., start:index+1])
+                chunks = a.reshape(b*samples, n, h, 8)
+                received = model.action_encoder.inputs[0]
+                self.assertEqual(received.shape, (b*samples, n, 56))
+                torch.testing.assert_close(received[..., :32], ((chunks-mean)/scale).flatten(-2))
+                torch.testing.assert_close(received, model.build_macro_action(chunks))
+                # A partial macro must stop before the Action Encoder is called.
+                with self.assertRaisesRegex(ValueError, 'divisible by horizon'):
+                    model.rollout(info, a[:, :, :-1], history_size=hs)
+                self.assertEqual(len(model.action_encoder.inputs), 1)
+
+    def test_rollout_one_observation_with_inherited_predictor(self):
+        model = make_model(4)
+        info = dict(pixels=torch.randn(2, 2, 1, 3, 4, 4),
+                    wrist_pixels=torch.randn(2, 2, 1, 3, 4, 4),
+                    proprio=torch.randn(2, 2, 1, 8))
+        a = actions(8).unsqueeze(1).expand(-1, 2, -1, -1)
+        lengths = []
+        handle = model.predictor.register_forward_pre_hook(lambda module, args: lengths.append(args[0].shape[1]))
+        try:
+            with torch.no_grad():
+                result = model.rollout(info, a)
+        finally:
+            handle.remove()
+        self.assertEqual(lengths, [1, 2])
+        self.assertEqual(result['predicted_emb'].shape, (2, 2, 3, 416))
+        torch.testing.assert_close(result['predicted_emb'][:, :, :1], result['emb'])
+        self.assertTrue(torch.isfinite(result['predicted_emb']).all())
+        self.assertEqual(model.history_size, 3)
+
     def test_inherited_cost_and_single_transition(self):
         model = make_model(2)
         info = dict(pixels=torch.randn(2, 2, 1, 3, 4, 4),

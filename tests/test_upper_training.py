@@ -299,11 +299,21 @@ class UpperTrainingTests(unittest.TestCase):
             self.assertEqual(set(module.log_dict.call_args_list[1].args[0]), {f'{stage}/{key}_step' for key in required})
 
     def test_real_cpu_training_and_portable_checkpoint_round_trip(self):
+        class SchedulerTrace(pl.Callback):
+            def __init__(self):
+                self.epochs = []
+                self.batches = []
+            def on_train_epoch_start(self, trainer, module):
+                self.epochs.append(trainer.lr_scheduler_configs[0].scheduler.last_epoch)
+            def on_train_batch_end(self, trainer, module, outputs, batch, batch_idx):
+                self.batches.append(trainer.lr_scheduler_configs[0].scheduler.last_epoch)
+        trace = SchedulerTrace()
         train, val, process, split = self.prepare()
         module = UpperTrainingModule(config(), serialize_process(process), split)
         train_loader = DataLoader(train, batch_size=2)
         val_loader = DataLoader(val, batch_size=2)
-        trainer = pl.Trainer(accelerator='cpu', devices=1, precision='32-true', max_epochs=1,
+        trainer = pl.Trainer(accelerator='cpu', devices=1, precision='32-true', max_epochs=2,
+                             callbacks=[trace],
                              limit_train_batches=2, limit_val_batches=1, num_sanity_val_steps=0,
                              gradient_clip_val=1., enable_progress_bar=False, enable_model_summary=False,
                              enable_checkpointing=False, log_every_n_steps=1,
@@ -311,6 +321,15 @@ class UpperTrainingTests(unittest.TestCase):
         before = [p.detach().clone() for p in module.idm.parameters()]
         model_before = module.model.prop_encoder.net[0].weight.detach().clone()
         trainer.fit(module, train_loader, val_loader)
+        self.assertEqual(trainer.lr_scheduler_configs[0].interval, 'epoch')
+        self.assertEqual(type(trainer.lr_scheduler_configs[0].scheduler).__name__, 'LinearWarmupCosineAnnealingLR')
+        self.assertEqual(trace.epochs, [0, 1])
+        # Lightning advances an epoch scheduler after its final training batch,
+        # before dispatching that batch's end callback.
+        self.assertEqual(trace.batches, [0, 1, 1, 2])
+        self.assertEqual(trainer.lr_scheduler_configs[0].scheduler.last_epoch, 2)
+        self.assertEqual(trainer.optimizers[0].defaults['lr'], config()['optimizer']['lr'])
+        self.assertEqual(trainer.optimizers[0].defaults['weight_decay'], config()['optimizer']['weight_decay'])
         for a, b in zip(before, module.idm.parameters()):
             torch.testing.assert_close(a, b, rtol=0, atol=0)
             self.assertFalse(b.requires_grad)
@@ -344,6 +363,18 @@ class UpperTrainingTests(unittest.TestCase):
         self.assertEqual(saved['upper_jepa_metadata']['normalization_stats_path'], 'process_stats.npz')
         self.assertEqual(saved['hyper_parameters']['split'], split)
         self.assertTrue(saved['optimizer_states'])
+        scheduler_state = trainer.lr_scheduler_configs[0].scheduler.state_dict()
+        self.assertEqual(saved['lr_schedulers'][0], scheduler_state)
+        # Reconstruct the optimizer/scheduler and restore the unchanged Lightning
+        # checkpoint entries, including the current LR and epoch counter.
+        restored.trainer = trainer
+        optim_config = restored.configure_optimizers()
+        optim_config['optimizer'].load_state_dict(saved['optimizer_states'][0])
+        restored_scheduler = optim_config['lr_scheduler']['scheduler']
+        restored_scheduler.load_state_dict(saved['lr_schedulers'][0])
+        self.assertEqual(optim_config['lr_scheduler']['interval'], 'epoch')
+        self.assertEqual(restored_scheduler.state_dict(), scheduler_state)
+        self.assertEqual(optim_config['optimizer'].param_groups[0]['lr'], trainer.optimizers[0].param_groups[0]['lr'])
         # Restored observation preprocessing also uses the embedded train stats.
         raw = dict(pixels=torch.zeros(4, 28, 28, 3, dtype=torch.uint8),
                    wrist_pixels=torch.zeros(4, 28, 28, 3, dtype=torch.uint8), proprio=torch.zeros(4, 8))

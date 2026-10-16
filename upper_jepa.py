@@ -176,11 +176,15 @@ class UpperJEPA(JEPA):
     def rollout(self, info, action_sequence, history_size=None):
         """Roll out direct H-step transitions using inherited encode/predict.
 
+        Start from one current observation (K=1): the first macro predicts
+        z_(t0+H), then predicted states grow the history up to history_size.
         Observations: (B,S,K,...) at t0,t0+H,...,t0+(K-1)H.
         Actions: (B,S,N*H,8), starting at t0, N >= K. Historical
         actions must be included, just as in JEPA.rollout. All S observations
         must represent the same history; candidate actions may differ.
         Output: (B,S,N+1,416), history followed by predictions through t0+N*H.
+        The final macro always produces a prediction. For K=1, H=4 and
+        eight base actions, the output contains [z_t0, z_(t0+4), z_(t0+8)].
         A partial final macro is rejected instead of silently truncating it.
         """
         hs = self.history_size if history_size is None else history_size
@@ -207,8 +211,12 @@ class UpperJEPA(JEPA):
         macros = self.build_macro_action(action_sequence.reshape(b * s, n, self.horizon, 8))
         act_emb = self.action_encoder(macros)
         for index in range(k - 1, n):
-            start = max(0, index + 1 - hs)
-            pred = self.predict(emb[:, start:index + 1], act_emb[:, start:index + 1])[:, -1:]
+            # emb ends at z_(t0+index*H). Pair each available state with the
+            # macro starting at that same time; never include future macros.
+            context_length = min(emb.size(1), hs)
+            state_history = emb[:, -context_length:]
+            action_history = act_emb[:, index + 1 - context_length:index + 1]
+            pred = self.predict(state_history, action_history)[:, -1:]
             emb = torch.cat((emb, pred), dim=1)
         info["predicted_emb"] = emb.reshape(b, s, n + 1, -1)
         return info

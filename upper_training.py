@@ -144,7 +144,7 @@ class UpperTrainingModule(pl.LightningModule):
         optimizer = create_optimizer([parameter for _, parameter in named_params], self.config["optimizer"],
                                      named_params=named_params)
         scheduler = create_scheduler(optimizer, self.config["scheduler"], module=self)
-        return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "interval": "step"}}
+        return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "interval": "epoch"}}
 
     def on_save_checkpoint(self, checkpoint):
         checkpoint["upper_jepa_metadata"] = {

@@ -76,7 +76,7 @@ Datasetは画像とproprioのみ変換し、行動は**物理値**の`(K,H,8)`�
 教師潜在は既存`lejepa_forward()`と同じEncoderで生成し、stop-gradientやEMAは追加しない。
 下位`train.py`は全履歴位置に予測損失を掛けるが、上位層は最終時点のみを教師とする。
 下位の学習処理は変更しない。固定IDMの重みもCheckpointに保存・復元する。
-AdamWと既存LinearWarmupCosineAnnealingLRを使用し、Schedulerはoptimizer stepごとに進める。
+AdamWと既存LinearWarmupCosineAnnealingLRを使用し、Schedulerは各epoch終了時に進める。
 LightningのMixed PrecisionとGradient Clippingを使用する。
 
 既存`lejepa_forward()` / `spt.Module`と同じログ規約：
