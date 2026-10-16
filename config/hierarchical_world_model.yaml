@@ -1,0 +1,11 @@
+# Standalone Step 3 factory configuration; no GPC wiring.
+_target_: hierarchical_world_model.HierarchicalWorldModel.from_checkpoints
+lower_checkpoint: null  # *_object.ckpt file or its run directory
+upper_checkpoint: null  # UpperTrainingModule Lightning checkpoint
+lower_stats_path: null  # lower training's saved process_stats.npz
+lower_config_path: null # null uses config.yaml next to the lower checkpoint
+device: cpu
+lower_weight: 1.0
+upper_weight: 1.0
+lower_cost_scale: 1.0
+upper_cost_scale: 1.0
