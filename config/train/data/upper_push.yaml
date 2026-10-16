@@ -1,0 +1,9 @@
+dataset:
+  # Same default push dataset as the lower training configuration.
+  name: franka/pairs_500_ep_1_timestep_100_sample_mix_direction_towards_bluebox_1p00_1p00_view_top_reverse1_ws_x0p45_0p85_y-0p20_0p20_z0p05_0p05/push
+  path: null  # Set an explicit push.h5 path when using another dataset location.
+  keys_to_load:
+    - pixels
+    - wrist_pixels
+    - proprio
+    - action_cartesian

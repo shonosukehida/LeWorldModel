@@ -85,7 +85,7 @@ def build_normalization_process(stats_dataset, keys_to_cache):
 
         if col in action_keys:
             action_key = col
-        else:
+        elif col != "action_delta":
             # 元の実装と同じprocessorを共有する
             process[f"goal_{col}"] = processor
 
@@ -231,7 +231,7 @@ def load_normalization_process(stats_path):
 
             process[key] = processor
 
-            if key != action_key:
+            if key != action_key and key != "action_delta":
                 process[f"goal_{key}"] = processor
 
     print(
