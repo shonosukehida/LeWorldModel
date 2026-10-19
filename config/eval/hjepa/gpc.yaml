@@ -1,0 +1,14 @@
+diffusion_checkpoint: null
+num_candidates: 50
+action_horizon: 8
+device: cuda
+raw_image_layout: NHWC
+world_model:
+  lower_checkpoint: null
+  upper_checkpoint: null
+  lower_stats_path: null
+  lower_config_path: null  # uses the Lower run's config.yaml when omitted
+  lower_weight: 1.0
+  upper_weight: 1.0
+  lower_cost_scale: 1.0
+  upper_cost_scale: 1.0

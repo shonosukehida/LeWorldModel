@@ -1,0 +1,18 @@
+defaults:
+  - flip_mug
+  - /hjepa: gpc
+  - _self_
+
+policy: hierarchical_gpc
+policy_type: hierarchical_gpc
+
+eval:
+  normalization_stats_path: ${hjepa.world_model.lower_stats_path}
+  real_robot:
+    # Safe defaults: execute=false constructs/validates policy only.
+    # execute=true,dry_run=true uses the existing simulated robot adapter.
+    execute: false
+    dry_run: true
+    output_dir: ${hydra:runtime.cwd}/real_robot_rollouts/flip_mug_hjepa
+  probing:
+    exe_probe: false

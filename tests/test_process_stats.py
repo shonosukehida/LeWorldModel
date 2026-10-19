@@ -137,7 +137,7 @@ class ProcessStatsTests(unittest.TestCase):
         np.testing.assert_allclose(process['action_cartesian'].scale_, std.numpy(), rtol=1e-6)
 
     def test_checkpoint_action_statistics_are_still_used(self):
-        source = (ROOT / 'eval_real_robot.py').read_text()
+        source = (ROOT / 'diffusion_checkpoint.py').read_text()
         tree = ast.parse(source)
         loader = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'load_diffusion_policy')
         assignments = {ast.unparse(n.targets[0]): ast.unparse(n.value)

@@ -1,0 +1,8 @@
+defaults:
+  - eval/hjepa@hjepa: gpc
+  - _self_
+dataset_path: /data/hida/flip_mug/ep100_tm300_multiview_play/push.h5
+current_index: null  # row with a complete preceding DP observation history
+goal_index: null
+output_path: outputs/hierarchical_gpc_offline/results.npz
+seed: 42

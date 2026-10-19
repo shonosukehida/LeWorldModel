@@ -40,6 +40,7 @@ from normalization_stats import (
     load_normalization_process,
 )
 from action_projector import XArmActionProjector
+from diffusion_checkpoint import load_diffusion_policy
 
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
@@ -1691,6 +1692,7 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
     if gpc_reinforcement_enabled and str(cfg.plan_config.action_space) != "cartesian":
         raise ValueError("GPC gripper reinforcement requires Cartesian control")
 
+    hierarchical_records = []
     previous_sigint = signal.signal(signal.SIGINT, request_stop)
     records = {key: [] for key in (
         "pixels",
@@ -1825,6 +1827,8 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             projection_state = {"qpos": qpos, "ee": ee, "gripper": env._last_gripper,}
 
 
+            previous_selection = getattr(policy, "last_diagnostics", None)
+            previous_selection_id = previous_selection["selection_id"] if previous_selection is not None else None
             reinforcement_active = False
             policy_gripper_command = float("nan")
             if reinforcement_enabled:
@@ -1902,6 +1906,12 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             records["gripper_command"].append(float(commanded[7]) if len(commanded) == 8 else np.nan)
             records["gripper_actual"].append(actual_gripper)
             records["timestamp"].append(time.monotonic() - started)
+            if getattr(policy, "type", None) == "hierarchical_gpc":
+                from hierarchical_gpc_policy import hierarchical_step_record
+                hierarchical_records.append(hierarchical_step_record(
+                    policy, previous_selection_id, step_idx, commanded,
+                    policy_gripper_command if reinforcement_active else float(np.asarray(action).reshape(-1)[7]),
+                    actual_gripper, reinforcement_active))
             remaining = period - (time.monotonic() - tick)
             if remaining > 0:
                 time.sleep(remaining)
@@ -2124,6 +2134,11 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             )
 
 
+        if getattr(policy, "type", None) == "hierarchical_gpc":
+            with open(run_dir / "hierarchical_costs.jsonl", "w") as file:
+                for record in hierarchical_records:
+                    file.write(json.dumps(record, allow_nan=False) + "\n")
+
         plot_commanded_vs_actual_gripper(
             records["commanded_action"], records["actual_gripper"],
             run_dir / "commanded_vs_actual_gripper.png",
@@ -2192,171 +2207,24 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
 
 
 
-def load_diffusion_policy(
-    checkpoint_path,
-    image_transform,
-    device="cuda",
-):
-    checkpoint_path = Path(checkpoint_path).expanduser()
-
-    checkpoint = torch.load(
-        checkpoint_path,
-        map_location="cpu",
-        weights_only=False,
-    )
-
-    train_cfg = checkpoint["config"]
-
-    # --------------------------------------------------
-    # Observation encoder
-    # --------------------------------------------------
-
-    obs_encoder = ResNet18ObsEncoder(
-        pretrained=False,
-    )
-
-    wrist_obs_encoder = ResNet18ObsEncoder(
-        pretrained=False,
-    )
-
-    # --------------------------------------------------
-    # Conditional U-Net
-    # --------------------------------------------------
-
-    model = ConditionalUnet1D(
-        input_dim=checkpoint["action_dim"],
-
-        global_cond_dim=(
-            (
-                checkpoint["obs_feature_dim"]
-                + checkpoint["wrist_obs_feature_dim"]
-            )
-            * checkpoint["obs_horizon"]
-        ),
-
-        diffusion_step_embed_dim=(
-            train_cfg["model"]["diffusion_step_embed_dim"]
-        ),
-
-        down_dims=tuple(
-            train_cfg["model"]["down_dims"]
-        ),
-
-        kernel_size=(
-            train_cfg["model"]["kernel_size"]
-        ),
-
-        n_groups=(
-            train_cfg["model"]["n_groups"]
-        ),
-
-        cond_predict_scale=(
-            train_cfg["model"]["cond_predict_scale"]
-        ),
-    )
-
-    # --------------------------------------------------
-    # DDPM scheduler
-    # --------------------------------------------------
-
-    noise_scheduler = DDPMScheduler(
-        num_train_timesteps=(
-            checkpoint["num_train_timesteps"]
-        ),
-
-        beta_schedule=(
-            checkpoint["beta_schedule"]
-        ),
-
-        clip_sample=(
-            train_cfg["diffusion"]["clip_sample"]
-        ),
-
-        prediction_type=(
-            checkpoint["prediction_type"]
-        ),
-    )
-
-    # --------------------------------------------------
-    # DP normalization
-    # --------------------------------------------------
-
-    action_processor = SafeStandardScaler(
-        eps=1e-4
-    )
-
-    action_processor.mean_ = (checkpoint["action_mean"].cpu().numpy())
-    action_processor.scale_ = (checkpoint["action_std"].cpu().numpy())
-    action_key = checkpoint["action_key"]
-
-    dp_process = {action_key: action_processor,}
-
-    # --------------------------------------------------
-    # DiffusionPolicy
-    # --------------------------------------------------
-
-    diffusion_policy = swm.policy.DiffusionPolicy(
-        model=model,
-
-        obs_encoder=obs_encoder,
-        wrist_obs_encoder=wrist_obs_encoder,
-
-        noise_scheduler=noise_scheduler,
-
-        pred_horizon=checkpoint["pred_horizon"],
-        obs_horizon=checkpoint["obs_horizon"],
-        action_horizon=checkpoint["action_horizon"],
-        action_dim=checkpoint["action_dim"],
-
-        num_inference_steps=(
-            checkpoint["num_inference_steps"]
-        ),
-
-        process=dp_process,
-
-        transform={
-            "pixels": image_transform,
-            "wrist_pixels": image_transform,
-        },
-    )
-
-    # --------------------------------------------------
-    # Load weights
-    # --------------------------------------------------
-
-    diffusion_policy.model.load_state_dict(
-        checkpoint["model_state_dict"]
-    )
-
-    diffusion_policy.obs_encoder.load_state_dict(
-        checkpoint["obs_encoder_state_dict"]
-    )
-
-    diffusion_policy.wrist_obs_encoder.load_state_dict(
-        checkpoint[
-            "wrist_obs_encoder_state_dict"
-        ]
-    )
-
-    diffusion_policy.model.to(device)
-    diffusion_policy.obs_encoder.to(device)
-    diffusion_policy.wrist_obs_encoder.to(device)
-
-    diffusion_policy.model.eval()
-    diffusion_policy.obs_encoder.eval()
-    diffusion_policy.wrist_obs_encoder.eval()
-
-    diffusion_policy.model.requires_grad_(False)
-    diffusion_policy.obs_encoder.requires_grad_(False)
-    diffusion_policy.wrist_obs_encoder.requires_grad_(False)
-
-    return diffusion_policy
-
-
-
 @hydra.main(version_base=None, config_path="./config/eval", config_name="pusht")
 def run(cfg: DictConfig):
-    """Run evaluation of dinowm vs random policy."""
+    """Run a legacy policy or explicitly configured hierarchical GPC."""
+    if cfg.get("policy_type") == "hierarchical_gpc":
+        # Bypass the legacy single-layer stats fallback/preprocessing entirely.
+        from hierarchical_gpc_runtime import load_hierarchical_gpc
+        if str(cfg.plan_config.action_space) != "cartesian":
+            raise ValueError("Hierarchical GPC requires Cartesian control")
+        if cfg.eval.probing.exe_probe:
+            raise ValueError("Hierarchical GPC probing is not implemented; set eval.probing.exe_probe=false")
+        policy = load_hierarchical_gpc(cfg.hjepa)
+        # _policy_observation uses keys only; these values remain raw until HWM.
+        process, _ = load_normalization_process(cfg.hjepa.world_model.lower_stats_path)
+        results_path = Path(cfg.eval.real_robot.output_dir).expanduser() / time.strftime("%Y%m%d_%H%M%S")
+        if cfg.eval.real_robot.execute:
+            run_xarm_task(cfg, policy, process, results_path)
+        return policy
+
     
 
 
