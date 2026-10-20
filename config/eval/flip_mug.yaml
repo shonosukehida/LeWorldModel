@@ -42,6 +42,7 @@ policy_type: gpc #world_model/gpc/diffusion
 gpc:
   diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261003_085301/best.ckpt
   num_candidates: 50
+  visualization_enabled: true # Record GPC candidates; normalize and plot after rollout
 
 
 plan_config:

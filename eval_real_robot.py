@@ -1728,8 +1728,20 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
 
         dp_wrist_image_history = deque(maxlen=dp_policy.obs_horizon)
 
+    gpc_recorder = None
     try:
-        
+        if (isinstance(policy, swm.policy.GPCPolicy)
+                and bool(cfg.get("gpc", {}).get("visualization_enabled", False))):
+            # utils.py is an existing module, so load the helper by its file path.
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "gpc_visualization", Path(__file__).parent / "utils" / "gpc_visualization.py"
+            )
+            visualization = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(visualization)
+            gpc_recorder = visualization.GPCRecorder(policy)
+            gpc_recorder.__enter__()
+
         goal, goal_wrist, goal_proprio = (
             _load_or_capture_goal(
                 env,
@@ -1763,6 +1775,8 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
 
 
         for step_idx in range(int(real_cfg.max_steps)):
+            if gpc_recorder is not None:
+                gpc_recorder.begin_step(step_idx)
             if stop_requested:
                 break
             tick = time.monotonic()
@@ -1906,8 +1920,16 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             if remaining > 0:
                 time.sleep(remaining)
     finally:
+        if gpc_recorder is not None:
+            gpc_recorder.close()
         signal.signal(signal.SIGINT, previous_sigint)
-        env.close()
+        try:
+            env.close()
+        finally:
+            if gpc_recorder is not None:
+                gpc_recorder.save(run_dir)
+                print(f"GPC capture: {len(gpc_recorder.records)} records, "
+                      f"{gpc_recorder.capture_seconds:.6f}s total synchronous copy overhead")
 
         # rollout.h5 を保存
         with h5py.File(run_dir / "rollout.h5", "w") as h5:
