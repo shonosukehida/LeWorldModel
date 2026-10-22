@@ -20,8 +20,9 @@ from stable_worldmodel.diffusion import (
 )
 from stable_worldmodel.policy import DiffusionPolicy
 import stable_pretraining as spt
-from utils import get_img_preprocessor, get_column_normalizer
+from utils import get_img_preprocessor
 from tqdm import tqdm
+from action_normalization import (fit_action_stats, ActionTransform, normalizer_artifact, validate_action_stats)
 
 
 
@@ -115,6 +116,7 @@ def save_checkpoint(
     action_mean: torch.Tensor,
     action_std: torch.Tensor,
     cfg,
+    action_stats=None,
 ):
     """
     Save everything necessary to reconstruct DiffusionPolicy.
@@ -146,10 +148,10 @@ def save_checkpoint(
 
         # Normalization
         "action_mean":
-            action_mean.cpu(),
+            action_mean.cpu() if action_mean is not None else None,
 
         "action_std":
-            action_std.cpu(),
+            action_std.cpu() if action_std is not None else None,
 
         "action_key":
             cfg.policy.action_key,
@@ -191,6 +193,12 @@ def save_checkpoint(
             ),
     }
 
+    if action_stats is None:
+        action_stats = dict(action_normalization="zscore", action_mean=action_mean, action_std=action_std)
+    validate_action_stats(action_stats, policy.action_dim)
+    checkpoint.pop("action_mean")
+    checkpoint.pop("action_std")
+    checkpoint.update({k: v.cpu() if torch.is_tensor(v) else v for k, v in action_stats.items()})
     torch.save(checkpoint, path,)
 
 
@@ -421,11 +429,10 @@ def run(cfg):
         ),
     )
 
-    action_transform = get_column_normalizer(
-        dataset,
-        source=cfg.policy.action_key,
-        target=cfg.policy.action_key,
+    action_stats = fit_action_stats(
+        dataset, cfg.policy.action_key, cfg.policy.get("action_normalization", "zscore")
     )
+    action_transform = ActionTransform(action_stats, cfg.policy.action_key)
 
     print("image transform:", image_transform)
     print("action transform:", action_transform)
@@ -436,7 +443,8 @@ def run(cfg):
     # Save normalization statistics for inference
     # --------------------------------------------------------
 
-    action_mean, action_std = get_action_stats(dataset, cfg.policy.action_key,)
+    action_mean = action_stats.get("action_mean")
+    action_std = action_stats.get("action_std")
 
     print("action mean:",action_mean,)
 
@@ -697,12 +705,7 @@ def run(cfg):
 
     # Normalizer saved separately as well
     torch.save(
-        {
-            "mean": action_mean,
-            "std": action_std,
-            "action_key":
-                cfg.policy.action_key,
-        },
+        normalizer_artifact(action_stats, cfg.policy.action_key),
         run_dir / "action_normalizer.pt",
     )
 
@@ -815,6 +818,7 @@ def run(cfg):
             epoch=epoch + 1,
             val_loss=val_loss,
 
+            action_stats=action_stats,
             action_mean=action_mean,
             action_std=action_std,
 
@@ -831,6 +835,7 @@ def run(cfg):
             optimizer=optimizer,
             epoch=epoch + 1,
             val_loss=val_loss,
+            action_stats=action_stats,
             action_mean=action_mean,
             action_std=action_std,
             cfg=cfg,
@@ -852,6 +857,7 @@ def run(cfg):
                 epoch=epoch + 1,
                 val_loss=val_loss,
 
+                action_stats=action_stats,
                 action_mean=action_mean,
                 action_std=action_std,
 

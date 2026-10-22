@@ -39,6 +39,7 @@ from normalization_stats import (
     save_normalization_process,
     load_normalization_process,
 )
+from action_normalization import validate_action_stats, restore_action_processor
 from action_projector import XArmActionProjector
 
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
@@ -2227,6 +2228,7 @@ def load_diffusion_policy(
         weights_only=False,
     )
 
+    normalization_mode = validate_action_stats(checkpoint, checkpoint["action_dim"])
     train_cfg = checkpoint["config"]
 
     # --------------------------------------------------
@@ -2303,12 +2305,15 @@ def load_diffusion_policy(
     # DP normalization
     # --------------------------------------------------
 
-    action_processor = SafeStandardScaler(
-        eps=1e-4
-    )
+    if normalization_mode == "min_max":
+        action_processor = restore_action_processor(checkpoint, checkpoint["action_dim"])
+    else:
+        action_processor = SafeStandardScaler(
+            eps=1e-4
+        )
 
-    action_processor.mean_ = (checkpoint["action_mean"].cpu().numpy())
-    action_processor.scale_ = (checkpoint["action_std"].cpu().numpy())
+        action_processor.mean_ = (checkpoint["action_mean"].cpu().numpy())
+        action_processor.scale_ = (checkpoint["action_std"].cpu().numpy())
     action_key = checkpoint["action_key"]
 
     dp_process = {action_key: action_processor,}
