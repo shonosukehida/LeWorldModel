@@ -2422,8 +2422,14 @@ def run(cfg: DictConfig):
     # Dataset-only diffusion dry run must precede normalization and robot setup.
     if (cfg.get("policy_type", "world_model") == "diffusion"
             and cfg.eval.real_robot.dry_run):
-        from offline_dp_eval import run_offline_dp
-        run_offline_dp(cfg, load_diffusion_policy, dp_img_transform(cfg))
+        from offline_dp_eval import run_offline_dp, run_offline_dp_multi_sample
+        mode = getattr(cfg.eval.real_robot, "dry_run_mode", "episode")
+        if mode == "episode":
+            run_offline_dp(cfg, load_diffusion_policy, dp_img_transform(cfg))
+        elif mode == "multi_sample":
+            run_offline_dp_multi_sample(cfg, load_diffusion_policy, dp_img_transform(cfg))
+        else:
+            raise ValueError(f"Unknown dry_run_mode: {mode}")
         return
 
     results_path = (

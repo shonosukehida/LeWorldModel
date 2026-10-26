@@ -154,3 +154,178 @@ def run_offline_dp(cfg, loader, image_transform):
                     preprocessing='existing dp_img_transform (ImageNet normalization)')
     return evaluate_episode(policy, robot.dry_run_dataset_path, int(robot.dry_run_episode_idx),
                             Path(robot.output_dir) / 'offline_dp', metadata)
+
+
+def _integer(value, name, minimum=0):
+    from numbers import Integral
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < minimum:
+        raise ValueError(f'{name} must be an integer >= {minimum}')
+    return int(value)
+
+
+def build_observation_history(data, row, obs_horizon):
+    """Match episode-mode left padding, retaining raw HWC uint8 images."""
+    obs_horizon = _integer(obs_horizon, 'obs_horizon', 1)
+    rows = np.maximum(np.arange(row - obs_horizon + 1, row + 1), 0)
+    return {key: data[key][rows][None] for key in ('pixels', 'wrist_pixels')}
+
+
+def sample_candidates(policy, observation, num_candidates, seed):
+    """Use DP's complete trajectories and its single inverse transform.
+
+    fork_rng restores CPU and all CUDA RNG states even on failure. Independent
+    batch elements in conditional_sample's torch.randn supply independent noise.
+    No sampling or scheduler implementation is duplicated here.
+    """
+    import torch
+    num_candidates = _integer(num_candidates, 'dry_run_num_candidates', 1)
+    seed = _integer(seed, 'dry_run_seed')
+    if seed > 2**63 - 1:
+        raise ValueError('dry_run_seed must be <= 2**63 - 1')
+    devices = list(range(torch.cuda.device_count())) if torch.cuda.is_available() else []
+    with torch.random.fork_rng(devices=devices):
+        torch.manual_seed(seed)
+        with torch.backends.cudnn.flags(benchmark=False, deterministic=True), torch.no_grad():
+            sampled = policy.sample_action_sequences(
+                observation, num_samples=num_candidates, denormalize=True)
+    if not torch.is_tensor(sampled):
+        raise ValueError('sample_action_sequences must return a tensor (B,K,H,D)')
+    expected = (1, num_candidates, policy.pred_horizon, policy.action_dim)
+    if tuple(sampled.shape) != expected:
+        raise ValueError(f'Invalid candidate shape: expected {expected}, got {tuple(sampled.shape)}')
+    predicted = sampled[0].detach().cpu().numpy()
+    if not np.isfinite(predicted).all():
+        raise ValueError('Predicted candidates contain NaN/Inf')
+    return predicted
+
+
+def compute_multi_sample_metrics(predicted, ground_truth, valid_mask):
+    """Error summaries use valid GT only; diversity covers the full horizon."""
+    p, g = np.asarray(predicted, dtype=np.float64), np.asarray(ground_truth, dtype=np.float64)
+    valid = np.asarray(valid_mask, dtype=bool)
+    if (p.ndim != 3 or not p.shape[0] or p.shape[2] != 8
+            or g.shape != p.shape[1:] or valid.shape != (p.shape[1],) or not valid.any()):
+        raise ValueError('Expected candidates (K,H,8), GT (H,8) and nonempty valid mask (H,)')
+    if not np.isfinite(p).all() or not np.isfinite(g[valid]).all():
+        raise ValueError('Valid actions contain NaN/Inf')
+    per_candidate = [compute_metrics(candidate[valid], g[valid]) for candidate in p]
+    position_rmse = [m['position']['rmse_3d_m'] for m in per_candidate]
+    gripper_mae = [m['gripper']['mae'] for m in per_candidate]
+    pq, gq = p[:, valid, 3:7], g[valid, 3:7]
+    # compute_metrics above validates nonzero quaternion norms and q/-q equivalence.
+    pq = pq / np.linalg.norm(pq, axis=-1, keepdims=True)
+    gq = gq / np.linalg.norm(gq, axis=-1, keepdims=True)
+    angles = np.degrees(2 * np.arccos(np.clip(np.abs(np.sum(pq * gq[None], axis=-1)), 0, 1)))
+    angle_series = [[None] * p.shape[1] for _ in range(p.shape[0])]
+    for k in range(p.shape[0]):
+        for j, angle in zip(np.flatnonzero(valid), angles[k]):
+            angle_series[k][int(j)] = float(angle)
+
+    def summary(values):
+        return {'mean': float(np.mean(values)), 'min': float(np.min(values)), 'max': float(np.max(values))}
+
+    return {
+        'num_valid_steps': int(valid.sum()),
+        'position': {'candidate_rmse_3d_m': position_rmse,
+                     'rmse_3d_m': summary(position_rmse),
+                     'std_xyz_m_per_step': p[:, :, :3].std(axis=0).tolist()},
+        'orientation': {'candidate_angle_error_deg_per_step': angle_series,
+                        'candidate_mean_angle_error_deg': angles.mean(axis=1).tolist(),
+                        'angle_error_deg': summary(angles)},
+        'gripper': {'candidate_mae': gripper_mae, 'mae': summary(gripper_mae),
+                    'std_per_step': p[:, :, 7].std(axis=0).tolist()},
+        'diversity_definition': 'Population standard deviation (ddof=0), all predicted steps; no GT required',
+        'minimum_error_note': 'Best candidate error is diagnostic only; it does not imply the policy can select that candidate.',
+    }
+
+
+def plot_multi_sample(predicted, ground_truth, selected_index, output_dir, episode_id, timestep):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    indices = np.arange(predicted.shape[1])
+    for name, dims, labels, ylabel in (
+        ('position', range(3), ('x', 'y', 'z'), 'Position [m]'),
+        ('orientation', range(3, 7), ('qx', 'qy', 'qz', 'qw'), 'Quaternion component'),
+        ('gripper', (7,), ('gripper',), 'Gripper (0=open, 1=closed)'),
+    ):
+        fig, axes = plt.subplots(len(labels), 1, sharex=True, squeeze=False,
+                                 figsize=(10, 2.6 * len(labels)))
+        for ax, dim, label in zip(axes[:, 0], dims, labels):
+            for k, candidate in enumerate(predicted):
+                ax.plot(indices, candidate[:, dim], color='gray', alpha=0.3, linewidth=1,
+                        label='Predicted candidates' if k == 0 else None)
+            ax.plot(indices, ground_truth[:, dim], color='red', linewidth=2.5, label='Ground Truth')
+            ax.axvline(selected_index, color='black', linestyle='--', label='Selected action index')
+            ax.set_title(label)
+            ax.set_ylabel(ylabel)
+            ax.grid(alpha=0.3)
+            ax.legend()
+        axes[-1, 0].set_xlabel('Prediction sequence index')
+        fig.suptitle(f'Episode {episode_id}, step {timestep}, candidates {len(predicted)}')
+        fig.tight_layout()
+        fig.savefig(Path(output_dir) / f'multi_sample_{name}.png')
+        plt.close(fig)
+
+
+def evaluate_multi_sample(policy, dataset_path, episode_id, timestep, num_candidates,
+                          seed, output_dir, metadata):
+    """Evaluate full trajectories at one stored step_idx, without robot control."""
+    if policy.action_dim != 8 or 'action_cartesian' not in policy.process:
+        raise ValueError('Offline evaluation requires an 8D action_cartesian checkpoint')
+    horizon = _integer(policy.pred_horizon, 'pred_horizon', 1)
+    obs_horizon = _integer(policy.obs_horizon, 'obs_horizon', 1)
+    if horizon < obs_horizon:
+        raise ValueError('pred_horizon must be >= obs_horizon')
+    timestep = _integer(timestep, 'dry_run_timestep')
+    num_candidates = _integer(num_candidates, 'dry_run_num_candidates', 1)
+    seed = _integer(seed, 'dry_run_seed')
+    data, steps, order_source = load_episode(dataset_path, episode_id)
+    matches = np.flatnonzero(steps == timestep)
+    if len(matches) != 1:
+        raise ValueError(f'dry_run_timestep {timestep} not found in episode {episode_id} step_idx')
+    observation = build_observation_history(data, int(matches[0]), obs_horizon)
+    predicted = sample_candidates(policy, observation, num_candidates, seed)
+    selected_index = obs_horizon - 1
+    # Training uses observation/action windows from the same dataset row and
+    # frameskip=1. predict_action selects To-1 from that complete trajectory.
+    prediction_steps = timestep - selected_index + np.arange(horizon, dtype=np.int64)
+    valid = (prediction_steps >= steps[0]) & (prediction_steps <= steps[-1])
+    gt = np.full((horizon, policy.action_dim), np.nan, dtype=np.float64)
+    gt[valid] = data['action_cartesian'][np.searchsorted(steps, prediction_steps[valid])]
+    metrics = compute_multi_sample_metrics(predicted, gt, valid)
+    metadata = dict(metadata, dataset_path=str(Path(dataset_path).expanduser().resolve()),
+                    episode_idx=int(episode_id), timestep=timestep, num_candidates=num_candidates,
+                    seed=seed, selected_action_index=selected_index, temporal_order=order_source,
+                    alignment='gt_step = timestep - (obs_horizon - 1) + prediction_index',
+                    model={k: int(getattr(policy, k)) for k in
+                           ('pred_horizon', 'obs_horizon', 'action_horizon', 'action_dim', 'num_inference_steps')})
+    # Atomic unique directory creation prevents overwrites even for concurrent runs.
+    import tempfile
+    parent = Path(output_dir).expanduser()
+    parent.mkdir(parents=True, exist_ok=True)
+    out = Path(tempfile.mkdtemp(prefix=f'episode_{episode_id}_step_{timestep}_', dir=parent))
+    metadata.update(run_id=out.name, output_dir=str(out.resolve()))
+    with h5py.File(out / 'multi_sample_rollout.h5', 'w') as f:
+        for key, value in dict(predicted_actions=predicted, ground_truth_actions=gt,
+                               ground_truth_valid_mask=valid, prediction_step_idx=prediction_steps,
+                               selected_action_index=selected_index).items():
+            f.create_dataset(key, data=value)
+        f.attrs['metadata'] = json.dumps(metadata, allow_nan=False)
+    (out / 'multi_sample_metrics.json').write_text(
+        json.dumps(dict(metrics, metadata=metadata), indent=2, allow_nan=False) + '\n')
+    plot_multi_sample(predicted, gt, selected_index, out, episode_id, timestep)
+    print(f'Multi-sample DP evaluation saved to: {out}')
+    return dict(metrics, metadata=metadata)
+
+
+def run_offline_dp_multi_sample(cfg, loader, image_transform):
+    robot = cfg.eval.real_robot
+    policy = loader(checkpoint_path=cfg.gpc.diffusion_checkpoint,
+                    image_transform=image_transform, device='cuda')
+    metadata = dict(policy.offline_checkpoint_metadata, image_size=cfg.eval.img_size,
+                    preprocessing='existing dp_img_transform (ImageNet normalization)')
+    return evaluate_multi_sample(
+        policy, robot.dry_run_dataset_path, int(robot.dry_run_episode_idx),
+        robot.dry_run_timestep, robot.dry_run_num_candidates, robot.dry_run_seed,
+        Path(robot.output_dir) / 'offline_dp' / 'multi_sample', metadata)

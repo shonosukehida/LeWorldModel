@@ -77,6 +77,10 @@ eval:
 
 
     dry_run: true #ハードは動かさずにソフトだけをテストする
+    dry_run_mode: multi_sample # episode / multi_sample; omitted defaults to episode
+    dry_run_timestep: 100
+    dry_run_num_candidates: 20
+    dry_run_seed: 42
     dry_run_dataset_path: /data/hida/flip_mug/ep200_tm300_multiview_demo/push.h5
     dry_run_episode_idx: 0
     dry_run_image_path: config/eval/start_state/flip_mug/overhead_start_image.png
