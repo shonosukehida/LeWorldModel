@@ -169,7 +169,7 @@ class OfflineTests(unittest.TestCase):
         prefix = ast.FunctionDef(name='dispatch', args=run.args, body=[branch], decorator_list=[])
         # Remove annotation so loading the isolated dispatcher has no Hydra dependency.
         prefix.args.args[0].annotation = None
-        ns = dict(load_diffusion_policy=loader, dp_img_transform=lambda cfg: 'transform')
+        ns = dict(load_diffusion_policy=loader, img_transform=lambda cfg: 'transform')
         exec(compile(ast.fix_missing_locations(ast.Module(body=[prefix], type_ignores=[])), '<dispatch>', 'exec'), ns)
         with patch.object(offline_dp_eval, 'run_offline_dp') as runner:
             ns['dispatch'](cfg)

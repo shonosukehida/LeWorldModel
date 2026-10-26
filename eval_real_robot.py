@@ -2423,11 +2423,13 @@ def run(cfg: DictConfig):
     if (cfg.get("policy_type", "world_model") == "diffusion"
             and cfg.eval.real_robot.dry_run):
         from offline_dp_eval import run_offline_dp, run_offline_dp_multi_sample
+        # Dataset float32 pixels need training's explicit range scaling;
+        # dp_img_transform's ToDtype does not scale float inputs by 255.
         mode = getattr(cfg.eval.real_robot, "dry_run_mode", "episode")
         if mode == "episode":
-            run_offline_dp(cfg, load_diffusion_policy, dp_img_transform(cfg))
+            run_offline_dp(cfg, load_diffusion_policy, img_transform(cfg))
         elif mode == "multi_sample":
-            run_offline_dp_multi_sample(cfg, load_diffusion_policy, dp_img_transform(cfg))
+            run_offline_dp_multi_sample(cfg, load_diffusion_policy, img_transform(cfg))
         else:
             raise ValueError(f"Unknown dry_run_mode: {mode}")
         return

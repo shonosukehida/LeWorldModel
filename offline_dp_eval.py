@@ -7,6 +7,24 @@ import h5py
 import numpy as np
 
 
+def dataset_images_to_hwc(images, key):
+    """Validate raw pixels, then adapt only layout to DP._prepare_info's HWC API.
+
+    Preserve float32 values (including fractional pixels). Scaling, ImageNet
+    normalization and resize belong exclusively to the offline image transform,
+    which uses utils.get_img_preprocessor just like train_policy.py.
+    """
+    images = np.asarray(images)
+    if images.ndim != 4 or images.dtype not in (np.dtype('float32'), np.dtype('uint8')):
+        raise ValueError(f'{key}: expected float32/uint8 (T,3,H,W) or (T,H,W,3), got {images.shape}/{images.dtype}')
+    chw, hwc = images.shape[1] == 3, images.shape[-1] == 3
+    if chw == hwc or any(size <= 0 for size in images.shape):
+        raise ValueError(f'{key}: invalid or ambiguous RGB image shape {images.shape}')
+    if not np.isfinite(images).all() or images.min() < 0 or images.max() > 255:
+        raise ValueError(f'{key}: expected finite raw image values in [0,255]')
+    return np.moveaxis(images, 1, -1) if chw else images
+
+
 def load_episode(path, episode_id):
     """Select by stored ID, never by ordinal episode number.
 
@@ -45,9 +63,7 @@ def load_episode(path, episode_id):
             order_source = 'ep_offset/ep_len contiguous writer order; steps synthesized'
         data = {k: f[k][rows] for k in required if k != 'episode_idx'}
     for key in ('pixels', 'wrist_pixels'):
-        images = data[key]
-        if images.ndim != 4 or images.shape[-1] != 3 or images.dtype != np.uint8:
-            raise ValueError(f'{key}: expected uint8 (T,H,W,3), got {images.shape}/{images.dtype}')
+        data[key] = dataset_images_to_hwc(data[key], key)
     gt = data['action_cartesian']
     if gt.shape != (len(rows), 8) or not np.isfinite(gt).all():
         raise ValueError('action_cartesian must be finite (T,8)')
@@ -151,7 +167,7 @@ def run_offline_dp(cfg, loader, image_transform):
                     image_transform=image_transform, device='cuda')
     metadata = dict(policy.offline_checkpoint_metadata,
                     image_size=cfg.eval.img_size,
-                    preprocessing='existing dp_img_transform (ImageNet normalization)')
+                    preprocessing='training get_img_preprocessor (range scaling, ImageNet normalization, resize)')
     return evaluate_episode(policy, robot.dry_run_dataset_path, int(robot.dry_run_episode_idx),
                             Path(robot.output_dir) / 'offline_dp', metadata)
 
@@ -164,7 +180,7 @@ def _integer(value, name, minimum=0):
 
 
 def build_observation_history(data, row, obs_horizon):
-    """Match episode-mode left padding, retaining raw HWC uint8 images."""
+    """Match episode-mode left padding, retaining raw HWC image values."""
     obs_horizon = _integer(obs_horizon, 'obs_horizon', 1)
     rows = np.maximum(np.arange(row - obs_horizon + 1, row + 1), 0)
     return {key: data[key][rows][None] for key in ('pixels', 'wrist_pixels')}
@@ -324,7 +340,7 @@ def run_offline_dp_multi_sample(cfg, loader, image_transform):
     policy = loader(checkpoint_path=cfg.gpc.diffusion_checkpoint,
                     image_transform=image_transform, device='cuda')
     metadata = dict(policy.offline_checkpoint_metadata, image_size=cfg.eval.img_size,
-                    preprocessing='existing dp_img_transform (ImageNet normalization)')
+                    preprocessing='training get_img_preprocessor (range scaling, ImageNet normalization, resize)')
     return evaluate_multi_sample(
         policy, robot.dry_run_dataset_path, int(robot.dry_run_episode_idx),
         robot.dry_run_timestep, robot.dry_run_num_candidates, robot.dry_run_seed,
