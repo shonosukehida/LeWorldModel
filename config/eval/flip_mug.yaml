@@ -38,7 +38,7 @@ dataset:
 
 seed: 42
 policy: lewm_weights 
-policy_type: gpc #world_model/gpc/diffusion
+policy_type: diffusion #world_model/gpc/diffusion
 gpc:
   diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261003_085301/best.ckpt
   num_candidates: 50
@@ -56,10 +56,9 @@ plan_config:
 eval:
   num_eval: 1 #1
   img_size: 224 
-  dataset_name: flip_mug/ep100_tm300_multiview_play/push #flip_mug/ep200_tm300_multiview_demo/push
-  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep100_tm300_multiview_play/process_stats.npz #${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz
+  dataset_name: flip_mug/ep200_tm300_multiview_demo/push #flip_mug/ep200_tm300_multiview_demo/push
+  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz #${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz
   ac_cost_dataset_name: null
-
 
   # Real xArm flip-mug rollout. action_cartesian follows the training-data
   # layout: [x, y, z, qx, qy, qz, qw, gripper], where gripper is normalized
@@ -77,12 +76,14 @@ eval:
     execute: true
 
 
-    dry_run: false #ハードは動かさずにソフトだけをテストする
+    dry_run: true #ハードは動かさずにソフトだけをテストする
+    dry_run_dataset_path: /data/hida/flip_mug/ep200_tm300_multiview_demo/push.h5
+    dry_run_episode_idx: 0
     dry_run_image_path: config/eval/start_state/flip_mug/overhead_start_image.png
     dry_run_wrist_image_path: config/eval/start_state/flip_mug/wrist_start_image.png
     follower_ip: "192.168.1.240"
     connect_leader: false  # Inference uses the follower and sensors without GELLO.
-    max_steps: 600 #50
+    max_steps: 300 #50
     control_hz: 10 #0.5 #eval時の評価ループ #学習データセットのhzに合わせる
     control_frequency: 50
     non_interactive: false

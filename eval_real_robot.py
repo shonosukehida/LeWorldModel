@@ -2228,6 +2228,23 @@ def load_diffusion_policy(
         weights_only=False,
     )
 
+    required = (
+        "action_dim", "config", "pred_horizon", "obs_horizon", "action_horizon",
+        "obs_feature_dim", "wrist_obs_feature_dim", "num_inference_steps",
+        "num_train_timesteps", "beta_schedule", "prediction_type", "action_key",
+        "model_state_dict", "obs_encoder_state_dict", "wrist_obs_encoder_state_dict",
+    )
+    missing = [key for key in required if key not in checkpoint]
+    if missing:
+        raise ValueError(f"Diffusion checkpoint missing configuration: {missing}")
+    for section, keys in {
+        "model": ("diffusion_step_embed_dim", "down_dims", "kernel_size", "n_groups", "cond_predict_scale"),
+        "diffusion": ("clip_sample",),
+    }.items():
+        for key in keys:
+            if key not in checkpoint["config"].get(section, {}):
+                raise ValueError(f"Diffusion checkpoint missing config.{section}.{key}")
+
     normalization_mode = validate_action_stats(checkpoint, checkpoint["action_dim"])
     train_cfg = checkpoint["config"]
 
@@ -2242,6 +2259,11 @@ def load_diffusion_policy(
     wrist_obs_encoder = ResNet18ObsEncoder(
         pretrained=False,
     )
+
+    for key, encoder in (("obs_feature_dim", obs_encoder),
+                         ("wrist_obs_feature_dim", wrist_obs_encoder)):
+        if encoder.output_shape()[0] != checkpoint[key]:
+            raise ValueError(f"Checkpoint {key} incompatible with saved ResNet18 encoder architecture")
 
     # --------------------------------------------------
     # Conditional U-Net
@@ -2306,8 +2328,10 @@ def load_diffusion_policy(
     # --------------------------------------------------
 
     if normalization_mode == "min_max":
+        print("normalization_mode: min_max")
         action_processor = restore_action_processor(checkpoint, checkpoint["action_dim"])
     else:
+        print("normalization_mode: zscore")
         action_processor = SafeStandardScaler(
             eps=1e-4
         )
@@ -2377,6 +2401,14 @@ def load_diffusion_policy(
     diffusion_policy.obs_encoder.requires_grad_(False)
     diffusion_policy.wrist_obs_encoder.requires_grad_(False)
 
+    diffusion_policy.offline_checkpoint_metadata = {
+        "checkpoint_path": str(checkpoint_path.resolve()),
+        "action_normalization": normalization_mode,
+        "obs_feature_dim": checkpoint["obs_feature_dim"],
+        "wrist_obs_feature_dim": checkpoint["wrist_obs_feature_dim"],
+        "checkpoint_config": train_cfg,
+        "scheduler": dict(noise_scheduler.config),
+    }
     return diffusion_policy
 
 
@@ -2386,6 +2418,13 @@ def run(cfg: DictConfig):
     """Run evaluation of dinowm vs random policy."""
     
 
+
+    # Dataset-only diffusion dry run must precede normalization and robot setup.
+    if (cfg.get("policy_type", "world_model") == "diffusion"
+            and cfg.eval.real_robot.dry_run):
+        from offline_dp_eval import run_offline_dp
+        run_offline_dp(cfg, load_diffusion_policy, dp_img_transform(cfg))
+        return
 
     results_path = (
         Path(swm.data.utils.get_cache_dir(), "eval", cfg.policy).parent
