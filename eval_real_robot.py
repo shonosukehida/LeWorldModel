@@ -54,6 +54,30 @@ from collections import deque
 from utils import get_eval_img_preprocessor
 
 
+class _DPActionBuffer:
+    """Single-environment physical action queue, shared by DP and GPC."""
+
+    def __init__(self, policy, execute_steps):
+        if (isinstance(execute_steps, bool) or not isinstance(execute_steps, int)
+                or not 1 <= execute_steps <= policy.action_horizon):
+            raise ValueError("Require integer 1 <= dp_execute_steps <= policy.action_horizon")
+        self.policy = policy
+        self.execute_steps = execute_steps
+        self.actions = deque()
+
+    def clear(self):
+        self.actions.clear()
+
+    def get_action(self, observation, **kwargs):
+        if not self.actions:
+            chunk = np.asarray(self.policy.get_action_chunk(observation, **kwargs))
+            if (chunk.ndim != 3 or chunk.shape[0] != 1
+                    or chunk.shape[1] < self.execute_steps):
+                raise ValueError("Expected action chunk (1, Ta, action_dim) with Ta >= dp_execute_steps")
+            self.actions.extend(chunk[:, i].copy() for i in range(self.execute_steps))
+        return self.actions.popleft()
+
+
 def _validate_gripper_reinforcement(config, gripper_config):
     """Validate physical settings and the explicit legacy sentinel."""
     try:
@@ -1670,6 +1694,10 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
         nonlocal stop_requested
         stop_requested = True
 
+    action_buffer = None
+    if isinstance(policy, (swm.policy.DiffusionPolicy, swm.policy.GPCPolicy)):
+        action_buffer = _DPActionBuffer(policy, getattr(real_cfg, "dp_execute_steps", 1))
+
     reinforcement_config = getattr(real_cfg, "gripper_reinforcement", None)
     reinforcement_enabled = (
         isinstance(policy, swm.policy.DiffusionPolicy)
@@ -1844,10 +1872,10 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             policy_gripper_command = float("nan")
             if reinforcement_enabled:
                 action_result, reinforcement_active, policy_gripper_command = _reinforced_diffusion_action(
-                    policy, dp_info, ee, reinforcement_state, reinforcement_config, real_cfg.gripper
+                    action_buffer, dp_info, ee, reinforcement_state, reinforcement_config, real_cfg.gripper
                 )
             elif isinstance(policy, swm.policy.DiffusionPolicy,):
-                action_result = policy.get_action(dp_info)
+                action_result = action_buffer.get_action(dp_info)
                 dp_action = action_result[0] if isinstance(action_result, tuple) else action_result
                 dp_action = np.asarray(dp_action).reshape(-1)
                 if dp_action.size == 8:
@@ -1856,12 +1884,12 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
 
             elif gpc_reinforcement_enabled:
                 action_result, reinforcement_active, policy_gripper_command = _reinforced_gpc_action(
-                    policy, info, dp_info, projection_state, ee,
+                    action_buffer, info, dp_info, projection_state, ee,
                     gpc_reinforcement_state, reinforcement_config, real_cfg.gripper,
                 )
             elif isinstance(policy, swm.policy.GPCPolicy,):
 
-                action_result = policy.get_action(
+                action_result = action_buffer.get_action(
                     info,
                     dp_info_dict=dp_info,
                     projection_state=projection_state,
@@ -1876,6 +1904,9 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
 
 
 
+
+            if reinforcement_active and action_buffer is not None:
+                action_buffer.clear()
 
             if isinstance(action_result, tuple):
                 action, outputs = action_result
@@ -1921,6 +1952,8 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             if remaining > 0:
                 time.sleep(remaining)
     finally:
+        if action_buffer is not None:
+            action_buffer.clear()
         if gpc_recorder is not None:
             gpc_recorder.close()
         signal.signal(signal.SIGINT, previous_sigint)

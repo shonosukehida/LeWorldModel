@@ -1,0 +1,15 @@
+test_buffer_order_validation_and_copy (test_dp_action_chunks.LoopTests) ... ok
+test_multi_step_refill_history_and_discard (test_dp_action_chunks.LoopTests) ... ok
+test_one_step_frozen_loop_equivalence (test_dp_action_chunks.LoopTests) ... ok
+test_real_cartesian_safety_in_loop (test_dp_action_chunks.LoopTests) ... ok
+test_dp_real_resnet_unet_ddpm_rng_and_normalization (test_dp_action_chunks.NumericalTests) ... ok
+test_gpc_candidates_rollout_rewards_selection (test_dp_action_chunks.NumericalTests) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 26.364s
+
+OK
+Loop steps=1: 8 scenarios, exact equality of inference step/time, histories, robot mock commands and every HDF5 dataset
+Real Cartesian safety: old/new commands identical; first command=[.51,.01,.29,0,0,0,1,.1]
+DP: 12 comparisons, max abs error=0; RNG states identical; all scaler keys and no scaler
+GPC: 3 comparisons, max abs error=0 for proposals, WM inputs, mock predictions, rewards, indices, actions

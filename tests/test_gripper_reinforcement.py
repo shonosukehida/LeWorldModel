@@ -29,9 +29,12 @@ class Clock:
 
 class Diffusion:
     obs_horizon = 2
+    action_horizon = 3
     def __init__(self, commands):
         self.commands = iter(commands)
         self.observations = []
+    def get_action_chunk(self, obs):
+        return np.repeat(self.get_action(obs)[:, None], self.action_horizon, axis=1)
     def set_env(self, env):
         pass
     def get_action(self, obs):
@@ -40,6 +43,9 @@ class Diffusion:
 
 
 class GPC:
+    action_horizon = 3
+    def get_action_chunk(self, obs, **kwargs):
+        return np.repeat(self.get_action(obs, **kwargs)[:, None], self.action_horizon, axis=1)
     def __init__(self, commands):
         self.diffusion_policy = Diffusion(commands)
         self.observations = self.diffusion_policy.observations
@@ -78,18 +84,18 @@ class FakeEnv:
         return command
 
 
-def namespace(clock):
+def namespace(clock, source=None):
     ns = dict(np=np, plt=plt, time=clock, signal=signal, cv2=cv2, h5py=h5py,
               OmegaConf=OmegaConf, deque=deque, subprocess=Mock(),
               swm=SimpleNamespace(policy=SimpleNamespace(DiffusionPolicy=Diffusion,
                   GPCPolicy=GPC, WorldModelPolicy=type('WM', (), {}))),
               _load_or_capture_goal=lambda env, cfg: (np.zeros((16,16,3), np.uint8),
                   np.zeros((16,16,3), np.uint8), np.zeros(8)))
-    names = {'_validate_gripper_reinforcement', '_expire_gripper_reinforcement',
+    names = {'_DPActionBuffer', '_validate_gripper_reinforcement', '_expire_gripper_reinforcement',
              '_gripper_reinforcement_allowed', '_run_xarm_task_with_env', '_policy_observation',
              '_reinforced_diffusion_action', '_reinforced_gpc_action', 'plot_commanded_vs_actual_gripper'}
-    nodes = [n for n in ast.parse((ROOT/'eval_real_robot.py').read_text()).body
-             if isinstance(n, ast.FunctionDef) and n.name in names]
+    nodes = [n for n in ast.parse(source or (ROOT/'eval_real_robot.py').read_text()).body
+             if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in names]
     exec(compile(ast.Module(body=nodes, type_ignores=[]), 'eval_real_robot.py', 'exec'), ns)
     return ns
 

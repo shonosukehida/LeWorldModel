@@ -1,0 +1,311 @@
+Full suite
+/home/shonosukehida/work/LeWorldModel/.venv/lib/python3.10/site-packages/torch/cuda/__init__.py:716: UserWarning: Can't initialize NVML
+  warnings.warn("Can't initialize NVML")
+normalization_mode: zscore
+normalization_mode: min_max
+Loop steps=1: 8 scenarios, exact equality of inference step/time, histories, robot mock commands and every HDF5 dataset
+Real Cartesian safety: old/new commands identical; first command=[.51,.01,.29,0,0,0,1,.1]
+DP: 12 comparisons, max abs error=0; RNG states identical; all scaler keys and no scaler
+GPC: 3 comparisons, max abs error=0 for proposals, WM inputs, mock predictions, rewards, indices, actions
+Real-robot rollout saved to: /tmp/tmpyaarhx_f/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmpyaarhx_f/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmpyaarhx_f/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmpyaarhx_f/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmpyaarhx_f/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmpyaarhx_f/rollout_wrist.mp4
+GPC capture: 1 records, 0.000084s total synchronous copy overhead
+Real-robot rollout saved to: /tmp/tmpvlwp4xbe/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmpvlwp4xbe/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmpvlwp4xbe/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmpvlwp4xbe/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmpvlwp4xbe/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmpvlwp4xbe/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmp8pnlw4qj/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmp8pnlw4qj/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmp8pnlw4qj/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmp8pnlw4qj/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmp8pnlw4qj/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmp8pnlw4qj/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmp39sezjzk/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmp39sezjzk/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmp39sezjzk/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmp39sezjzk/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmp39sezjzk/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmp39sezjzk/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmpndl_lvn3/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmpndl_lvn3/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmpndl_lvn3/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmpndl_lvn3/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmpndl_lvn3/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmpndl_lvn3/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmpjb7jo93r/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmpjb7jo93r/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmpjb7jo93r/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmpjb7jo93r/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmpjb7jo93r/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmpjb7jo93r/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmp30szelsp/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmp30szelsp/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmp30szelsp/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmp30szelsp/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmp30szelsp/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmp30szelsp/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmpgh7lzkup/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmpgh7lzkup/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmpgh7lzkup/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmpgh7lzkup/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmpgh7lzkup/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmpgh7lzkup/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmpg_f7ehg8/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmpg_f7ehg8/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmpg_f7ehg8/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmpg_f7ehg8/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmpg_f7ehg8/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmpg_f7ehg8/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmp7hjmbood/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmp7hjmbood/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmp7hjmbood/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmp7hjmbood/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmp7hjmbood/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmp7hjmbood/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmp2fshojnr/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmp2fshojnr/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmp2fshojnr/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmp2fshojnr/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmp2fshojnr/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmp2fshojnr/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmpya6dx3c1/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmpya6dx3c1/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmpya6dx3c1/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmpya6dx3c1/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmpya6dx3c1/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmpya6dx3c1/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmpvlkiqqtw/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmpvlkiqqtw/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmpvlkiqqtw/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmpvlkiqqtw/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmpvlkiqqtw/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmpvlkiqqtw/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmpl_jaat3g/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmpl_jaat3g/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmpl_jaat3g/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmpl_jaat3g/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmpl_jaat3g/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmpl_jaat3g/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmpb8jonqc9/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmpb8jonqc9/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmpb8jonqc9/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmpb8jonqc9/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmpb8jonqc9/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmpb8jonqc9/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmpqe4pwukp/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmpqe4pwukp/commanded_vs_actual_position.png
+Commanded vs actual joint position plot saved to: /tmp/tmpqe4pwukp/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmpqe4pwukp/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmpqe4pwukp/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmpqe4pwukp/rollout_wrist.mp4
+Real-robot rollout saved to: /tmp/tmphg54epaz/rollout.h5
+Commanded vs actual EE position plot saved to: /tmp/tmphg54epaz/commanded_vs_actual_position.png
+/home/shonosukehida/work/LeWorldModel/.venv/lib/python3.10/site-packages/torch/cuda/__init__.py:716: UserWarning: Can't initialize NVML
+  warnings.warn("Can't initialize NVML")
+======================================================================
+ERROR: test_diffusion_evaluation_without_datasets_or_world_checkpoint (test_process_stats.ProcessStatsTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/shonosukehida/work/LeWorldModel/tests/test_process_stats.py", line 119, in test_diffusion_evaluation_without_datasets_or_world_checkpoint
+    exec(compile(ast.Module(body=run.body[start:], type_ignores=[]), 'eval_real_robot.py', 'exec'), namespace)
+  File "eval_real_robot.py", line 2625, in <module>
+    image_transform=dp_img_transform(cfg),
+NameError: name 'dp_img_transform' is not defined. Did you mean: 'img_transform'?
+
+======================================================================
+ERROR: test_xarm_admittance_config (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_xarm_admittance_config
+Traceback (most recent call last):
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 436, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 377, in _get_module_from_name
+    __import__(name)
+  File "/home/shonosukehida/work/LeWorldModel/tests/test_xarm_admittance_config.py", line 16, in <module>
+    from robopy.config.robot_config import XArmAdmittanceConfig
+ModuleNotFoundError: No module named 'robopy.config'
+
+
+======================================================================
+ERROR: test_xarm_gripper_wait (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_xarm_gripper_wait
+Traceback (most recent call last):
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 436, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 377, in _get_module_from_name
+    __import__(name)
+  File "/home/shonosukehida/work/LeWorldModel/tests/test_xarm_gripper_wait.py", line 7, in <module>
+    from robopy.robots.xarm.xarm_follower import XArmFollower
+ModuleNotFoundError: No module named 'robopy.robots'
+
+
+======================================================================
+ERROR: test_xarm_robot_inference (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_xarm_robot_inference
+Traceback (most recent call last):
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 436, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 377, in _get_module_from_name
+    __import__(name)
+  File "/home/shonosukehida/work/LeWorldModel/tests/test_xarm_robot_inference.py", line 23, in <module>
+    from test_xarm_admittance_config import load_inference_class, ROOT
+  File "/home/shonosukehida/work/LeWorldModel/tests/test_xarm_admittance_config.py", line 16, in <module>
+    from robopy.config.robot_config import XArmAdmittanceConfig
+ModuleNotFoundError: No module named 'robopy.config'
+
+
+----------------------------------------------------------------------
+Ran 68 tests in 49.952s
+
+FAILED (errors=4, skipped=2)
+Commanded vs actual joint position plot saved to: /tmp/tmphg54epaz/commanded_vs_actual_joint_position.png
+Real-robot rollout video saved to: /tmp/tmphg54epaz/rollout.mp4
+Real-robot rollout video saved to: /tmp/tmphg54epaz/rollout_overhead.mp4
+Real-robot rollout video saved to: /tmp/tmphg54epaz/rollout_wrist.mp4
+uint8 [0,255]: max_abs_diff=0.0, mean_abs_diff=0.0
+float32 [0,255]: max_abs_diff=0.0, mean_abs_diff=0.0
+float32 [0,1]: max_abs_diff=0.0, mean_abs_diff=0.0
+Multi-sample DP evaluation saved to: /tmp/tmpy_wo0_n2/multi_sample/episode_7_step_10_8rja2m5r
+Multi-sample DP evaluation saved to: /tmp/tmpy_wo0_n2/multi_sample/episode_7_step_11_udjhxpdt
+Multi-sample DP evaluation saved to: /tmp/tmpy_wo0_n2/multi_sample/episode_7_step_12_zgpf0cyn
+Multi-sample DP evaluation saved to: /tmp/tmpy_wo0_n2/multi_sample/episode_7_step_12_6txhxa2f
+Multi-sample DP evaluation saved to: /tmp/tmpy_wo0_n2/multi_sample/episode_7_step_0_ih41y6gy
+normalization_mode: zscore
+Multi-sample DP evaluation saved to: /tmp/tmpqay07bfh/multi/episode_7_step_1_whhhcx8k
+Loaded normalization statistics from: /tmp/tmpajuqcge_/nested/process_stats.npz
+Normalization keys: ['action_cartesian', 'proprio', 'goal_proprio']
+action_key: action_cartesian
+Saved normalization statistics to: /tmp/tmpi866gnbu/nested/process_stats.npz
+stats_path: /tmp/tmpi866gnbu/nested/process_stats.npz
+Loading saved normalization statistics.
+dataset_path: /tmp/tmpi866gnbu/datasets/push.h5
+Loaded normalization statistics from: /tmp/tmpi866gnbu/nested/process_stats.npz
+Normalization keys: ['action_cartesian', 'proprio', 'goal_proprio']
+action_key: action_cartesian
+Saved normalization statistics to: /tmp/tmpizzhiy5g/nested/process_stats.npz
+
+
+XArm retry with robopy/src
+======================================================================
+ERROR: test_xarm_admittance_config (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_xarm_admittance_config
+Traceback (most recent call last):
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 436, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 377, in _get_module_from_name
+    __import__(name)
+  File "/home/shonosukehida/work/LeWorldModel/tests/test_xarm_admittance_config.py", line 16, in <module>
+    from robopy.config.robot_config import XArmAdmittanceConfig
+  File "/home/shonosukehida/work/robopy/src/robopy/config/__init__.py", line 2, in <module>
+    from .robot_config.koch_config import (
+  File "/home/shonosukehida/work/robopy/src/robopy/config/robot_config/__init__.py", line 3, in <module>
+    from .koch_config import KochConfig
+  File "/home/shonosukehida/work/robopy/src/robopy/config/robot_config/koch_config.py", line 6, in <module>
+    from robopy.config.sensor_config.visual_config.camera_config import (
+  File "/home/shonosukehida/work/robopy/src/robopy/config/sensor_config/__init__.py", line 2, in <module>
+    from .sensors import Sensors
+  File "/home/shonosukehida/work/robopy/src/robopy/config/sensor_config/sensors.py", line 4, in <module>
+    from robopy.sensors.audio.audio_sensor import AudioSensor
+  File "/home/shonosukehida/work/robopy/src/robopy/sensors/__init__.py", line 1, in <module>
+    from .tactile.digit_sensor import DigitSensor
+  File "/home/shonosukehida/work/robopy/src/robopy/sensors/tactile/__init__.py", line 3, in <module>
+    from .digit_sensor import DigitSensor
+  File "/home/shonosukehida/work/robopy/src/robopy/sensors/tactile/digit_sensor.py", line 6, in <module>
+    from digit_interface import Digit
+ModuleNotFoundError: No module named 'digit_interface'
+
+
+======================================================================
+ERROR: test_xarm_gripper_wait (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_xarm_gripper_wait
+Traceback (most recent call last):
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 436, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 377, in _get_module_from_name
+    __import__(name)
+  File "/home/shonosukehida/work/LeWorldModel/tests/test_xarm_gripper_wait.py", line 7, in <module>
+    from robopy.robots.xarm.xarm_follower import XArmFollower
+  File "/home/shonosukehida/work/robopy/src/robopy/robots/__init__.py", line 1, in <module>
+    from .common.composed import ComposedRobot
+  File "/home/shonosukehida/work/robopy/src/robopy/robots/common/__init__.py", line 3, in <module>
+    from .arm import Arm
+  File "/home/shonosukehida/work/robopy/src/robopy/robots/common/arm.py", line 3, in <module>
+    from robopy.motor.dynamixel_bus import DynamixelBus
+  File "/home/shonosukehida/work/robopy/src/robopy/motor/dynamixel_bus.py", line 14, in <module>
+    import dynamixel_sdk as dxl
+ModuleNotFoundError: No module named 'dynamixel_sdk'
+
+
+======================================================================
+ERROR: test_xarm_robot_inference (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_xarm_robot_inference
+Traceback (most recent call last):
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 436, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/home/shonosukehida/.local/share/uv/python/cpython-3.10.16-linux-x86_64-gnu/lib/python3.10/unittest/loader.py", line 377, in _get_module_from_name
+    __import__(name)
+  File "/home/shonosukehida/work/LeWorldModel/tests/test_xarm_robot_inference.py", line 23, in <module>
+    from test_xarm_admittance_config import load_inference_class, ROOT
+  File "/home/shonosukehida/work/LeWorldModel/tests/test_xarm_admittance_config.py", line 16, in <module>
+    from robopy.config.robot_config import XArmAdmittanceConfig
+  File "/home/shonosukehida/work/robopy/src/robopy/config/__init__.py", line 2, in <module>
+    from .robot_config.koch_config import (
+  File "/home/shonosukehida/work/robopy/src/robopy/config/robot_config/__init__.py", line 3, in <module>
+    from .koch_config import KochConfig
+  File "/home/shonosukehida/work/robopy/src/robopy/config/robot_config/koch_config.py", line 6, in <module>
+    from robopy.config.sensor_config.visual_config.camera_config import (
+  File "/home/shonosukehida/work/robopy/src/robopy/config/sensor_config/__init__.py", line 2, in <module>
+    from .sensors import Sensors
+  File "/home/shonosukehida/work/robopy/src/robopy/config/sensor_config/sensors.py", line 4, in <module>
+    from robopy.sensors.audio.audio_sensor import AudioSensor
+  File "/home/shonosukehida/work/robopy/src/robopy/sensors/__init__.py", line 1, in <module>
+    from .tactile.digit_sensor import DigitSensor
+  File "/home/shonosukehida/work/robopy/src/robopy/sensors/tactile/__init__.py", line 3, in <module>
+    from .digit_sensor import DigitSensor
+  File "/home/shonosukehida/work/robopy/src/robopy/sensors/tactile/digit_sensor.py", line 6, in <module>
+    from digit_interface import Digit
+ModuleNotFoundError: No module named 'digit_interface'
+
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.132s
+
+FAILED (errors=3)
+
+
+Pre-change fixture error reproduction
+test_diffusion_evaluation_without_datasets_or_world_checkpoint (test_process_stats.ProcessStatsTests) ... ERROR
+
+======================================================================
+ERROR: test_diffusion_evaluation_without_datasets_or_world_checkpoint (test_process_stats.ProcessStatsTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/shonosukehida/work/LeWorldModel/tests/test_process_stats.py", line 119, in test_diffusion_evaluation_without_datasets_or_world_checkpoint
+    exec(compile(ast.Module(body=run.body[start:], type_ignores=[]), 'eval_real_robot.py', 'exec'), namespace)
+  File "eval_real_robot.py", line 2592, in <module>
+    device = next(old_encoder.parameters()).device
+NameError: name 'dp_img_transform' is not defined
+
+----------------------------------------------------------------------
+Ran 1 test in 0.049s
+
+FAILED (errors=1)
+Saved normalization statistics to: /tmp/tmpr81lz6zz/nested/process_stats.npz
+stats_path: /tmp/tmpr81lz6zz/nested/process_stats.npz
+Loading saved normalization statistics.
+dataset_path: /tmp/tmpr81lz6zz/datasets/push.h5
+Loaded normalization statistics from: /tmp/tmpr81lz6zz/nested/process_stats.npz
+Normalization keys: ['action_cartesian', 'proprio', 'goal_proprio']
+action_key: action_cartesian
+Confirmed same dp_img_transform fixture error against frozen pre-change source

@@ -31,7 +31,7 @@ from robopy.config.sensor_config.visual_config.camera_config import RealsenseCam
 
 def load_functions(names, namespace):
     tree = ast.parse((ROOT / 'eval_real_robot.py').read_text())
-    functions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
+    functions = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in names]
     exec(compile(ast.Module(body=functions, type_ignores=[]), 'eval_real_robot.py', 'exec'), namespace)
     return namespace
 
@@ -201,9 +201,10 @@ class InferenceTests(unittest.TestCase):
             cls.__init__.__globals__['Rotation'] = Rotation
             class Diffusion:
                 obs_horizon = 2
+                action_horizon = 1
                 def set_env(self, env):
                     self.env = env
-                def get_action(self, info):
+                def get_action_chunk(self, info):
                     self.info = info
                     return np.array([[[0.5, 0., .3, 0., 0., 0., 1., 0.]]], np.float32)
             policy = Diffusion()
@@ -212,7 +213,7 @@ class InferenceTests(unittest.TestCase):
                 np=np, plt=plt, cv2=cv2, h5py=h5py, time=time, signal=signal, OmegaConf=OmegaConf,
                 deque=deque, subprocess=subprocess, _load_or_capture_goal=lambda env, cfg:
                 (*env.get_images(), np.zeros(8, np.float32)))
-            ns = load_functions({'run_xarm_task', '_run_xarm_task_with_env', '_policy_observation', 'plot_commanded_vs_actual_gripper'}, ns)
+            ns = load_functions({'_DPActionBuffer', 'run_xarm_task', '_run_xarm_task_with_env', '_policy_observation', 'plot_commanded_vs_actual_gripper'}, ns)
             with patch('robopy.robots.xarm.XArmRobot') as owner:
                 ns['run_xarm_task'](cfg, policy, {}, root)
             owner.assert_not_called()
