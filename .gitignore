@@ -20,3 +20,4 @@ __pycache__/*
 *.py[cod]
 robot/figures/*
 LeWorldModel/_dbg/preprocessing_regression/*
+real_robot_rollouts/*
