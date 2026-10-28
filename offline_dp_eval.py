@@ -140,23 +140,84 @@ def evaluate_episode(policy, dataset_path, episode_id, output_dir, metadata):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    for name, dims, labels, ylabel in (
-        ('position', range(3), ('x', 'y', 'z'), 'Position [m]'),
-        ('orientation', range(3, 7), ('qx', 'qy', 'qz', 'qw'), 'Quaternion component'),
-        ('gripper', (7,), ('gripper',), 'Gripper (0=open, 1=closed)'),
+    # for name, dims, labels, ylabel in (
+    #     ('position', range(3), ('x', 'y', 'z'), 'Position [m]'),
+    #     ('orientation', range(3, 7), ('qx', 'qy', 'qz', 'qw'), 'Quaternion component'),
+    #     ('gripper', (7,), ('gripper',), 'Gripper (0=open, 1=closed)'),
+    # ):
+    #     fig, axes = plt.subplots(len(labels), 1, sharex=True, squeeze=False, figsize=(10, 2.6 * len(labels)))
+    #     for ax, dim, label in zip(axes[:, 0], dims, labels):
+    #         ax.plot(steps, predicted[:, dim], color='tab:blue', label='Predicted')
+    #         ax.plot(steps, gt[:, dim], color='tab:orange', label='Ground Truth')
+    #         ax.set_ylabel(ylabel)
+    #         ax.set_title(label)
+    #         ax.grid(alpha=0.3)
+    #         ax.legend()
+    #     axes[-1, 0].set_xlabel('Step')
+    #     fig.tight_layout()
+    #     fig.savefig(out / f'predicted_vs_gt_{name}.png')
+    #     plt.close(fig)
+
+
+    # Checkpointと同じ正規化方式・統計を使用
+    processor = policy.process["action_cartesian"]
+    predicted_norm = processor.transform(predicted.copy())
+    gt_norm = processor.transform(gt.copy())
+
+    plot_specs = (
+        ("position", range(3), ("x", "y", "z"), "Position [m]"),
+        ("orientation", range(3, 7), ("qx", "qy", "qz", "qw"), "Quaternion component"),
+        ("gripper", (7,), ("gripper",), "Gripper (0=open, 1=closed)"),
+    )
+
+    for normalized, pred_values, gt_values in (
+        (False, predicted, gt),
+        (True, predicted_norm, gt_norm),
     ):
-        fig, axes = plt.subplots(len(labels), 1, sharex=True, squeeze=False, figsize=(10, 2.6 * len(labels)))
-        for ax, dim, label in zip(axes[:, 0], dims, labels):
-            ax.plot(steps, predicted[:, dim], color='tab:blue', label='Predicted')
-            ax.plot(steps, gt[:, dim], color='tab:orange', label='Ground Truth')
-            ax.set_ylabel(ylabel)
-            ax.set_title(label)
-            ax.grid(alpha=0.3)
-            ax.legend()
-        axes[-1, 0].set_xlabel('Step')
-        fig.tight_layout()
-        fig.savefig(out / f'predicted_vs_gt_{name}.png')
-        plt.close(fig)
+        for name, dims, labels, ylabel in plot_specs:
+            fig, axes = plt.subplots(
+                len(labels), 1, sharex=True, squeeze=False,
+                figsize=(10, 2.6 * len(labels))
+            )
+
+            for ax, dim, label in zip(axes[:, 0], dims, labels):
+                ax.plot(
+                    steps, pred_values[:, dim],
+                    color="tab:blue", label="Predicted"
+                )
+                ax.plot(
+                    steps, gt_values[:, dim],
+                    color="tab:orange", label="Ground Truth"
+                )
+
+                if normalized:
+                    ax.axhline(
+                        -1.0, color="red", linestyle="--",
+                        linewidth=1.0, alpha=0.25,
+                        label="Normalized -1"
+                    )
+                    ax.axhline(
+                        1.0, color="red", linestyle="--",
+                        linewidth=1.0, alpha=0.25,
+                        label="Normalized +1"
+                    )
+
+                ax.set_ylabel(
+                    "Normalized action value" if normalized else ylabel
+                )
+                ax.set_title(label)
+                ax.grid(alpha=0.3)
+                ax.legend()
+
+            axes[-1, 0].set_xlabel("Step")
+            fig.tight_layout()
+
+            suffix = "_normalized" if normalized else ""
+            fig.savefig(out / f"predicted_vs_gt_{name}{suffix}.png")
+            plt.close(fig)
+
+
+
     return metrics
 
 
