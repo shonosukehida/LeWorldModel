@@ -2679,7 +2679,7 @@ def run(cfg: DictConfig):
     if cfg.eval.probing.exe_probe:
         # One-step JEPA probing needs the complete context plus its target.
         num_steps = 1
-        if cfg.eval.probing.plot_open_data and getattr(model, "prop_encoder", None) is not None:
+        if (cfg.eval.probing.plot_open_data or cfg.eval.probing.get("plot_train_dyn_vs_val_dyn", False)) and getattr(model, "prop_encoder", None) is not None:
             num_steps = ProbingEvaluator.resolve_history_size(cfg.eval.probing, model) + 1
         dataset = get_dataset(cfg, cfg.eval.probing.dataset_name, num_steps=num_steps)
         val_dataset = get_dataset(cfg, cfg.eval.probing.val_dataset_name, num_steps=num_steps)

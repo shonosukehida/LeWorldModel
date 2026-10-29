@@ -159,6 +159,7 @@ eval:
     plot_all_train_data: true
     plot_all_val_data: true
     plot_open_data: true
+    plot_train_dyn_vs_val_dyn: false # true enables shared PCA comparison
     plot_closed_data: 
       plot_whisker:  #closed forward をひげ状にプロット
         plot: true
