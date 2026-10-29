@@ -256,13 +256,21 @@ def get_dataset(cfg, dataset_name, num_steps=1):
     
     # print("key_to_cache:", cfg.dataset.keys_to_cache)
         
-    dataset = swm.data.HDF5Dataset(
-        dataset_name,
-        num_steps=num_steps,
-        # keys_to_load=keys_to_load,
-        keys_to_cache=cfg.dataset.keys_to_cache,
-        cache_dir=dataset_path,
-    )
+    if Path(dataset_name).is_absolute():
+        dataset = swm.data.HDF5Dataset(
+            path=dataset_name,
+            num_steps=num_steps,
+            keys_to_cache=cfg.dataset.keys_to_cache,
+            cache_dir=dataset_path,
+        )
+    else:
+        dataset = swm.data.HDF5Dataset(
+            dataset_name,
+            num_steps=num_steps,
+            # keys_to_load=keys_to_load,
+            keys_to_cache=cfg.dataset.keys_to_cache,
+            cache_dir=dataset_path,
+        )
     return dataset
 
 #影置き, 影なし置き, 置かずの画像を集めたデータセットを取得
@@ -2497,7 +2505,9 @@ def run(cfg: DictConfig):
     ).expanduser()
 
     dataset_path = (
-        cache_dir
+        Path(dataset_name)
+        if Path(dataset_name).is_absolute()
+        else cache_dir
         / "datasets"
         / f"{dataset_name}.h5"
     )
