@@ -229,9 +229,20 @@ def run_offline_dp(cfg, loader, image_transform):
     metadata = dict(policy.offline_checkpoint_metadata,
                     image_size=cfg.eval.img_size,
                     preprocessing='training get_img_preprocessor (range scaling, ImageNet normalization, resize)')
-    return evaluate_episode(policy, robot.dry_run_dataset_path, int(robot.dry_run_episode_idx),
-                            Path(robot.output_dir) / 'offline_dp', metadata)
 
+    output_dir = Path(robot.output_dir) / "offline_dp"
+
+    result = evaluate_episode(
+        policy,
+        robot.dry_run_dataset_path,
+        int(robot.dry_run_episode_idx),
+        output_dir,
+        metadata
+    )
+
+    print(f"[Dry Run] Results saved to: {output_dir.resolve()}")
+
+    return result
 
 def _integer(value, name, minimum=0):
     from numbers import Integral
