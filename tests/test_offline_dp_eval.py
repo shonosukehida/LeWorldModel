@@ -166,6 +166,10 @@ class OfflineTests(unittest.TestCase):
             run_offline_dp(cfg, loader, 'existing_transform')
             loader.assert_called_once_with(checkpoint_path='chosen.ckpt', image_transform='existing_transform', device='cuda')
             evaluate.assert_called_once()
+            self.assertEqual(evaluate.call_args.kwargs['dp_execute_steps'], 1)
+            robot.dp_execute_steps = 8
+            run_offline_dp(cfg, loader, 'existing_transform')
+            self.assertEqual(evaluate.call_args.kwargs['dp_execute_steps'], 8)
         prefix = ast.FunctionDef(name='dispatch', args=run.args, body=[branch], decorator_list=[])
         # Remove annotation so loading the isolated dispatcher has no Hydra dependency.
         prefix.args.args[0].annotation = None
@@ -364,6 +368,119 @@ class MultiSampleTests(unittest.TestCase):
             offline_dp_eval.run_offline_dp_multi_sample(cfg, loader, 'existing_transform')
             loader.assert_called_once_with(checkpoint_path='chosen.ckpt', image_transform='existing_transform', device='cuda')
             self.assertEqual(evaluator.call_args.args[1:7], ('data.h5', 7, 100, 20, 42, Path('out/offline_dp/multi_sample')))
+
+
+class EpisodeExecuteStepsTests(unittest.TestCase):
+    def setup_episode(self, tmp, length):
+        path, policy, calls = ChunkRolloutTests().setup_rollout(tmp, length)
+        policy.num_inference_steps = 3
+        policy.process['action_cartesian'] = SimpleNamespace(transform=lambda x: x / 2)
+        def chunk(info):
+            calls.append(info)
+            result = np.zeros((1, 8, 8))
+            result[0, :, 0] = 1000 * (len(calls) - 1) + np.arange(8)
+            result[..., 6] = 1
+            return result
+        policy.get_action_chunk = chunk
+        policy.get_action = Mock(side_effect=AssertionError('legacy path called'))
+        return path, policy, calls
+
+    def test_chunks_tail_histories_and_continuous_plot(self):
+        from unittest.mock import patch
+        import matplotlib.pyplot as plt
+        for length in (16, 17):
+            with self.subTest(length=length), tempfile.TemporaryDirectory() as tmp:
+                path, policy, calls = self.setup_episode(tmp, length)
+                out = Path(tmp) / 'out'
+                original = plt.subplots
+                axes_seen = []
+                def capture(*args, **kwargs):
+                    fig, axes = original(*args, **kwargs)
+                    axes_seen.extend(axes[:, 0])
+                    return fig, axes
+                with patch.object(plt, 'subplots', side_effect=capture):
+                    evaluate_episode(policy, path, 7, out, {}, dp_execute_steps=8)
+                self.assertEqual(len(calls), (length + 7) // 8)
+                with h5py.File(out / 'offline_rollout.h5') as f:
+                    self.assertEqual(f['predicted_action'].shape, (length, 8))
+                    expected = [1000 * (i // 8) + i % 8 for i in range(length)]
+                    np.testing.assert_array_equal(f['predicted_action'][:, 0], expected)
+                    meta = json.loads(f.attrs['metadata'])
+                    self.assertEqual(meta['chunk_start_steps'], list(range(100, 100 + length, 8)))
+                    self.assertEqual(meta['num_inference_calls'], len(calls))
+                for i, info in enumerate(calls):
+                    rows = np.maximum(np.arange(i * 8 - 7, i * 8 + 1), 0)
+                    for key in ('pixels', 'wrist_pixels'):
+                        np.testing.assert_array_equal(info[key][0, :, 0, 0, 0], rows)
+                for ax in axes_seen:
+                    np.testing.assert_array_equal(ax.lines[0].get_xdata(), np.arange(100, 100 + length))
+                    self.assertEqual(ax.lines[0].get_linestyle(), '-')
+
+    def test_invalid_execute_steps_and_chunks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path, policy, calls = self.setup_episode(tmp, 17)
+            for value in (0, -1, 9, 1.5, True, '8', None):
+                with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'dp_execute_steps'):
+                    evaluate_episode(policy, path, 7, tmp, {}, value)
+            self.assertEqual(calls, [])
+            for shape in ((8, 8), (2, 8, 8), (1, 7, 8), (1, 8, 7)):
+                policy.get_action_chunk = lambda info: np.zeros(shape)
+                with self.assertRaisesRegex(ValueError, 'Invalid DP chunk'):
+                    evaluate_episode(policy, path, 7, tmp, {}, 8)
+            for value in (np.nan, np.inf, 'bad', 1j):
+                policy.get_action_chunk = lambda info: np.full((1, 8, 8), value)
+                with self.assertRaisesRegex(ValueError, 'Invalid DP chunk'):
+                    evaluate_episode(policy, path, 7, tmp, {}, 8)
+
+    def test_legacy_exact_equality_actual_dp_sampler(self):
+        import runpy
+        from unittest.mock import patch
+        import matplotlib.pyplot as plt
+        legacy = runpy.run_path(str(ROOT / 'tests/fixtures/legacy_evaluate_episode.py'))['evaluate_episode']
+        ns = methods(ROOT.parent / 'stable-worldmodel/stable_worldmodel/policy.py',
+                     'DiffusionPolicy', ('predict_action', 'get_action'))
+        for mode in ('zscore', 'min_max'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / 'data.h5'
+                OfflineTests().dataset(path)
+                policy = MultiSampleTests().policy(mode)
+                policy.predict_action = lambda info: ns['predict_action'](policy, info)
+                policy.get_action = lambda info: ns['get_action'](policy, info)
+                policy.get_action_chunk = Mock(side_effect=AssertionError('chunk path called'))
+                plots = []
+                original_plot = plt.Axes.plot
+                def capture(ax, *args, **kwargs):
+                    plots.append(([np.asarray(a).copy() for a in args], dict(kwargs)))
+                    return original_plot(ax, *args, **kwargs)
+                state = torch.random.get_rng_state().clone()
+                results, states, traces = [], [], []
+                for name, evaluator, kwargs in (('legacy', legacy, {}),
+                                                ('explicit', evaluate_episode, {'dp_execute_steps': 1}),
+                                                ('default', evaluate_episode, {})):
+                    torch.random.set_rng_state(state)
+                    plots.clear()
+                    with patch.object(plt.Axes, 'plot', new=capture):
+                        results.append(evaluator(policy, path, 7, Path(tmp) / name, {}, **kwargs))
+                    states.append(torch.random.get_rng_state().clone())
+                    traces.append(list(plots))
+                for i, name in enumerate(('explicit', 'default'), 1):
+                    self.assertEqual(results[0], results[i])
+                    self.assertTrue(torch.equal(states[0], states[i]))
+                    for filename in (Path(tmp) / 'legacy').iterdir():
+                        other = Path(tmp) / name / filename.name
+                        if filename.suffix == '.h5':
+                            with h5py.File(filename) as a, h5py.File(other) as b:
+                                self.assertEqual(set(a), set(b))
+                                self.assertEqual(dict(a.attrs), dict(b.attrs))
+                                for key in a:
+                                    np.testing.assert_array_equal(a[key][:], b[key][:])
+                        else:
+                            self.assertEqual(filename.read_bytes(), other.read_bytes())
+                    self.assertEqual(len(traces[0]), len(traces[i]))
+                    for (a, style_a), (b, style_b) in zip(traces[0], traces[i]):
+                        self.assertEqual(style_a, style_b)
+                        for x, y in zip(a, b):
+                            np.testing.assert_array_equal(x, y)
 
 
 class ChunkRolloutTests(unittest.TestCase):

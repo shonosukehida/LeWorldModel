@@ -64,7 +64,7 @@ eval:
   # layout: [x, y, z, qx, qy, qz, qw, gripper], where gripper is normalized
   # to 0=open and 1=closed.
   real_robot:
-    dp_execute_steps: 8 # DP/GPC actions per inference; 1..policy.action_horizon
+    dp_execute_steps: 8 # DP/GPC actions per inference (also dry_run episode); 1..policy.action_horizon
     admittance: #アドミッタンス制御を使うか
       enabled: true
       translational_mass: 0.06  # kg

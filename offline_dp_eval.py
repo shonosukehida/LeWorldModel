@@ -99,28 +99,47 @@ def compute_metrics(predicted, ground_truth, threshold=0.5):
     }
 
 
-def evaluate_episode(policy, dataset_path, episode_id, output_dir, metadata):
+def evaluate_episode(policy, dataset_path, episode_id, output_dir, metadata, dp_execute_steps=1):
     if policy.action_dim != 8 or 'action_cartesian' not in policy.process:
         raise ValueError('Offline evaluation requires an 8D action_cartesian checkpoint')
     if policy.obs_horizon < 1 or policy.action_horizon < 1 or policy.pred_horizon < policy.obs_horizon:
         raise ValueError('Invalid checkpoint horizons')
     data, steps, order_source = load_episode(dataset_path, episode_id)
-    histories = {k: deque(maxlen=policy.obs_horizon) for k in ('pixels', 'wrist_pixels')}
-    predicted = []
-    for t in range(len(steps)):
-        for key, history in histories.items():
-            if not history:
-                history.extend([data[key][t]] * policy.obs_horizon)
-            else:
-                history.append(data[key][t])
-        info = {k: np.stack(v)[None] for k, v in histories.items()}
-        # get_action selects predict_action[:, obs_horizon-1], i.e. current
-        # observation's action in train_policy's same-row observation/action windows.
-        # It also inverse-transforms using checkpoint statistics: do not do it twice.
-        action = np.asarray(policy.get_action(info))
-        if action.shape != (1, 8) or not np.isfinite(action).all():
-            raise ValueError(f'Invalid DP output at step {steps[t]}: expected finite (1,8)')
-        predicted.append(action[0].copy())
+    if (isinstance(dp_execute_steps, bool) or not isinstance(dp_execute_steps, int)
+            or not 1 <= dp_execute_steps <= policy.action_horizon):
+        raise ValueError('Require integer 1 <= dp_execute_steps <= policy.action_horizon')
+    if dp_execute_steps == 1:
+        histories = {k: deque(maxlen=policy.obs_horizon) for k in ('pixels', 'wrist_pixels')}
+        predicted = []
+        for t in range(len(steps)):
+            for key, history in histories.items():
+                if not history:
+                    history.extend([data[key][t]] * policy.obs_horizon)
+                else:
+                    history.append(data[key][t])
+            info = {k: np.stack(v)[None] for k, v in histories.items()}
+            # get_action selects predict_action[:, obs_horizon-1], i.e. current
+            # observation's action in train_policy's same-row observation/action windows.
+            # It also inverse-transforms using checkpoint statistics: do not do it twice.
+            action = np.asarray(policy.get_action(info))
+            if action.shape != (1, 8) or not np.isfinite(action).all():
+                raise ValueError(f'Invalid DP output at step {steps[t]}: expected finite (1,8)')
+            predicted.append(action[0].copy())
+    else:
+        predicted = []
+        chunk_rows = range(0, len(steps), dp_execute_steps)
+        for row in chunk_rows:
+            info = build_observation_history(data, row, policy.obs_horizon)
+            # get_action_chunk already returns physical actions.
+            chunk = np.asarray(policy.get_action_chunk(info))
+            if (chunk.ndim != 3 or chunk.shape[0] != 1
+                    or chunk.shape[1] < dp_execute_steps or chunk.shape[2] != 8
+                    or not np.issubdtype(chunk.dtype, np.number)
+                    or np.iscomplexobj(chunk) or not np.isfinite(chunk).all()):
+                raise ValueError(f'Invalid DP chunk at step {steps[row]}: '
+                                 'expected finite numeric (1,Ta,8), Ta >= dp_execute_steps')
+            n = min(dp_execute_steps, len(steps) - row)
+            predicted.extend(chunk[0, :n].copy())
     predicted = np.stack(predicted)
     gt = data['action_cartesian']
     metrics = compute_metrics(predicted, gt)
@@ -129,6 +148,11 @@ def evaluate_episode(policy, dataset_path, episode_id, output_dir, metadata):
                     alignment='observation t -> action_cartesian t; get_action uses obs_horizon-1',
                     model={k: int(getattr(policy, k)) for k in
                            ('pred_horizon', 'obs_horizon', 'action_horizon', 'action_dim', 'num_inference_steps')})
+    if dp_execute_steps > 1:
+        metadata.update(dp_execute_steps=dp_execute_steps,
+                        num_inference_calls=len(chunk_rows),
+                        chunk_start_steps=steps[list(chunk_rows)].tolist(),
+                        alignment='observation t -> action_cartesian t; get_action_chunk uses obs_horizon-1')
     out = Path(output_dir).expanduser()
     out.mkdir(parents=True, exist_ok=True)
     with h5py.File(out / 'offline_rollout.h5', 'w') as f:
@@ -237,7 +261,8 @@ def run_offline_dp(cfg, loader, image_transform):
         robot.dry_run_dataset_path,
         int(robot.dry_run_episode_idx),
         output_dir,
-        metadata
+        metadata,
+        dp_execute_steps=getattr(robot, "dp_execute_steps", 1),
     )
 
     print(f"[Dry Run] Results saved to: {output_dir.resolve()}")
