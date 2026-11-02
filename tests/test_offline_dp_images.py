@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 import torch
 
-from offline_dp_eval import dataset_images_to_hwc, load_episode, evaluate_episode, evaluate_multi_sample
+from offline_dp_eval import dataset_images_to_hwc, load_episode, evaluate_episode, evaluate_multi_sample, evaluate_chunk_rollout
 from utils import get_img_preprocessor
 from stable_worldmodel.policy import BasePolicy
 from test_image_preprocessing import load_transforms
@@ -36,7 +36,7 @@ class OfflineImageTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'finite raw'):
                 dataset_images_to_hwc(np.full((2, 3, 8, 10), value, np.float32), 'wrist_pixels')
 
-    def test_both_modes_match_training_at_encoder_input(self):
+    def test_all_modes_match_training_at_encoder_input(self):
         # Fractional values expose lossy uint8 casts. Non-square images expose
         # incorrect axes; distinct channels/views/time expose mixing and padding.
         raw = np.linspace(0, 254.75, 4*3*8*10, dtype=np.float32).reshape(4, 3, 8, 10)
@@ -47,7 +47,7 @@ class OfflineImageTests(unittest.TestCase):
         seen = []
         policy = SimpleNamespace(action_dim=8, obs_horizon=3, pred_horizon=5,
                                  action_horizon=2, num_inference_steps=2,
-                                 process={'action_cartesian': object()},
+                                 process={'action_cartesian': SimpleNamespace(transform=lambda x: x)},
                                  transform={'pixels': transform, 'wrist_pixels': transform})
         def prepare_and_capture(info):
             result = BasePolicy._prepare_info(policy, dict(info))
@@ -75,7 +75,8 @@ class OfflineImageTests(unittest.TestCase):
             with patch('matplotlib.figure.Figure.savefig'):
                 evaluate_episode(policy, path, 7, Path(tmp) / 'episode', {})
                 evaluate_multi_sample(policy, path, 7, 1, 2, 42, Path(tmp) / 'multi', {})
-            for output, row in zip(seen, (0, 1, 2, 3, 1)):
+                evaluate_chunk_rollout(policy, path, 7, 2, 42, Path(tmp) / 'chunks', {})
+            for output, row in zip(seen, (0, 1, 2, 3, 1, 0, 2)):
                 rows = np.maximum(np.arange(row-2, row+1), 0)
                 for key, images in (('pixels', raw), ('wrist_pixels', wrist)):
                     train = get_img_preprocessor(key, key, 6)

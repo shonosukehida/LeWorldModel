@@ -417,3 +417,146 @@ def run_offline_dp_multi_sample(cfg, loader, image_transform):
         policy, robot.dry_run_dataset_path, int(robot.dry_run_episode_idx),
         robot.dry_run_timestep, robot.dry_run_num_candidates, robot.dry_run_seed,
         Path(robot.output_dir) / 'offline_dp' / 'multi_sample', metadata)
+
+
+def compute_chunk_rollout_metrics(predicted_chunks, valid_mask, representative_index=0):
+    """Measure raw command differences, excluding padding and separating boundaries."""
+    p = np.asarray(predicted_chunks, dtype=np.float64)
+    valid = np.asarray(valid_mask, dtype=bool)
+    representative_index = _integer(representative_index, 'representative_index')
+    if (p.ndim != 4 or min(p.shape[:3]) < 1 or p.shape[-1] != 8
+            or valid.shape != (p.shape[0], p.shape[2])
+            or representative_index >= p.shape[1]
+            or not valid[:, 0].all() or np.any(np.diff(valid.astype(int), axis=1) > 0)):
+        raise ValueError('Expected chunks (C,K,A,8) and nonempty prefix valid masks (C,A)')
+    chunks = [chunk[:, mask] for chunk, mask in zip(p, valid)]
+    for chunk in chunks:
+        if not np.isfinite(chunk).all():
+            raise ValueError('Valid predicted actions contain NaN/Inf')
+        if np.any(np.linalg.norm(chunk[..., 3:7], axis=-1) < 1e-12):
+            raise ValueError('Cannot evaluate zero-norm quaternion in predicted chunks')
+    representatives = [chunk[representative_index] for chunk in chunks]
+
+    def differences(a, b):
+        position = np.linalg.norm(b[:, :3] - a[:, :3], axis=-1)
+        qa, qb = a[:, 3:7], b[:, 3:7]
+        qa = qa / np.linalg.norm(qa, axis=-1, keepdims=True)
+        qb = qb / np.linalg.norm(qb, axis=-1, keepdims=True)
+        angle = np.degrees(2 * np.arccos(np.clip(np.abs(np.sum(qa * qb, axis=-1)), 0, 1)))
+        return position, angle
+
+    def summary(values):
+        return dict(count=len(values), mean=float(np.mean(values)) if len(values) else None,
+                    max=float(np.max(values)) if len(values) else None,
+                    p95=float(np.percentile(values, 95)) if len(values) else None)
+
+    inside = differences(np.concatenate([c[:-1] for c in representatives]),
+                         np.concatenate([c[1:] for c in representatives]))
+    boundary = differences(np.asarray([c[-1] for c in representatives[:-1]]).reshape(-1, 8),
+                           np.asarray([c[0] for c in representatives[1:]]).reshape(-1, 8))
+    return dict(within_chunk=dict(position_m_per_step=summary(inside[0]),
+                                 orientation_deg_per_step=summary(inside[1])),
+                boundary=dict(position_m_per_step=summary(boundary[0]),
+                              orientation_deg_per_step=summary(boundary[1])),
+                note='Command differences are not measured robot velocity or acceleration and do not guarantee hardware safety.')
+
+
+def plot_chunk_rollout(predicted_chunks, ground_truth, steps, chunk_steps, valid_mask,
+                       representative_index, output_dir):
+    """Each candidate in each chunk gets its own Line2D; never bridge chunks."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    for name, dims, labels, ylabel in (
+        ('position', range(3), ('x', 'y', 'z'), 'Position [m]'),
+        ('orientation', range(3, 7), ('qx', 'qy', 'qz', 'qw'), 'Quaternion component'),
+        ('gripper', (7,), ('gripper',), 'Gripper (0=open, 1=closed)'),
+    ):
+        fig, axes = plt.subplots(len(labels), 1, sharex=True, squeeze=False,
+                                 figsize=(14, 2.6 * len(labels)))
+        for ax, dim, label in zip(axes[:, 0], dims, labels):
+            ax.plot(steps, ground_truth[:, dim], color='black', label='Ground Truth')
+            for i, (chunk, mask) in enumerate(zip(predicted_chunks, valid_mask)):
+                x = chunk_steps[i, mask]
+                for k, candidate in enumerate(chunk):
+                    if k != representative_index:
+                        ax.plot(x, candidate[mask, dim], color='lightgray', alpha=0.4, linewidth=0.8,
+                                label='Predicted candidates' if i == 0 and k == (1 if representative_index == 0 else 0) else None)
+                ax.plot(x, chunk[representative_index, mask, dim], color='blue', linewidth=1.3,
+                        label='Representative candidate' if i == 0 else None)
+                ax.axvline(x[0], color='gray', linestyle='--', alpha=0.25, linewidth=0.8)
+            ax.set_title(label)
+            ax.set_ylabel(ylabel)
+            ax.grid(alpha=0.2)
+            ax.legend()
+        axes[-1, 0].set_xlabel('Episode step (step_idx)')
+        fig.tight_layout()
+        fig.savefig(Path(output_dir) / f'chunk_rollout_{name}.png')
+        plt.close(fig)
+
+
+def evaluate_chunk_rollout(policy, dataset_path, episode_id, num_candidates, seed,
+                           output_dir, metadata):
+    if policy.action_dim != 8 or 'action_cartesian' not in policy.process:
+        raise ValueError('Offline evaluation requires an 8D action_cartesian checkpoint')
+    horizon = _integer(policy.pred_horizon, 'pred_horizon', 1)
+    obs = _integer(policy.obs_horizon, 'obs_horizon', 1)
+    action = _integer(policy.action_horizon, 'action_horizon', 1)
+    if horizon < obs - 1 + action:
+        raise ValueError('pred_horizon must be >= obs_horizon - 1 + action_horizon')
+    num_candidates = _integer(num_candidates, 'dry_run_num_candidates', 1)
+    seed = _integer(seed, 'dry_run_seed')
+    data, steps, order_source = load_episode(dataset_path, episode_id)
+    rows = np.arange(0, len(steps), action)
+    if seed > 2**63 - 1 - (len(rows) - 1):
+        raise ValueError('dry_run_seed + chunk_index must be <= 2**63 - 1')
+    predicted = np.full((len(rows), num_candidates, action, 8), np.nan)
+    valid = np.zeros((len(rows), action), dtype=bool)
+    chunk_steps = np.full((len(rows), action), -1, dtype=np.int64)
+    for i, row in enumerate(rows):
+        observation = build_observation_history(data, int(row), obs)
+        candidates = sample_candidates(policy, observation, num_candidates, seed + i)
+        length = min(action, len(steps) - row)
+        predicted[i, :, :length] = candidates[:, obs - 1:obs - 1 + length]
+        valid[i, :length] = True
+        chunk_steps[i, :length] = steps[row:row + length]
+    representative_index = 0  # Fixed policy choice, independent of ground truth.
+    metrics = compute_chunk_rollout_metrics(predicted, valid, representative_index)
+    metadata = dict(metadata, dataset_path=str(Path(dataset_path).expanduser().resolve()),
+                    episode_idx=int(episode_id), pred_horizon=horizon, obs_horizon=obs,
+                    action_horizon=action, num_candidates=num_candidates, seed=seed,
+                    representative_index=representative_index, temporal_order=order_source,
+                    chunk_seed_rule='dry_run_seed + chunk_index (zero based)',
+                    chunk_seeds=[seed + i for i in range(len(rows))],
+                    chunk_step_idx=[chunk_steps[i, mask].tolist() for i, mask in enumerate(valid)],
+                    alignment='prediction index obs_horizon - 1 + j -> stored step at chunk row + j',
+                    action_values='physical actions; sample_candidates denormalize=True exactly once')
+    import tempfile
+    parent = Path(output_dir).expanduser()
+    parent.mkdir(parents=True, exist_ok=True)
+    out = Path(tempfile.mkdtemp(prefix=f'episode_{episode_id}_', dir=parent))
+    metadata.update(run_id=out.name, output_dir=str(out.resolve()))
+    with h5py.File(out / 'chunk_rollout.h5', 'w') as f:
+        for key, value in dict(predicted_chunks=predicted, ground_truth_actions=data['action_cartesian'],
+                               step_idx=steps, chunk_start_steps=steps[rows], chunk_valid_mask=valid,
+                               chunk_step_idx=chunk_steps, representative_index=representative_index).items():
+            f.create_dataset(key, data=value)
+        f.attrs['metadata'] = json.dumps(metadata, allow_nan=False)
+    result = dict(metrics, metadata=metadata)
+    (out / 'chunk_rollout_metrics.json').write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')
+    plot_chunk_rollout(predicted, data['action_cartesian'], steps, chunk_steps, valid,
+                       representative_index, out)
+    print(f'Chunk rollout DP evaluation saved to: {out}')
+    return result
+
+
+def run_offline_dp_chunk_rollout(cfg, loader, image_transform):
+    robot = cfg.eval.real_robot
+    policy = loader(checkpoint_path=cfg.gpc.diffusion_checkpoint,
+                    image_transform=image_transform, device='cuda')
+    metadata = dict(policy.offline_checkpoint_metadata, image_size=cfg.eval.img_size,
+                    preprocessing='training get_img_preprocessor (range scaling, ImageNet normalization, resize)')
+    return evaluate_chunk_rollout(
+        policy, robot.dry_run_dataset_path, int(robot.dry_run_episode_idx),
+        robot.dry_run_num_candidates, robot.dry_run_seed,
+        Path(robot.output_dir) / 'offline_dp' / 'chunk_rollout', metadata)

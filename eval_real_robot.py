@@ -2463,7 +2463,7 @@ def run(cfg: DictConfig):
     # Dataset-only diffusion dry run must precede normalization and robot setup.
     if (cfg.get("policy_type", "world_model") == "diffusion"
             and cfg.eval.real_robot.dry_run):
-        from offline_dp_eval import run_offline_dp, run_offline_dp_multi_sample
+        from offline_dp_eval import run_offline_dp, run_offline_dp_multi_sample, run_offline_dp_chunk_rollout
         # Dataset float32 pixels need training's explicit range scaling;
         # dp_img_transform's ToDtype does not scale float inputs by 255.
         mode = getattr(cfg.eval.real_robot, "dry_run_mode", "episode")
@@ -2471,6 +2471,8 @@ def run(cfg: DictConfig):
             run_offline_dp(cfg, load_diffusion_policy, img_transform(cfg))
         elif mode == "multi_sample":
             run_offline_dp_multi_sample(cfg, load_diffusion_policy, img_transform(cfg))
+        elif mode == "chunk_rollout":
+            run_offline_dp_chunk_rollout(cfg, load_diffusion_policy, img_transform(cfg))
         else:
             raise ValueError(f"Unknown dry_run_mode: {mode}")
         return

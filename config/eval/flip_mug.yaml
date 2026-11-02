@@ -40,7 +40,7 @@ seed: 42
 policy: lewm_weights 
 policy_type: diffusion #world_model/gpc/diffusion
 gpc:
-  diffusion_checkpoint: /home/shonosukehida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed_41/20261003_085301/best.ckpt
+  diffusion_checkpoint: /home/shonosukehida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed_41/20261021_135400/latest.ckpt
   num_candidates: 50
   visualization_enabled: true # Record GPC candidates; normalize and plot after rollout
 
@@ -56,8 +56,8 @@ plan_config:
 eval:
   num_eval: 1 #1
   img_size: 224 
-  dataset_name: flip_mug/ep200_tm300_multiview_demo/push #flip_mug/ep200_tm300_multiview_demo/push
-  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz #${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz
+  dataset_name: /home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/push.h5 #パス指定もOK #flip_mug/ep200_tm300_multiview_demo/push 
+  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/ep200_tm300_multiview_demo/process_stats.npz #${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz
   ac_cost_dataset_name: null
 
   # Real xArm flip-mug rollout. action_cartesian follows the training-data
@@ -74,12 +74,12 @@ eval:
       damping: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # SDK six-axis B array (reserved)
       reference_frame: 0  # 0 = base frame, 1 = tool frame
       compliant_axis: [0, 0, 1, 0, 0, 0]  # [x, y, z, rx, ry, rz], each 0 or 1
-    execute: true
+    execute: false
 
 
     dry_run: true #ハードは動かさずにソフトだけをテストする
-    dry_run_mode: multi_sample # episode / multi_sample; omitted defaults to episode
-    dry_run_timestep: 0
+    dry_run_mode: episode # episode / multi_sample / chunk_rollout; omitted defaults to episode
+    dry_run_timestep: 200
     dry_run_num_candidates: 20
     dry_run_seed: 42
     dry_run_dataset_path: /home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/push.h5
@@ -155,31 +155,31 @@ eval:
     exe_probe: false
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
-    val_dataset_name: flip_mug/val_ep10_tm300_prop/push #flip_mug/val_ep10_tm300_prop/push
+    val_dataset_name: flip_mug/val_ep10_tm300_play_normal_bright_red_cup/push #パス指定もOK#flip_mug/val_ep10_tm300_prop/push
     plot_all_train_data: true
     plot_all_val_data: true
-    plot_open_data: true
-    plot_train_dyn_vs_val_dyn: false # true enables shared PCA comparison
+    plot_open_data: false
+    plot_train_dyn_vs_val_dyn: true # true enables shared PCA comparison
     plot_closed_data: 
       plot_whisker:  #closed forward をひげ状にプロット
         plot: true
         pred_step: 5
         plot_interval: 5
       plot_pred_horizon: #pred horizon 分の予測をプロット
-        plot: true
+        plot: false
         pred_horizon: 50
     closed_pred_step: 5
     max_samples: 1000 #pcaで可視化する際に集める潜在列のステップ数
     plot_line: true #pca でclosed forward を可視化するときに１本線にするか否か
     encoder_isotropy: 
-      check: true
+      check: false
       max_samples: 1000
       sample_interval: 1
 
  
 
     encoder_rgb_pca:
-      check: true
+      check: false
       horizon: 300
       is_val: false
 

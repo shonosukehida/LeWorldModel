@@ -164,13 +164,24 @@ class DatasetPathTests(unittest.TestCase):
         for name in ('run',):
             old = next(n for n in tree(True).body if isinstance(n, ast.FunctionDef) and n.name == name)
             new = next(n for n in tree().body if isinstance(n, ast.FunctionDef) and n.name == name)
-            # Early return dispatches both modes before dataset/statistics resolution.
-            self.assertEqual(ast.dump(old.body[1]), ast.dump(new.body[1]))
-            self.assertIsInstance(new.body[1], ast.If)
+            # Existing branches retain their AST after removing the added mode.
+            dispatch = copy.deepcopy(new.body[1])
+            dispatch.body[0].names = [alias for alias in dispatch.body[0].names
+                                      if alias.name != 'run_offline_dp_chunk_rollout']
+            modes = next(node for node in dispatch.body if isinstance(node, ast.If))
+            multi = modes.orelse[0]
+            chunk = multi.orelse[0]
+            self.assertEqual(ast.unparse(chunk.test), "mode == 'chunk_rollout'")
+            multi.orelse = chunk.orelse
+            self.assertEqual(ast.dump(old.body[1]), ast.dump(dispatch))
             self.assertIsInstance(new.body[1].body[-1], ast.Return)
-        offline = ROOT / 'offline_dp_eval.py'
         baseline = subprocess.check_output(['git', 'show', 'HEAD:offline_dp_eval.py'], cwd=ROOT, text=True)
-        self.assertEqual(offline.read_text(), baseline)
+        old_functions = {n.name: ast.dump(n) for n in ast.parse(baseline).body
+                         if isinstance(n, ast.FunctionDef)}
+        new_functions = {n.name: ast.dump(n) for n in ast.parse((ROOT / 'offline_dp_eval.py').read_text()).body
+                         if isinstance(n, ast.FunctionDef)}
+        for name, body in old_functions.items():
+            self.assertEqual(body, new_functions[name], name)
         for key in ('dry_run_dataset_path', 'dry_run_timestep', 'dry_run_episode_idx'):
             self.assertIn(key, baseline)
 

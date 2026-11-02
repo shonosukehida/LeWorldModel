@@ -44,7 +44,7 @@ class OfflineTests(unittest.TestCase):
                 calls.append(info)
                 # Outside robot bounds and gripper range: must remain untouched.
                 return np.array([[10, -10, 2, 0, 0, 0, 1, 1.7]])
-            policy = SimpleNamespace(action_dim=8, process={'action_cartesian': object()},
+            policy = SimpleNamespace(action_dim=8, process={'action_cartesian': SimpleNamespace(transform=lambda x: x)},
                                      obs_horizon=4, action_horizon=2, pred_horizon=6,
                                      num_inference_steps=3, get_action=action)
             out = Path(tmp) / 'out'
@@ -182,6 +182,10 @@ class OfflineTests(unittest.TestCase):
         with patch.object(offline_dp_eval, 'run_offline_dp_multi_sample') as multi_runner:
             ns['dispatch'](cfg)
             multi_runner.assert_called_once_with(cfg, loader, 'transform')
+        robot.dry_run_mode = 'chunk_rollout'
+        with patch.object(offline_dp_eval, 'run_offline_dp_chunk_rollout') as chunk_runner:
+            ns['dispatch'](cfg)
+            chunk_runner.assert_called_once_with(cfg, loader, 'transform')
         robot.dry_run_mode = 'invalid'
         with self.assertRaisesRegex(ValueError, 'Unknown dry_run_mode'):
             ns['dispatch'](cfg)
@@ -360,6 +364,149 @@ class MultiSampleTests(unittest.TestCase):
             offline_dp_eval.run_offline_dp_multi_sample(cfg, loader, 'existing_transform')
             loader.assert_called_once_with(checkpoint_path='chosen.ckpt', image_transform='existing_transform', device='cuda')
             self.assertEqual(evaluator.call_args.args[1:7], ('data.h5', 7, 100, 20, 42, Path('out/offline_dp/multi_sample')))
+
+
+class ChunkRolloutTests(unittest.TestCase):
+    def setup_rollout(self, tmp, length=18):
+        path = Path(tmp) / 'data.h5'
+        with h5py.File(path, 'w') as f:
+            f['episode_idx'] = np.full(length, 7)
+            f['step_idx'] = np.arange(100, 100 + length)
+            for key in ('pixels', 'wrist_pixels'):
+                f[key] = np.broadcast_to(np.arange(length, dtype=np.uint8)[:, None, None, None],
+                                         (length, 4, 4, 3))
+            gt = np.zeros((length, 8)); gt[:, 6] = 1
+            f['action_cartesian'] = gt
+        calls = []
+        def sample(info, num_samples, denormalize):
+            self.assertTrue(denormalize)
+            calls.append(info)
+            p = torch.zeros(1, num_samples, 16, 8)
+            p[..., 0] = torch.arange(16) + 1000 * (len(calls) - 1)
+            p[..., 6] = -2
+            p[..., 7] = torch.rand(num_samples, 16)
+            return p
+        policy = SimpleNamespace(pred_horizon=16, obs_horizon=8, action_horizon=8,
+                                 action_dim=8, process={'action_cartesian': object()},
+                                 sample_action_sequences=sample)
+        return path, policy, calls
+
+    def test_alignment_files_reproducibility_and_history(self):
+        from offline_dp_eval import evaluate_chunk_rollout
+        with tempfile.TemporaryDirectory() as tmp:
+            path, policy, calls = self.setup_rollout(tmp)
+            before = torch.random.get_rng_state().clone()
+            result = evaluate_chunk_rollout(policy, path, 7, 3, 42, tmp,
+                                           dict(checkpoint_path='chosen.ckpt', action_normalization='zscore'))
+            self.assertTrue(torch.equal(before, torch.random.get_rng_state()))
+            out = Path(result['metadata']['output_dir'])
+            with h5py.File(out / 'chunk_rollout.h5') as f:
+                p = f['predicted_chunks'][:]
+                self.assertEqual(p.shape, (3, 3, 8, 8))
+                np.testing.assert_array_equal(f['chunk_start_steps'], [100, 108, 116])
+                np.testing.assert_array_equal(f['chunk_valid_mask'][:].sum(1), [8, 8, 2])
+                np.testing.assert_array_equal(f['chunk_step_idx'][2], [116, 117, -1, -1, -1, -1, -1, -1])
+                np.testing.assert_array_equal(p[0, 0, :, 0], np.arange(7, 15))
+                np.testing.assert_array_equal(p[1, 0, :, 0], np.arange(1007, 1015))
+                self.assertTrue(np.isnan(p[2, :, 2:]).all())
+                self.assertEqual(f['ground_truth_actions'].shape, (18, 8))
+                self.assertEqual(f['representative_index'][()], 0)
+                self.assertEqual(json.loads(f.attrs['metadata'])['chunk_seeds'], [42, 43, 44])
+            for info, expected in zip(calls, ([0]*8, list(range(1, 9)), list(range(9, 17)))):
+                for key in ('pixels', 'wrist_pixels'):
+                    np.testing.assert_array_equal(info[key][0, :, 0, 0, 0], expected)
+            doc = json.loads((out / 'chunk_rollout_metrics.json').read_text())
+            self.assertEqual(doc['within_chunk']['position_m_per_step']['count'], 15)
+            self.assertEqual(doc['within_chunk']['position_m_per_step']['mean'], 1)
+            self.assertEqual(doc['boundary']['position_m_per_step']['max'], 993)
+            for name in ('position', 'orientation', 'gripper'):
+                self.assertGreater((out / f'chunk_rollout_{name}.png').stat().st_size, 0)
+            calls.clear()
+            second = evaluate_chunk_rollout(policy, path, 7, 3, 42, tmp, {})
+            self.assertNotEqual(out, Path(second['metadata']['output_dir']))
+            with h5py.File(Path(second['metadata']['output_dir']) / 'chunk_rollout.h5') as f:
+                np.testing.assert_array_equal(p, f['predicted_chunks'][:])
+
+    def test_plot_disconnected_lines_and_actual_steps(self):
+        from offline_dp_eval import plot_chunk_rollout
+        from unittest.mock import patch
+        import matplotlib.pyplot as plt
+        p = np.zeros((2, 2, 8, 8)); p[1, :, 2:] = np.nan
+        valid = np.array([[True]*8, [True]*2 + [False]*6])
+        steps = np.arange(100, 110)
+        chunk_steps = np.array([np.arange(100, 108), [108, 109, -1, -1, -1, -1, -1, -1]])
+        original = plt.subplots
+        figures = []
+        def capture(*args, **kwargs):
+            fig, axes = original(*args, **kwargs)
+            figures.append((fig, axes))
+            return fig, axes
+        with tempfile.TemporaryDirectory() as tmp, patch.object(plt, 'subplots', side_effect=capture):
+            plot_chunk_rollout(p, np.ones((10, 8)), steps, chunk_steps, valid, 0, tmp)
+        self.assertEqual([len(axes) for _, axes in figures], [3, 4, 1])
+        for fig, axes in figures:
+            self.assertFalse(plt.fignum_exists(fig.number))
+            for ax in axes[:, 0]:
+                np.testing.assert_array_equal(ax.lines[0].get_xdata(), steps)
+                for color in ('blue', 'lightgray'):
+                    lines = [line for line in ax.lines if line.get_color() == color]
+                    self.assertEqual(len(lines), 2)
+                    np.testing.assert_array_equal(lines[0].get_xdata(), steps[:8])
+                    np.testing.assert_array_equal(lines[1].get_xdata(), steps[8:])
+                labels = ax.get_legend_handles_labels()[1]
+                self.assertEqual(len(labels), len(set(labels)))
+
+    def test_metrics_rotations_empty_pairs_and_invalid_quaternions(self):
+        from offline_dp_eval import compute_chunk_rollout_metrics
+        p = np.zeros((2, 1, 2, 8)); p[..., 6] = 2
+        p[0, 0, 1, 6] = -2
+        p[1, 0, :, 3:7] = [0, 0, 3, 0]
+        m = compute_chunk_rollout_metrics(p, np.ones((2, 2), bool))
+        self.assertEqual(m['within_chunk']['orientation_deg_per_step']['max'], 0)
+        self.assertEqual(m['boundary']['orientation_deg_per_step']['mean'], 180)
+        m = compute_chunk_rollout_metrics(p[:1, :, :1], [[True]])
+        self.assertIsNone(m['within_chunk']['position_m_per_step']['p95'])
+        self.assertIsNone(m['boundary']['orientation_deg_per_step']['mean'])
+        p[0, 0, 0, 3:7] = 0
+        with self.assertRaisesRegex(ValueError, 'zero-norm'):
+            compute_chunk_rollout_metrics(p, np.ones((2, 2), bool))
+
+    def test_invalid_config_and_shapes(self):
+        from offline_dp_eval import evaluate_chunk_rollout
+        with tempfile.TemporaryDirectory() as tmp:
+            path, policy, calls = self.setup_rollout(tmp)
+            for attribute, value, message in (
+                ('pred_horizon', 14, 'pred_horizon'), ('obs_horizon', 0, 'obs_horizon'),
+                ('action_horizon', True, 'action_horizon'), ('action_dim', 7, '8D')):
+                original = getattr(policy, attribute)
+                setattr(policy, attribute, value)
+                with self.assertRaisesRegex(ValueError, message):
+                    evaluate_chunk_rollout(policy, path, 7, 3, 42, tmp, {})
+                setattr(policy, attribute, original)
+            for count, seed, message in ((0, 42, 'num_candidates'), (True, 42, 'num_candidates'),
+                                         (3, -1, 'seed'), (3, 2**63-2, 'chunk_index')):
+                with self.assertRaisesRegex(ValueError, message):
+                    evaluate_chunk_rollout(policy, path, 7, count, seed, tmp, {})
+            self.assertFalse(calls)
+            policy.sample_action_sequences = lambda *args, **kwargs: torch.zeros(1, 3, 15, 8)
+            with self.assertRaisesRegex(ValueError, 'shape'):
+                evaluate_chunk_rollout(policy, path, 7, 3, 42, tmp, {})
+
+    def test_runner(self):
+        import offline_dp_eval
+        from unittest.mock import patch
+        robot = SimpleNamespace(dry_run_dataset_path='data.h5', dry_run_episode_idx=7,
+                                dry_run_num_candidates=20, dry_run_seed=42, output_dir='out')
+        cfg = SimpleNamespace(eval=SimpleNamespace(real_robot=robot, img_size=224),
+                              gpc=SimpleNamespace(diffusion_checkpoint='chosen.ckpt'))
+        loader = Mock(return_value=SimpleNamespace(offline_checkpoint_metadata={'action_normalization': 'min_max'}))
+        with patch.object(offline_dp_eval, 'evaluate_chunk_rollout') as evaluator:
+            offline_dp_eval.run_offline_dp_chunk_rollout(cfg, loader, 'transform')
+            loader.assert_called_once_with(checkpoint_path='chosen.ckpt', image_transform='transform', device='cuda')
+            self.assertEqual(evaluator.call_args.args[1:7],
+                             ('data.h5', 7, 20, 42, Path('out/offline_dp/chunk_rollout'),
+                              dict(action_normalization='min_max', image_size=224,
+                                   preprocessing='training get_img_preprocessor (range scaling, ImageNet normalization, resize)')))
 
 
 if __name__ == '__main__': unittest.main()
