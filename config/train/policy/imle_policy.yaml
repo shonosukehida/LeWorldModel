@@ -1,0 +1,59 @@
+defaults:
+  - _self_
+  - data: flip_mug
+
+output_model_name: imle_policy
+output_dir: ./imle_checkpoints
+learning_seed: 41
+seed: 3072
+device: cuda
+img_size: 224
+train_split: 0.9
+policy:
+  action_key: action_cartesian
+  action_normalization: min_max
+  pred_horizon: 16
+  obs_horizon: 8
+  action_horizon: 8
+encoder:
+  type: resnet18 # resnet18 | convnet; omitted in old checkpoints => resnet18
+  pretrained: false
+  convnet:
+    # s3fmp/models/cfg/xarm/imle.yaml; no BatchNorm/Dropout/attention
+    channels: [16, 32, 64]
+    kernel_sizes: [3, 3, 3]
+    strides: [2, 2, 2]
+    paddings: [1, 1, 1]
+    activation: Mish
+    pool_size: 1
+imle:
+  # s3fmp/models/cfg/xarm/imle.yaml: N=128, eps=.01, Gaussian std=1.
+  n_samples_per_condition: 128
+  epsilon: 0.01
+  epsilon_scale_by_dim: true
+  noise_scale: 1.0
+  feature_dim: 128
+  channels: [64, 128, 256]
+  kernel_size: 5
+  heads: 8
+  separate_gripper: true
+  gripper_channels: [32, 64, 128]
+  # Reference .003125 at T=32; preserve .1 * mean L1 at configured horizon.
+  gripper_loss_weight: ${imle_gripper_weight:${policy.pred_horizon}}
+  ema_decay: 0.999
+loader:
+  batch_size: 16 # reference 64; multiview/history memory adaptation
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: false
+optimizer:
+  lr: 0.0001
+  weight_decay: 0.01 # torch AdamW default used by s3fmp/ml.get_optimizer
+trainer:
+  max_epochs: 500
+  patience: 20
+  validation_seed: null # s3fmp default; set an integer for fixed validation noise
+wandb:
+  enabled: true
+  entity: shonosukehida
+  project: lewm

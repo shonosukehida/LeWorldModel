@@ -18,7 +18,16 @@ import env.franka
 
 from stable_worldmodel.probing.flip_mug.probe_evaluator import ProbingEvaluator
 from stable_worldmodel.probing.flip_mug.probe_evaluator_no_propio import ProbingEvaluator_NoProprio
-from env.franka.env import FrankaSimEnv
+# IMLE's explicit CLI path does not need this unused simulation dependency.
+# Preserve legacy import ordering and side effects for all existing invocations.
+import sys
+_imle_cli = ("policy_type=imle" in sys.argv or any(
+    arg.startswith("gpc.imle_checkpoint=")
+    and arg.split("=", 1)[1].strip().lower() not in ("null", "none", "")
+    for arg in sys.argv[1:]
+))
+if not _imle_cli:
+    from env.franka.env import FrankaSimEnv
 import h5py
 from transformers import ViTModel
 
@@ -1937,6 +1946,12 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             # action = action_result[0] if isinstance(action_result, tuple) else action_result 
             if stop_requested:
                 break
+            imle_source = getattr(policy, "action_policy", policy)
+            if getattr(imle_source, "type", None) == "imle":
+                if str(cfg.plan_config.action_space) != "cartesian":
+                    raise ValueError("IMLE requires Cartesian action execution")
+                from imle_runtime import validate_imle_action
+                validate_imle_action(action, env, ee)
             commanded = env.execute(action, str(cfg.plan_config.action_space))
 
             records["pixels"].append(image)
@@ -2477,6 +2492,20 @@ def run(cfg: DictConfig):
             raise ValueError(f"Unknown dry_run_mode: {mode}")
         return
 
+    # Validate candidate checkpoint selection before loading any model or robot.
+    from imle_runtime import validate_checkpoint_selection
+    imle_checkpoint_path = validate_checkpoint_selection(cfg)
+    if cfg.get("policy_type", "world_model") == "imle" and cfg.eval.real_robot.dry_run:
+        from offline_imle_eval import run_offline_imle
+        run_offline_imle(cfg, img_transform(cfg))
+        return
+
+    if (cfg.get("policy_type") == "gpc" and imle_checkpoint_path is not None
+            and cfg.eval.real_robot.dry_run):
+        from offline_imle_eval import run_offline_imle_gpc_from_config
+        run_offline_imle_gpc_from_config(cfg, img_transform(cfg), swm.policy.AutoCostModel)
+        return
+
     results_path = (
         Path(swm.data.utils.get_cache_dir(), "eval", cfg.policy).parent
         if cfg.policy != "random"
@@ -2638,6 +2667,27 @@ def run(cfg: DictConfig):
                 device="cuda",
             )
 
+
+        elif policy_type == "imle":
+            from imle_checkpoint import load_imle_policy
+            policy = load_imle_policy(
+                checkpoint_path=imle_checkpoint_path,
+                image_transform=img_transform(cfg),
+                device=cfg.gpc.get("imle_device", "cuda"),
+            )
+
+        elif policy_type == "gpc" and imle_checkpoint_path is not None:
+            from imle_checkpoint import load_imle_policy
+            action_policy = load_imle_policy(
+                checkpoint_path=imle_checkpoint_path,
+                image_transform=img_transform(cfg),
+                device=cfg.gpc.get("imle_device", "cuda"),
+            )
+            policy = swm.policy.GPCPolicy(
+                action_policy=action_policy, world_model=model,
+                reward_fn=latent_goal_reward, num_candidates=cfg.gpc.num_candidates,
+                process=process, transform=transform,
+            )
 
         elif policy_type == "gpc":
 

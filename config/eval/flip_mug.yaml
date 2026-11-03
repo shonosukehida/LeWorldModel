@@ -38,9 +38,11 @@ dataset:
 
 seed: 42
 policy: lewm_weights 
-policy_type: diffusion #world_model/gpc/diffusion
+policy_type: diffusion # world_model / gpc / diffusion / imle
 gpc:
   diffusion_checkpoint: /home/shonosukehida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed_41/20261021_135400/latest.ckpt
+  imle_checkpoint: null # Set diffusion_checkpoint: null when using IMLE
+  imle_device: cuda # cpu is supported for dataset-only IMLE dry_run
   num_candidates: 50
   visualization_enabled: true # Record GPC candidates; normalize and plot after rollout
 
