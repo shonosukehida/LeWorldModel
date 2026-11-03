@@ -16,7 +16,8 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
 from stable_worldmodel.diffusion import (
     ConditionalUnet1D,
-    ResNet18ObsEncoder,
+    create_obs_encoder,
+    resolve_obs_encoder_config,
 )
 from stable_worldmodel.policy import DiffusionPolicy
 import stable_pretraining as spt
@@ -122,7 +123,10 @@ def save_checkpoint(
     Save everything necessary to reconstruct DiffusionPolicy.
     """
 
+    encoder_type, encoder_config = resolve_obs_encoder_config(cfg.get("encoder", {}))
     checkpoint = {
+        "encoder_type": encoder_type,
+        "encoder_config": encoder_config,
         "epoch": epoch,
         "val_loss": val_loss,
 
@@ -531,13 +535,13 @@ def run(cfg):
     # Observation encoder
     # --------------------------------------------------------
 
-    obs_encoder = ResNet18ObsEncoder(
-        pretrained=cfg.encoder.pretrained
-    )
-
-    wrist_obs_encoder = ResNet18ObsEncoder(
-        pretrained=cfg.encoder.pretrained
-    )
+    encoder_type, encoder_config = resolve_obs_encoder_config(cfg.get("encoder", {}))
+    obs_encoder = create_obs_encoder(encoder_type, encoder_config)
+    wrist_obs_encoder = create_obs_encoder(encoder_type, encoder_config)
+    print(f"Observation encoder: {encoder_type}, config={encoder_config}")
+    print(obs_encoder)
+    print(f"Parameters per view: {sum(p.numel() for p in obs_encoder.parameters()):,}; "
+          f"feature dimension: {obs_encoder.output_shape()[0]}")
     obs_feature_dim = (obs_encoder.output_shape()[0])
 
     wrist_obs_feature_dim = (
