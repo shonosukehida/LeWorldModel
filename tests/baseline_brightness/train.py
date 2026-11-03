@@ -1,0 +1,457 @@
+import os
+from functools import partial
+from pathlib import Path
+
+import hydra
+import lightning as pl
+import stable_pretraining as spt
+import stable_worldmodel as swm
+import torch
+from lightning.pytorch.loggers import WandbLogger
+from omegaconf import OmegaConf, open_dict
+
+from jepa import JEPA
+from module import ARPredictor, Embedder, MLP, SIGReg, IDM
+from utils import get_column_normalizer, get_img_preprocessor, ModelObjectCallBack
+import torch.nn.functional as F
+from datetime import datetime
+
+
+def lejepa_forward(self, batch, stage, cfg):
+    """encode observations, predict next states, compute losses."""
+    #batch: dict_keys(['pixels', 'action', 'batch_idx'])
+    
+    # print("(train batch pixels)", batch["pixels"].shape)
+
+    ctx_len = cfg.wm.history_size
+    n_preds = cfg.wm.num_preds
+    lambd = cfg.loss.sigreg.weight
+    lambd_idm = cfg.loss.idm.weight if cfg.loss.idm.use else None
+    
+    # print("sigreg.coeff: ", lambd)
+    # print("idm.coeff: ", lambd_idm)
+
+    # print("type(batch):", type(batch))
+    action_key = ""
+    for k in batch.keys():
+        if ("action" in k): action_key = k
+    
+    # Replace NaN values with 0 (occurs at sequence boundaries)
+    batch[action_key] = torch.nan_to_num(batch[action_key], 0.0)
+
+
+    output = self.model.encode(batch)
+
+    
+
+    emb = output["emb"]  # (B, T, D)
+    act_emb = output["act_emb"] # (B, T, D)
+
+    ctx_emb = emb[:, :ctx_len] # (B, T - 1, D)
+    ctx_act = act_emb[:, : ctx_len] # (B, T - 1, D)
+
+    tgt_emb = emb[:, n_preds:] # label
+    pred_emb = self.model.predict(ctx_emb, ctx_act) # pred
+
+    
+    if cfg.loss.idm.use:
+        z_t = emb[:, :-1]
+        z_tp1 = emb[:, 1:]
+        a_t = batch[action_key][:, :-1]
+        
+        a_pred = self.idm(z_t, z_tp1)
+        
+        output["idm_loss"] = F.mse_loss(a_pred, a_t)
+    
+    
+
+
+    # LeWM loss
+    # output["pred_loss"] = (pred_emb - tgt_emb).pow(2).mean()
+    # output["sigreg_loss"]= self.sigreg(emb.transpose(0, 1))
+    # output["loss"] = output["pred_loss"] + lambd * output["sigreg_loss"]
+
+
+    # 結合潜在表現の次元
+
+
+    overhead_embed_dim = cfg.wm.embed_dim
+    wrist_embed_dim = cfg.wm.embed_dim
+    prop_embed_dim = cfg.wm.prop_embed_dim
+
+
+    overhead_end = overhead_embed_dim
+    wrist_end = overhead_end + wrist_embed_dim
+
+    pred_overhead_emb = pred_emb[
+        ..., :overhead_end
+    ]
+    tgt_overhead_emb = tgt_emb[
+        ..., :overhead_end
+    ]
+
+    pred_wrist_emb = pred_emb[
+        ..., overhead_end:wrist_end
+    ]
+    tgt_wrist_emb = tgt_emb[
+        ..., overhead_end:wrist_end
+    ]
+
+    pred_prop_emb = pred_emb[
+        ..., wrist_end:
+    ]
+    tgt_prop_emb = tgt_emb[
+        ..., wrist_end:
+    ]
+
+
+    output["pred_loss"] = (pred_emb - tgt_emb).pow(2).mean()
+
+    output["overhead_pred_loss"] = (pred_overhead_emb - tgt_overhead_emb).pow(2).mean()
+
+    output["wrist_pred_loss"] = (pred_wrist_emb - tgt_wrist_emb).pow(2).mean()
+
+    output["prop_pred_loss"] = (pred_prop_emb - tgt_prop_emb).pow(2).mean()
+    
+
+    output["sigreg_loss"] = self.sigreg(
+        emb.transpose(0, 1)
+    )
+
+    # 学習に使うlossは従来どおり
+    output["loss"] = (
+        output["pred_loss"]
+        + lambd * output["sigreg_loss"]
+    )
+
+
+    
+    if cfg.loss.idm.use:
+        output["loss"] = output["loss"] + lambd_idm * output["idm_loss"]
+
+    losses_dict = {
+        f"{stage}/{key}": value.detach()
+        for key, value in output.items()
+        if "loss" in key
+    }
+    step_losses_dict = {
+        f"{stage}/{key}_step": value.detach()
+        for key, value in output.items()
+        if "loss" in key
+    }
+
+    self.log_dict(
+        losses_dict,
+        on_step=False,
+        on_epoch=True,
+        sync_dist=True,
+    )
+    self.log_dict(
+        step_losses_dict,
+        on_step=True,
+        on_epoch=False,
+        sync_dist=True,
+    )
+    return output
+
+@hydra.main(version_base=None, config_path="./config/train", config_name="lewm")
+def run(cfg):
+
+    pl.seed_everything(cfg.learning_seed, workers = True)
+
+
+    #########################
+    ##       dataset       ##
+    #########################
+
+    dataset_cfg = dict(cfg.data.dataset)
+
+    # Resolve optional explicit path.
+    if dataset_cfg.get("path") is not None:
+
+        dataset_path = Path(
+            dataset_cfg["path"]
+        ).expanduser()
+
+        if not dataset_path.is_absolute():
+            raise ValueError(
+                f"Dataset path must be absolute: {dataset_path}"
+            )
+
+        if dataset_path.suffix == "":
+            dataset_path = dataset_path.with_suffix(".h5")
+
+        if not dataset_path.is_file():
+            raise FileNotFoundError(
+                f"Dataset not found: {dataset_path}"
+            )
+
+        dataset_cfg["path"] = str(dataset_path)
+
+        print("dataset path:", dataset_path)
+
+    else:
+        # Preserve the conventional name-based lookup.
+        dataset_cfg.pop("path", None)
+
+        print("dataset name:", dataset_cfg["name"])
+
+    dataset = swm.data.HDF5Dataset(
+        **dataset_cfg,
+        transform=None,
+    )
+
+    print("cfg.image_size:", cfg.img_size)
+
+    
+    
+    
+    # transforms = [get_img_preprocessor(source='pixels', target='pixels', img_size=cfg.img_size)]
+    transforms = [
+        get_img_preprocessor(source="pixels", target="pixels", img_size=cfg.img_size,),
+        get_img_preprocessor(source="wrist_pixels", target="wrist_pixels", img_size=cfg.img_size,),
+    ]
+
+    image_keys = {"pixels", "wrist_pixels",}
+    
+    #この中でaction_dimを決定している
+    with open_dict(cfg):
+        for col in cfg.data.dataset.keys_to_load:
+            if col in image_keys:
+                continue
+            
+            # print("col:", col)
+            
+            normalizer = get_column_normalizer(dataset, col, col)
+            transforms.append(normalizer)
+            
+            # print("col:", col)
+            # if col == "action":
+            #     print("dataset.get_dim(col):", dataset.get_dim(col))
+            # elif col == "action_joint":
+            #     print("dataset.get_dim(col):", dataset.get_dim(col))
+            # elif col == "action_cartesian":
+            #     print("dataset.get_dim(col):", dataset.get_dim(col))
+                
+
+            if col == "action" or col == "action_joint" or col == "action_cartesian":
+                # print("col:", col)
+                setattr(cfg.wm, f"action_dim", dataset.get_dim(col))
+
+
+            if col == "proprio":
+                dataset_prop_dim = dataset.get_dim(col)
+
+                if dataset_prop_dim != cfg.wm.prop_dim:
+                    raise ValueError(
+                        "Proprio dimension mismatch: "
+                        f"dataset={dataset_prop_dim}, "
+                        f"config={cfg.wm.prop_dim}"
+                    )
+            
+
+    
+    transform = spt.data.transforms.Compose(*transforms)
+    dataset.transform = transform
+    
+    print("(train) transform:", transform)
+
+
+    rnd_gen = torch.Generator().manual_seed(cfg.seed)
+    train_set, val_set = spt.data.random_split(
+        dataset, lengths=[cfg.train_split, 1 - cfg.train_split], generator=rnd_gen
+    )
+
+    train = torch.utils.data.DataLoader(train_set, **cfg.loader,shuffle=True, drop_last=True, generator=rnd_gen)
+    val = torch.utils.data.DataLoader(val_set, **cfg.loader, shuffle=False, drop_last=False)
+    
+    ##############################
+    ##       model / optim      ##
+    ##############################
+
+
+    overhead_encoder = spt.backbone.utils.vit_hf(
+        cfg.encoder_scale,
+        patch_size=cfg.patch_size,
+        image_size=cfg.img_size,
+        pretrained=False,
+        use_mask_token=False,
+    )
+
+    wrist_encoder = spt.backbone.utils.vit_hf(
+        cfg.encoder_scale,
+        patch_size=cfg.patch_size,
+        image_size=cfg.img_size,
+        pretrained=False,
+        use_mask_token=False,
+    )
+
+    hidden_dim = overhead_encoder.config.hidden_size
+
+    if wrist_encoder.config.hidden_size != hidden_dim:
+        raise ValueError(
+            "Overhead and wrist encoder hidden dimensions must match: "
+            f"overhead={hidden_dim}, "
+            f"wrist={wrist_encoder.config.hidden_size}"
+        )
+
+
+    overhead_embed_dim = cfg.wm.get("embed_dim", hidden_dim,)
+
+    wrist_embed_dim = cfg.wm.get("embed_dim", hidden_dim,)
+
+    prop_embed_dim = cfg.wm.prop_embed_dim
+
+    state_embed_dim = (overhead_embed_dim + wrist_embed_dim + prop_embed_dim)
+
+
+    effective_act_dim = cfg.data.dataset.frameskip * cfg.wm.action_dim
+
+    predictor = ARPredictor(
+        num_frames=cfg.wm.history_size,
+        input_dim=state_embed_dim,
+        hidden_dim=hidden_dim,
+        output_dim=hidden_dim,
+        **cfg.predictor,
+    )
+
+    action_encoder = Embedder(input_dim=effective_act_dim, emb_dim=state_embed_dim)
+
+    overhead_projector = MLP(
+        input_dim=hidden_dim,
+        output_dim=overhead_embed_dim,
+        hidden_dim=2048,
+        norm_fn=torch.nn.BatchNorm1d,
+    )
+
+    wrist_projector = MLP(
+        input_dim=hidden_dim,
+        output_dim=wrist_embed_dim,
+        hidden_dim=2048,
+        norm_fn=torch.nn.BatchNorm1d,
+    )
+
+    predictor_proj = MLP(
+        input_dim=hidden_dim,
+        output_dim=state_embed_dim,
+        hidden_dim=2048,
+        norm_fn=torch.nn.BatchNorm1d,
+    )
+
+
+    prop_encoder = MLP(
+        input_dim=cfg.wm.prop_dim,
+        hidden_dim=64,
+        output_dim=prop_embed_dim,
+        norm_fn=torch.nn.LayerNorm,
+    )
+
+    world_model = JEPA(
+        overhead_encoder=overhead_encoder,
+        wrist_encoder=wrist_encoder,
+        predictor=predictor,
+        action_encoder=action_encoder,
+        prop_encoder=prop_encoder,
+        overhead_projector=overhead_projector,
+        wrist_projector=wrist_projector,
+        pred_proj=predictor_proj,
+    )
+
+    optimizers = {
+        'model_opt': {
+            "modules": 'model',
+            "optimizer": dict(cfg.optimizer),
+            "scheduler": {"type": "LinearWarmupCosineAnnealingLR"},
+            "interval": "epoch",
+        },
+    }
+    
+    
+
+    data_module = spt.data.DataModule(train=train, val=val)
+    
+    module_kwargs = dict (
+        model=world_model,
+        sigreg=SIGReg(**cfg.loss.sigreg.kwargs),
+        forward=partial(lejepa_forward, cfg=cfg),
+        optim=optimizers,
+    )
+    
+    if cfg.loss.idm.use:
+        
+        idm = IDM(embed_dim=state_embed_dim, action_dim=effective_act_dim, hidden_dim = cfg.loss.idm.hidden_dim)
+
+        for p in idm.parameters():
+            p.requires_grad = False
+            
+        module_kwargs["idm"] = idm
+        
+    
+    world_model = spt.Module(**module_kwargs)
+    # print("world_model:", world_model)
+    
+
+    ##########################
+    ##       training       ##
+    ##########################
+
+    dataset_name = cfg.data.dataset.name.split("/")[1]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = cfg.get("subdir") or ""
+    # run_dir = Path(swm.data.utils.get_cache_dir(), run_id)
+    
+    task_name = (cfg.data.dataset.name).split('/')[0]
+    if task_name == "franka": task_name = "franka_push"
+    run_dir = Path(
+        swm.data.utils.get_cache_dir(),
+        "checkpoints",
+        task_name,
+        dataset_name,
+        f"seed_{cfg.learning_seed}",
+        "lewm" + timestamp,
+    )
+    # print("data:", cfg.data.dataset.name)
+    
+    print("task_name: ", task_name)
+    print("dataset_name:", dataset_name)
+    print("run_id:", run_id)
+    print("run_dir:", run_dir)
+
+    logger = None
+    if cfg.wandb.enabled:
+        cfg.wandb.config.name = f"{cfg.output_model_name}_{timestamp}"
+        cfg.wandb.config.id = cfg.wandb.config.name  
+
+        
+        logger = WandbLogger(**cfg.wandb.config)
+        logger.log_hyperparams(OmegaConf.to_container(cfg))
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    with open(run_dir / "config.yaml", "w") as f:
+        OmegaConf.save(cfg, f)
+
+    object_dump_callback = ModelObjectCallBack(
+        dirpath=run_dir, filename=cfg.output_model_name, epoch_interval=1,
+    )
+
+    trainer = pl.Trainer(
+        **cfg.trainer,
+        callbacks=[object_dump_callback],
+        num_sanity_val_steps=1,
+        logger=logger,
+        enable_checkpointing=True,
+    )
+
+    manager = spt.Manager(
+        trainer=trainer,
+        module=world_model,
+        data=data_module,
+        ckpt_path=run_dir / f"{cfg.output_model_name}_weights.ckpt",
+    )
+
+    manager()
+    return
+
+
+if __name__ == "__main__":
+    run()

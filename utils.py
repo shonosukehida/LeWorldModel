@@ -5,37 +5,42 @@ from stable_pretraining import data as dt
 from lightning.pytorch.callbacks import Callback
 
 
-def get_img_preprocessor(
-    source: str,
-    target: str,
-    img_size: int = 224,
-):
-    imagenet_stats = dt.dataset_stats.ImageNet
+def scale_to_unit_range(x):
+    x = x.float()
 
-    def scale_to_unit_range(x):
-        x = x.float()
+    min_val = x.min()
+    max_val = x.max()
 
-        min_val = x.min()
-        max_val = x.max()
-
-        if not torch.isfinite(x).all() or min_val < 0:
-            raise ValueError(
-                f"Unexpected image range: "
-                f"min={min_val.item()}, max={max_val.item()}"
-            )
-
-        # すでに [0, 1]
-        if max_val <= 1.0 + 1e-6:
-            return x
-
-        # [0, 255]
-        if max_val <= 255.0 + 1e-6:
-            return x / 255.0
-
+    if not torch.isfinite(x).all() or min_val < 0:
         raise ValueError(
             f"Unexpected image range: "
             f"min={min_val.item()}, max={max_val.item()}"
         )
+
+    # すでに [0, 1]
+    if max_val <= 1.0 + 1e-6:
+        return x
+
+    # [0, 255]
+    if max_val <= 255.0 + 1e-6:
+        return x / 255.0
+
+    raise ValueError(
+        f"Unexpected image range: "
+        f"min={min_val.item()}, max={max_val.item()}"
+    )
+
+
+def get_img_preprocessor(
+    source: str,
+    target: str,
+    img_size: int = 224,
+    *,
+    random_bright_enabled: bool = False,
+    min_factor: float = 0.5,
+    max_factor: float = 1.5,
+):
+    imagenet_stats = dt.dataset_stats.ImageNet
 
     scale = dt.transforms.WrapTorchTransform(
         scale_to_unit_range,
@@ -57,6 +62,13 @@ def get_img_preprocessor(
         source=source,
         target=target,
     )
+
+    if random_bright_enabled:
+        from brightness import RandomBrightness
+        brightness = dt.transforms.WrapTorchTransform(
+            RandomBrightness(min_factor, max_factor), source=source, target=target,
+        )
+        return dt.transforms.Compose(scale, brightness, to_image, resize)
 
     return dt.transforms.Compose(
         scale,

@@ -1,0 +1,1122 @@
+........................................................................ [ 29%]
+.....FFFFFFFFFFFFF...................................................... [ 58%]
+........................................................................ [ 87%]
+..............FFFFF.FFFF.......                                          [100%]
+=================================== FAILURES ===================================
+___________________________ test_video_dataset_init ____________________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf79d5b40>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_init0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_init0'), 'test_video_dataset')
+
+    def test_video_dataset_init(sample_video_dataset):
+        """Test VideoDataset initialization."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(name, cache_dir=str(cache_dir))
+
+tests/data/test_datasets.py:496: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf79d5b40>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_init0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+____________________________ test_video_dataset_len ____________________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf77a3df0>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_len0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_len0'), 'test_video_dataset')
+
+    def test_video_dataset_len(sample_video_dataset):
+        """Test VideoDataset length calculation."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(name, cache_dir=str(cache_dir))
+
+tests/data/test_datasets.py:506: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf77a3df0>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_len0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+_______________________ test_video_dataset_column_names ________________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf7978d60>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_column_name0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_column_name0'), 'test_video_dataset')
+
+    def test_video_dataset_column_names(sample_video_dataset):
+        """Test column_names property excludes metadata keys."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(name, cache_dir=str(cache_dir))
+
+tests/data/test_datasets.py:514: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf7978d60>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_column_name0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+__________________________ test_video_dataset_getitem __________________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdbbf745990>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_getitem0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_getitem0'), 'test_video_dataset')
+
+    def test_video_dataset_getitem(sample_video_dataset):
+        """Test VideoDataset __getitem__ method."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(name, cache_dir=str(cache_dir))
+
+tests/data/test_datasets.py:527: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdbbf745990>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_getitem0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+_____________________ test_video_dataset_video_permutation _____________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf798fc10>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_video_permu0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_video_permu0'), 'test_video_dataset')
+
+    def test_video_dataset_video_permutation(sample_video_dataset):
+        """Test that video frames are permuted to TCHW format."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(name, cache_dir=str(cache_dir))
+
+tests/data/test_datasets.py:541: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf798fc10>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_video_permu0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+_________________________ test_video_dataset_frameskip _________________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf7944b20>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_frameskip0', 'frameskip': 2, 'num_steps': 2}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_frameskip0'), 'test_video_dataset')
+
+    def test_video_dataset_frameskip(sample_video_dataset):
+        """Test VideoDataset with frameskip."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(
+            name, cache_dir=str(cache_dir), frameskip=2, num_steps=2
+        )
+
+tests/data/test_datasets.py:552: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf7944b20>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_frameskip0', 'frameskip': 2, 'num_steps': 2}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+_______________________ test_video_dataset_keys_to_load ________________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf79a04c0>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_keys_to_loa0', 'keys_to_load': ['observation', 'action']}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_keys_to_loa0'), 'test_video_dataset')
+
+    def test_video_dataset_keys_to_load(sample_video_dataset):
+        """Test VideoDataset with specific keys_to_load."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(
+            name,
+            cache_dir=str(cache_dir),
+            keys_to_load=['observation', 'action'],
+        )
+
+tests/data/test_datasets.py:564: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf79a04c0>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_keys_to_loa0', 'keys_to_load': ['observation', 'action']}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+________________________ test_video_dataset_load_chunk _________________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf79c6200>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_load_chunk0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_load_chunk0'), 'test_video_dataset')
+
+    def test_video_dataset_load_chunk(sample_video_dataset):
+        """Test load_chunk returns correct slices."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(name, cache_dir=str(cache_dir))
+
+tests/data/test_datasets.py:579: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf79c6200>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_load_chunk0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+_______________________ test_video_dataset_get_col_data ________________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdbbf7446a0>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_get_col_dat0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_get_col_dat0'), 'test_video_dataset')
+
+    def test_video_dataset_get_col_data(sample_video_dataset):
+        """Test get_col_data method."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(name, cache_dir=str(cache_dir))
+
+tests/data/test_datasets.py:597: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdbbf7446a0>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_get_col_dat0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+_______________ test_video_dataset_get_col_data_video_key_raises _______________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf77a1f60>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_get_col_dat1'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_get_col_dat1'), 'test_video_dataset')
+
+    def test_video_dataset_get_col_data_video_key_raises(sample_video_dataset):
+        """Test get_col_data raises for video keys."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(name, cache_dir=str(cache_dir))
+
+tests/data/test_datasets.py:607: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf77a1f60>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_get_col_dat1'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+_______________________ test_video_dataset_get_row_data ________________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf7979060>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_get_row_dat0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_get_row_dat0'), 'test_video_dataset')
+
+    def test_video_dataset_get_row_data(sample_video_dataset):
+        """Test get_row_data method."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(name, cache_dir=str(cache_dir))
+
+tests/data/test_datasets.py:616: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf7979060>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_get_row_dat0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+_________________________ test_video_dataset_transform _________________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf79973a0>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_transform0', 'transform': <function test_video_dataset_transform.<locals>.double_transform at 0x7fdaf78a1e10>}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_transform0'), 'test_video_dataset')
+
+    def test_video_dataset_transform(sample_video_dataset):
+        """Test VideoDataset with transform function."""
+        cache_dir, name = sample_video_dataset
+    
+        def double_transform(data):
+            for k in data:
+                if data[k].dtype == torch.float32:
+                    data[k] = data[k] * 2
+            return data
+    
+>       dataset = VideoDataset(
+            name,
+            cache_dir=str(cache_dir),
+            transform=double_transform,
+        )
+
+tests/data/test_datasets.py:634: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf79973a0>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_transform0', 'transform': <function test_video_dataset_transform.<locals>.double_transform at 0x7fdaf78a1e10>}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+_________________________ test_video_dataset_load_file _________________________
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf79523b0>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_load_file0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+>               import decord
+E               ModuleNotFoundError: No module named 'decord'
+
+stable_worldmodel/data/dataset.py:378: ModuleNotFoundError
+
+During handling of the above exception, another exception occurred:
+
+sample_video_dataset = (PosixPath('/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_load_file0'), 'test_video_dataset')
+
+    def test_video_dataset_load_file(sample_video_dataset):
+        """Test _load_file method."""
+        cache_dir, name = sample_video_dataset
+>       dataset = VideoDataset(name, cache_dir=str(cache_dir))
+
+tests/data/test_datasets.py:647: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.data.dataset.VideoDataset object at 0x7fdaf79523b0>
+name = 'test_video_dataset', video_keys = None
+kw = {'cache_dir': '/tmp/pytest-of-shonosukehida/pytest-14/test_video_dataset_load_file0'}
+
+    def __init__(
+        self, name: str, video_keys: list[str] | None = None, **kw: Any
+    ) -> None:
+        if VideoDataset._decord is None:
+            try:
+                import decord
+    
+                decord.bridge.set_bridge('torch')
+                VideoDataset._decord = decord
+            except ImportError:
+>               raise ImportError('VideoDataset requires decord')
+E               ImportError: VideoDataset requires decord
+
+stable_worldmodel/data/dataset.py:383: ImportError
+________________________ test_worldmodel_policy_set_env ________________________
+
+    def test_worldmodel_policy_set_env():
+        """Test WorldModelPolicy.set_env configures solver."""
+        solver = MockSolver()
+        config = PlanConfig(horizon=10, receding_horizon=2)
+        policy = WorldModelPolicy(solver=solver, config=config)
+    
+        mock_env = MagicMock()
+        mock_env.num_envs = 4
+        mock_env.action_space = gym_spaces.Box(low=-1, high=1, shape=(2,))
+>       policy.set_env(mock_env)
+
+tests/test_policy.py:393: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.policy.WorldModelPolicy object at 0x7fdaf79a1e10>
+env = <MagicMock id='140578433679024'>
+
+    def set_env(self, env: Any) -> None:
+        """Configure the policy and solver for the given environment.
+    
+        Args:
+            env: The environment to associate with the policy.
+        """
+        self.env = env
+    
+        if self.cfg.action_space == "joint":
+            self.action_space = self.env.action_space #実空間
+    
+            if ("action" in self.process.keys()):
+                self.action_processor = self.process["action"]
+                # action_processor = self.process["action_joint"]
+            elif ("action_joint" in self.process.keys()):
+                self.action_processor = self.process["action_joint"]
+    
+        elif self.cfg.action_space == "cartesian":
+            self.action_space = gym.spaces.Box(
+                low=np.array([[0.315, -0.2, 0.095]], dtype=np.float32),
+                high=np.array([[0.715,  0.2, 0.105]], dtype=np.float32),
+                dtype=np.float32,
+            ) #実空間
+            self.action_processor = self.process["action_cartesian"]
+        else:
+>           raise ValueError(
+                f"Unknown action_space: {self.cfg.action_space}. "
+                "Expected 'joint' or 'cartesian'."
+            )
+E           ValueError: Unknown action_space: . Expected 'joint' or 'cartesian'.
+
+stable_worldmodel/policy.py:1288: ValueError
+__________________ test_worldmodel_policy_set_env_no_num_envs __________________
+
+    def test_worldmodel_policy_set_env_no_num_envs():
+        """Test WorldModelPolicy.set_env with env without num_envs."""
+        solver = MockSolver()
+        config = PlanConfig(horizon=10, receding_horizon=2)
+        policy = WorldModelPolicy(solver=solver, config=config)
+    
+        mock_env = MagicMock(spec=[])  # No num_envs attribute
+        mock_env.action_space = gym_spaces.Box(low=-1, high=1, shape=(2,))
+>       policy.set_env(mock_env)
+
+tests/test_policy.py:408: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.policy.WorldModelPolicy object at 0x7fdaf79026e0>
+env = <MagicMock id='140578433019872'>
+
+    def set_env(self, env: Any) -> None:
+        """Configure the policy and solver for the given environment.
+    
+        Args:
+            env: The environment to associate with the policy.
+        """
+        self.env = env
+    
+        if self.cfg.action_space == "joint":
+            self.action_space = self.env.action_space #実空間
+    
+            if ("action" in self.process.keys()):
+                self.action_processor = self.process["action"]
+                # action_processor = self.process["action_joint"]
+            elif ("action_joint" in self.process.keys()):
+                self.action_processor = self.process["action_joint"]
+    
+        elif self.cfg.action_space == "cartesian":
+            self.action_space = gym.spaces.Box(
+                low=np.array([[0.315, -0.2, 0.095]], dtype=np.float32),
+                high=np.array([[0.715,  0.2, 0.105]], dtype=np.float32),
+                dtype=np.float32,
+            ) #実空間
+            self.action_processor = self.process["action_cartesian"]
+        else:
+>           raise ValueError(
+                f"Unknown action_space: {self.cfg.action_space}. "
+                "Expected 'joint' or 'cartesian'."
+            )
+E           ValueError: Unknown action_space: . Expected 'joint' or 'cartesian'.
+
+stable_worldmodel/policy.py:1288: ValueError
+______________________ test_worldmodel_policy_get_action _______________________
+
+    def test_worldmodel_policy_get_action():
+        """Test WorldModelPolicy.get_action method."""
+        solver = MockSolver()
+        config = PlanConfig(horizon=10, receding_horizon=2, action_block=1)
+        policy = WorldModelPolicy(solver=solver, config=config)
+    
+        mock_env = MagicMock()
+        mock_env.num_envs = 1
+        mock_env.action_space = gym_spaces.Box(low=-1, high=1, shape=(2,))
+>       policy.set_env(mock_env)
+
+tests/test_policy.py:422: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.policy.WorldModelPolicy object at 0x7fdaf7997a60>
+env = <MagicMock id='140578433617440'>
+
+    def set_env(self, env: Any) -> None:
+        """Configure the policy and solver for the given environment.
+    
+        Args:
+            env: The environment to associate with the policy.
+        """
+        self.env = env
+    
+        if self.cfg.action_space == "joint":
+            self.action_space = self.env.action_space #実空間
+    
+            if ("action" in self.process.keys()):
+                self.action_processor = self.process["action"]
+                # action_processor = self.process["action_joint"]
+            elif ("action_joint" in self.process.keys()):
+                self.action_processor = self.process["action_joint"]
+    
+        elif self.cfg.action_space == "cartesian":
+            self.action_space = gym.spaces.Box(
+                low=np.array([[0.315, -0.2, 0.095]], dtype=np.float32),
+                high=np.array([[0.715,  0.2, 0.105]], dtype=np.float32),
+                dtype=np.float32,
+            ) #実空間
+            self.action_processor = self.process["action_cartesian"]
+        else:
+>           raise ValueError(
+                f"Unknown action_space: {self.cfg.action_space}. "
+                "Expected 'joint' or 'cartesian'."
+            )
+E           ValueError: Unknown action_space: . Expected 'joint' or 'cartesian'.
+
+stable_worldmodel/policy.py:1288: ValueError
+________________ test_worldmodel_policy_get_action_uses_buffer _________________
+
+    def test_worldmodel_policy_get_action_uses_buffer():
+        """Test WorldModelPolicy.get_action uses action buffer on subsequent calls."""
+        solver = MockSolver()
+        config = PlanConfig(horizon=10, receding_horizon=2, action_block=1)
+        policy = WorldModelPolicy(solver=solver, config=config)
+    
+        mock_env = MagicMock()
+        mock_env.num_envs = 1
+        mock_env.action_space = gym_spaces.Box(low=-1, high=1, shape=(2,))
+>       policy.set_env(mock_env)
+
+tests/test_policy.py:442: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.policy.WorldModelPolicy object at 0x7fdaf77a28c0>
+env = <MagicMock id='140578431573184'>
+
+    def set_env(self, env: Any) -> None:
+        """Configure the policy and solver for the given environment.
+    
+        Args:
+            env: The environment to associate with the policy.
+        """
+        self.env = env
+    
+        if self.cfg.action_space == "joint":
+            self.action_space = self.env.action_space #実空間
+    
+            if ("action" in self.process.keys()):
+                self.action_processor = self.process["action"]
+                # action_processor = self.process["action_joint"]
+            elif ("action_joint" in self.process.keys()):
+                self.action_processor = self.process["action_joint"]
+    
+        elif self.cfg.action_space == "cartesian":
+            self.action_space = gym.spaces.Box(
+                low=np.array([[0.315, -0.2, 0.095]], dtype=np.float32),
+                high=np.array([[0.715,  0.2, 0.105]], dtype=np.float32),
+                dtype=np.float32,
+            ) #実空間
+            self.action_processor = self.process["action_cartesian"]
+        else:
+>           raise ValueError(
+                f"Unknown action_space: {self.cfg.action_space}. "
+                "Expected 'joint' or 'cartesian'."
+            )
+E           ValueError: Unknown action_space: . Expected 'joint' or 'cartesian'.
+
+stable_worldmodel/policy.py:1288: ValueError
+________________ test_worldmodel_policy_get_action_with_process ________________
+
+    def test_worldmodel_policy_get_action_with_process():
+        """Test WorldModelPolicy.get_action with action post-processing."""
+        solver = MockSolver()
+        config = PlanConfig(horizon=10, receding_horizon=1, action_block=1)
+        process = {"action": MockTransformable(scale=2.0)}
+        policy = WorldModelPolicy(solver=solver, config=config, process=process)
+    
+        mock_env = MagicMock()
+        mock_env.num_envs = 1
+        mock_env.action_space = gym_spaces.Box(low=-1, high=1, shape=(2,))
+>       policy.set_env(mock_env)
+
+tests/test_policy.py:469: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.policy.WorldModelPolicy object at 0x7fdaf798e8f0>
+env = <MagicMock id='140578433592352'>
+
+    def set_env(self, env: Any) -> None:
+        """Configure the policy and solver for the given environment.
+    
+        Args:
+            env: The environment to associate with the policy.
+        """
+        self.env = env
+    
+        if self.cfg.action_space == "joint":
+            self.action_space = self.env.action_space #実空間
+    
+            if ("action" in self.process.keys()):
+                self.action_processor = self.process["action"]
+                # action_processor = self.process["action_joint"]
+            elif ("action_joint" in self.process.keys()):
+                self.action_processor = self.process["action_joint"]
+    
+        elif self.cfg.action_space == "cartesian":
+            self.action_space = gym.spaces.Box(
+                low=np.array([[0.315, -0.2, 0.095]], dtype=np.float32),
+                high=np.array([[0.715,  0.2, 0.105]], dtype=np.float32),
+                dtype=np.float32,
+            ) #実空間
+            self.action_processor = self.process["action_cartesian"]
+        else:
+>           raise ValueError(
+                f"Unknown action_space: {self.cfg.action_space}. "
+                "Expected 'joint' or 'cartesian'."
+            )
+E           ValueError: Unknown action_space: . Expected 'joint' or 'cartesian'.
+
+stable_worldmodel/policy.py:1288: ValueError
+___________________ test_worldmodel_policy_no_pixels_raises ____________________
+
+    def test_worldmodel_policy_no_pixels_raises():
+        """Test WorldModelPolicy.get_action raises without pixels."""
+        solver = MockSolver()
+        config = PlanConfig(horizon=10, receding_horizon=2)
+        policy = WorldModelPolicy(solver=solver, config=config)
+        mock_env = MagicMock()
+>       policy.set_env(mock_env)
+
+tests/test_policy.py:495: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.policy.WorldModelPolicy object at 0x7fdaf799a560>
+env = <MagicMock id='140578433642800'>
+
+    def set_env(self, env: Any) -> None:
+        """Configure the policy and solver for the given environment.
+    
+        Args:
+            env: The environment to associate with the policy.
+        """
+        self.env = env
+    
+        if self.cfg.action_space == "joint":
+            self.action_space = self.env.action_space #実空間
+    
+            if ("action" in self.process.keys()):
+                self.action_processor = self.process["action"]
+                # action_processor = self.process["action_joint"]
+            elif ("action_joint" in self.process.keys()):
+                self.action_processor = self.process["action_joint"]
+    
+        elif self.cfg.action_space == "cartesian":
+            self.action_space = gym.spaces.Box(
+                low=np.array([[0.315, -0.2, 0.095]], dtype=np.float32),
+                high=np.array([[0.715,  0.2, 0.105]], dtype=np.float32),
+                dtype=np.float32,
+            ) #実空間
+            self.action_processor = self.process["action_cartesian"]
+        else:
+>           raise ValueError(
+                f"Unknown action_space: {self.cfg.action_space}. "
+                "Expected 'joint' or 'cartesian'."
+            )
+E           ValueError: Unknown action_space: . Expected 'joint' or 'cartesian'.
+
+stable_worldmodel/policy.py:1288: ValueError
+____________________ test_worldmodel_policy_no_goal_raises _____________________
+
+    def test_worldmodel_policy_no_goal_raises():
+        """Test WorldModelPolicy.get_action raises without goal."""
+        solver = MockSolver()
+        config = PlanConfig(horizon=10, receding_horizon=2)
+        policy = WorldModelPolicy(solver=solver, config=config)
+        mock_env = MagicMock()
+>       policy.set_env(mock_env)
+
+tests/test_policy.py:506: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.policy.WorldModelPolicy object at 0x7fdaf79a1c60>
+env = <MagicMock id='140578433667120'>
+
+    def set_env(self, env: Any) -> None:
+        """Configure the policy and solver for the given environment.
+    
+        Args:
+            env: The environment to associate with the policy.
+        """
+        self.env = env
+    
+        if self.cfg.action_space == "joint":
+            self.action_space = self.env.action_space #実空間
+    
+            if ("action" in self.process.keys()):
+                self.action_processor = self.process["action"]
+                # action_processor = self.process["action_joint"]
+            elif ("action_joint" in self.process.keys()):
+                self.action_processor = self.process["action_joint"]
+    
+        elif self.cfg.action_space == "cartesian":
+            self.action_space = gym.spaces.Box(
+                low=np.array([[0.315, -0.2, 0.095]], dtype=np.float32),
+                high=np.array([[0.715,  0.2, 0.105]], dtype=np.float32),
+                dtype=np.float32,
+            ) #実空間
+            self.action_processor = self.process["action_cartesian"]
+        else:
+>           raise ValueError(
+                f"Unknown action_space: {self.cfg.action_space}. "
+                "Expected 'joint' or 'cartesian'."
+            )
+E           ValueError: Unknown action_space: . Expected 'joint' or 'cartesian'.
+
+stable_worldmodel/policy.py:1288: ValueError
+______________________ test_worldmodel_policy_warm_start _______________________
+
+    def test_worldmodel_policy_warm_start():
+        """Test WorldModelPolicy warm start feature."""
+        solver = MockSolver()
+        config = PlanConfig(horizon=10, receding_horizon=2, action_block=1, warm_start=True)
+        policy = WorldModelPolicy(solver=solver, config=config)
+    
+        mock_env = MagicMock()
+        mock_env.num_envs = 1
+        mock_env.action_space = gym_spaces.Box(low=-1, high=1, shape=(2,))
+>       policy.set_env(mock_env)
+
+tests/test_policy.py:520: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.policy.WorldModelPolicy object at 0x7fdaf79981c0>
+env = <MagicMock id='140578433632000'>
+
+    def set_env(self, env: Any) -> None:
+        """Configure the policy and solver for the given environment.
+    
+        Args:
+            env: The environment to associate with the policy.
+        """
+        self.env = env
+    
+        if self.cfg.action_space == "joint":
+            self.action_space = self.env.action_space #実空間
+    
+            if ("action" in self.process.keys()):
+                self.action_processor = self.process["action"]
+                # action_processor = self.process["action_joint"]
+            elif ("action_joint" in self.process.keys()):
+                self.action_processor = self.process["action_joint"]
+    
+        elif self.cfg.action_space == "cartesian":
+            self.action_space = gym.spaces.Box(
+                low=np.array([[0.315, -0.2, 0.095]], dtype=np.float32),
+                high=np.array([[0.715,  0.2, 0.105]], dtype=np.float32),
+                dtype=np.float32,
+            ) #実空間
+            self.action_processor = self.process["action_cartesian"]
+        else:
+>           raise ValueError(
+                f"Unknown action_space: {self.cfg.action_space}. "
+                "Expected 'joint' or 'cartesian'."
+            )
+E           ValueError: Unknown action_space: . Expected 'joint' or 'cartesian'.
+
+stable_worldmodel/policy.py:1288: ValueError
+_____________________ test_worldmodel_policy_no_warm_start _____________________
+
+    def test_worldmodel_policy_no_warm_start():
+        """Test WorldModelPolicy without warm start."""
+        solver = MockSolver()
+        config = PlanConfig(
+            horizon=10, receding_horizon=2, action_block=1, warm_start=False
+        )
+        policy = WorldModelPolicy(solver=solver, config=config)
+    
+        mock_env = MagicMock()
+        mock_env.num_envs = 1
+        mock_env.action_space = gym_spaces.Box(low=-1, high=1, shape=(2,))
+>       policy.set_env(mock_env)
+
+tests/test_policy.py:544: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <stable_worldmodel.policy.WorldModelPolicy object at 0x7fdaf798df00>
+env = <MagicMock id='140578433587072'>
+
+    def set_env(self, env: Any) -> None:
+        """Configure the policy and solver for the given environment.
+    
+        Args:
+            env: The environment to associate with the policy.
+        """
+        self.env = env
+    
+        if self.cfg.action_space == "joint":
+            self.action_space = self.env.action_space #実空間
+    
+            if ("action" in self.process.keys()):
+                self.action_processor = self.process["action"]
+                # action_processor = self.process["action_joint"]
+            elif ("action_joint" in self.process.keys()):
+                self.action_processor = self.process["action_joint"]
+    
+        elif self.cfg.action_space == "cartesian":
+            self.action_space = gym.spaces.Box(
+                low=np.array([[0.315, -0.2, 0.095]], dtype=np.float32),
+                high=np.array([[0.715,  0.2, 0.105]], dtype=np.float32),
+                dtype=np.float32,
+            ) #実空間
+            self.action_processor = self.process["action_cartesian"]
+        else:
+>           raise ValueError(
+                f"Unknown action_space: {self.cfg.action_space}. "
+                "Expected 'joint' or 'cartesian'."
+            )
+E           ValueError: Unknown action_space: . Expected 'joint' or 'cartesian'.
+
+stable_worldmodel/policy.py:1288: ValueError
+=============================== warnings summary ===============================
+../LeWorldModel/.venv/lib/python3.10/site-packages/anyio/pytest_plugin.py:14
+  /home/shonosukehida/work/LeWorldModel/.venv/lib/python3.10/site-packages/anyio/pytest_plugin.py:14: PytestRemovedIn10Warning: _pytest.python.CallSpec2 has been renamed to CallSpec.
+  The CallSpec2 alias will be removed in pytest 10.
+  Update imports to use CallSpec instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#callspec2-renamed
+    from _pytest.python import CallSpec2
+
+tests/wm/test_utils.py::test_save_pretrained_state_dict_matches
+  /home/shonosukehida/work/stable-worldmodel/tests/wm/test_utils.py:78: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+    loaded = torch.load(_ckpt_root(tmp_path) / "run1" / "weights.pt", map_location="cpu")
+
+tests/wm/test_utils.py::test_load_pretrained_from_explicit_pt
+tests/wm/test_utils.py::test_load_pretrained_from_folder
+tests/wm/test_utils.py::test_load_pretrained_weights_match
+tests/wm/test_utils.py::test_load_pretrained_instantiate_called_with_config
+tests/wm/test_utils.py::test_load_pretrained_uses_hf_cache_without_downloading
+tests/wm/test_utils.py::test_roundtrip_preserves_weights
+tests/wm/test_utils.py::test_roundtrip_custom_filename
+  /home/shonosukehida/work/stable-worldmodel/stable_worldmodel/wm/utils.py:80: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+    state_dict = torch.load(checkpoint_path, map_location='cpu')
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/data/test_datasets.py::test_video_dataset_init - ImportError: Vi...
+FAILED tests/data/test_datasets.py::test_video_dataset_len - ImportError: Vid...
+FAILED tests/data/test_datasets.py::test_video_dataset_column_names - ImportE...
+FAILED tests/data/test_datasets.py::test_video_dataset_getitem - ImportError:...
+FAILED tests/data/test_datasets.py::test_video_dataset_video_permutation - Im...
+FAILED tests/data/test_datasets.py::test_video_dataset_frameskip - ImportErro...
+FAILED tests/data/test_datasets.py::test_video_dataset_keys_to_load - ImportE...
+FAILED tests/data/test_datasets.py::test_video_dataset_load_chunk - ImportErr...
+FAILED tests/data/test_datasets.py::test_video_dataset_get_col_data - ImportE...
+FAILED tests/data/test_datasets.py::test_video_dataset_get_col_data_video_key_raises
+FAILED tests/data/test_datasets.py::test_video_dataset_get_row_data - ImportE...
+FAILED tests/data/test_datasets.py::test_video_dataset_transform - ImportErro...
+FAILED tests/data/test_datasets.py::test_video_dataset_load_file - ImportErro...
+FAILED tests/test_policy.py::test_worldmodel_policy_set_env - ValueError: Unk...
+FAILED tests/test_policy.py::test_worldmodel_policy_set_env_no_num_envs - Val...
+FAILED tests/test_policy.py::test_worldmodel_policy_get_action - ValueError: ...
+FAILED tests/test_policy.py::test_worldmodel_policy_get_action_uses_buffer - ...
+FAILED tests/test_policy.py::test_worldmodel_policy_get_action_with_process
+FAILED tests/test_policy.py::test_worldmodel_policy_no_pixels_raises - ValueE...
+FAILED tests/test_policy.py::test_worldmodel_policy_no_goal_raises - ValueErr...
+FAILED tests/test_policy.py::test_worldmodel_policy_warm_start - ValueError: ...
+FAILED tests/test_policy.py::test_worldmodel_policy_no_warm_start - ValueErro...
+22 failed, 225 passed, 9 warnings in 4.53s

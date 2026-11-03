@@ -10,6 +10,7 @@ import torch
 from lightning.pytorch.loggers import WandbLogger
 from omegaconf import OmegaConf, open_dict
 
+from brightness import BrightnessConfig, TransformDataset, save_brightness_preview
 from jepa import JEPA
 from module import ARPredictor, Embedder, MLP, SIGReg, IDM
 from utils import get_column_normalizer, get_img_preprocessor, ModelObjectCallBack
@@ -157,6 +158,8 @@ def lejepa_forward(self, batch, stage, cfg):
 @hydra.main(version_base=None, config_path="./config/train", config_name="lewm")
 def run(cfg):
 
+    brightness_cfg = BrightnessConfig.from_config(cfg)
+
     pl.seed_everything(cfg.learning_seed, workers = True)
 
 
@@ -252,7 +255,8 @@ def run(cfg):
 
     
     transform = spt.data.transforms.Compose(*transforms)
-    dataset.transform = transform
+    if not brightness_cfg.enabled:
+        dataset.transform = transform
     
     print("(train) transform:", transform)
 
@@ -261,6 +265,19 @@ def run(cfg):
     train_set, val_set = spt.data.random_split(
         dataset, lengths=[cfg.train_split, 1 - cfg.train_split], generator=rnd_gen
     )
+
+    if brightness_cfg.enabled:
+        train_transform = spt.data.transforms.Compose(
+            *(get_img_preprocessor(
+                source=key, target=key, img_size=cfg.img_size,
+                random_bright_enabled=True,
+                min_factor=brightness_cfg.min_factor,
+                max_factor=brightness_cfg.max_factor,
+            ) for key in ("pixels", "wrist_pixels")),
+            *transforms[2:],
+        )
+        train_set = TransformDataset(train_set, train_transform)
+        val_set = TransformDataset(val_set, transform)
 
     train = torch.utils.data.DataLoader(train_set, **cfg.loader,shuffle=True, drop_last=True, generator=rnd_gen)
     val = torch.utils.data.DataLoader(val_set, **cfg.loader, shuffle=False, drop_last=False)
@@ -429,6 +446,9 @@ def run(cfg):
     run_dir.mkdir(parents=True, exist_ok=True)
     with open(run_dir / "config.yaml", "w") as f:
         OmegaConf.save(cfg, f)
+
+    if brightness_cfg.enabled:
+        save_brightness_preview(dataset, run_dir, brightness_cfg)
 
     object_dump_callback = ModelObjectCallBack(
         dirpath=run_dir, filename=cfg.output_model_name, epoch_interval=1,

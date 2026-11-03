@@ -70,3 +70,10 @@ loss:
     use: true
     hidden_dim: 256 #256
     weight: 0.1
+
+augmentation:
+  random_brightness:
+    enabled: false
+    min_factor: 0.5
+    max_factor: 1.5
+    preview_steps: 9
