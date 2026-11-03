@@ -16,7 +16,7 @@ policy:
   obs_horizon: 8
   action_horizon: 8
 encoder:
-  type: resnet18 # resnet18 | convnet; omitted in old checkpoints => resnet18
+  type: convnet # resnet18 | convnet; omitted in old checkpoints => resnet18
   pretrained: false
   convnet:
     # s3fmp/models/cfg/xarm/imle.yaml; no BatchNorm/Dropout/attention
