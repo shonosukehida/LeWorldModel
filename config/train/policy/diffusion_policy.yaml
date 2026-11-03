@@ -33,7 +33,9 @@ policy:
 
 # Observation encoder
 encoder:
+  type: resnet18 # resnet18 | conv; omitted type defaults to resnet18
   pretrained: false
+  feature_dim: 512 # conv only
 
 
 

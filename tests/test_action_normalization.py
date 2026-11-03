@@ -11,6 +11,7 @@ import torch
 from action_normalization import (fit_action_stats, validate_action_stats, restore_action_processor,
                                   ActionTransform, normalizer_artifact)
 from normalization_stats import SafeStandardScaler
+from stable_worldmodel.diffusion import resolve_obs_encoder_config
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -91,7 +92,7 @@ class ActionNormalizationTests(unittest.TestCase):
         cfg = OmegaConf.create(dict(policy=dict(action_key='action', pred_horizon=4, obs_horizon=2, action_horizon=2),
                                     diffusion=dict(num_train_timesteps=4, beta_schedule='squaredcos_cap_v2', prediction_type='epsilon')))
         writer = extract((ROOT/'train_policy.py').read_text(), 'save_checkpoint', dict(Path=Path, DiffusionPolicy=object, torch=torch,
-                         OmegaConf=OmegaConf, validate_action_stats=validate_action_stats))
+                         OmegaConf=OmegaConf, validate_action_stats=validate_action_stats, resolve_obs_encoder_config=resolve_obs_encoder_config))
         for mode in ('zscore', 'min_max'):
             state = self.fit(mode)
             with tempfile.TemporaryDirectory() as directory:
@@ -135,13 +136,13 @@ class ActionNormalizationTests(unittest.TestCase):
 
     def test_existing_checkpoint_model_regression(self):
         import stable_worldmodel as swm
-        from stable_worldmodel.diffusion import ConditionalUnet1D, ResNet18ObsEncoder
+        from stable_worldmodel.diffusion import ConditionalUnet1D, ResNet18ObsEncoder, create_obs_encoder
         from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
         paths = sorted(Path('/home/hida/.stable_worldmodel/checkpoints').glob('*/policy/diffusion_policy/*/seed_*/*/epoch_001.ckpt'))
         if not paths:
             self.skipTest('No existing DP checkpoint available')
         namespace = dict(Path=Path, torch=torch, swm=swm, ConditionalUnet1D=ConditionalUnet1D,
-                         ResNet18ObsEncoder=ResNet18ObsEncoder, DDPMScheduler=DDPMScheduler,
+                         ResNet18ObsEncoder=ResNet18ObsEncoder, create_obs_encoder=create_obs_encoder, DDPMScheduler=DDPMScheduler,
                          SafeStandardScaler=SafeStandardScaler, validate_action_stats=validate_action_stats,
                          restore_action_processor=restore_action_processor)
         baseline = subprocess.check_output(['git', 'show', 'HEAD:eval_real_robot.py'], cwd=ROOT, text=True)
