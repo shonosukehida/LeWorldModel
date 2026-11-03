@@ -129,11 +129,12 @@ def run(cfg):
     run_wandb = None
     if cfg.wandb.enabled:
         import wandb
+        run_name = f"imle_policy_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         run_wandb = wandb.init(
             entity=cfg.wandb.entity,
             project=cfg.wandb.project,
-            name=f"imle_seed_{cfg.learning_seed}",
+            name=run_name,
             config=OmegaConf.to_container(cfg, resolve=True),
         )
     best, stale = float("inf"), 0
