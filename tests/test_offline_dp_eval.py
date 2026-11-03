@@ -129,7 +129,7 @@ class OfflineTests(unittest.TestCase):
         def make_policy(**kwargs): return SimpleNamespace(**kwargs)
         ns = dict(Path=Path, torch=torch, validate_action_stats=validate_action_stats,
                   restore_action_processor=restore_action_processor, SafeStandardScaler=SafeStandardScaler,
-                  ResNet18ObsEncoder=Mock(return_value=net), ConditionalUnet1D=unet,
+                  create_obs_encoder=Mock(return_value=net), ConditionalUnet1D=unet,
                   DDPMScheduler=scheduler, swm=SimpleNamespace(policy=SimpleNamespace(DiffusionPolicy=make_policy)))
         node = next(n for n in ast.parse((ROOT / 'eval_real_robot.py').read_text()).body
                     if isinstance(n, ast.FunctionDef) and n.name == 'load_diffusion_policy')

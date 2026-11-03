@@ -55,7 +55,7 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
 from stable_worldmodel.diffusion import (
     ConditionalUnet1D,
-    ResNet18ObsEncoder,
+    create_obs_encoder,
 )
 from stable_worldmodel.reward import latent_goal_reward
 
@@ -2308,18 +2308,15 @@ def load_diffusion_policy(
     # Observation encoder
     # --------------------------------------------------
 
-    obs_encoder = ResNet18ObsEncoder(
-        pretrained=False,
-    )
-
-    wrist_obs_encoder = ResNet18ObsEncoder(
-        pretrained=False,
-    )
+    encoder_type = checkpoint.get("encoder_type", "resnet18")
+    encoder_config = checkpoint.get("encoder_config", {})
+    obs_encoder = create_obs_encoder(encoder_type, encoder_config, load_weights=True)
+    wrist_obs_encoder = create_obs_encoder(encoder_type, encoder_config, load_weights=True)
 
     for key, encoder in (("obs_feature_dim", obs_encoder),
                          ("wrist_obs_feature_dim", wrist_obs_encoder)):
         if encoder.output_shape()[0] != checkpoint[key]:
-            raise ValueError(f"Checkpoint {key} incompatible with saved ResNet18 encoder architecture")
+            raise ValueError(f"Checkpoint {key} incompatible with saved {encoder_type} encoder architecture")
 
     # --------------------------------------------------
     # Conditional U-Net
@@ -2330,8 +2327,8 @@ def load_diffusion_policy(
 
         global_cond_dim=(
             (
-                checkpoint["obs_feature_dim"]
-                + checkpoint["wrist_obs_feature_dim"]
+                obs_encoder.output_shape()[0]
+                + wrist_obs_encoder.output_shape()[0]
             )
             * checkpoint["obs_horizon"]
         ),
