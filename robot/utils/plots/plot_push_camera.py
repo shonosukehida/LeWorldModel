@@ -1,21 +1,41 @@
 
 from pathlib import Path
-import argparse
-
+from tqdm import tqdm
 import cv2
 import h5py
 import numpy as np
+
+
+# ============================================================
+# Config
+# ============================================================
+
+H5_PATH = Path(
+    "/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/val_ep10_tm300_multiview_play/push.h5"
+)
+
+EPISODE_INDEX = 1  # 0-based index
+
+CAMERA = "pixels"  # pixels: overhead, wrist: wrist camera
+
+FPS = 10.0
+
+OUTPUT_DIR = Path(
+    "/home/shonosukehida/work/LeWorldModel/robot/utils/plots/figure"
+)
+
+# ============================================================
 
 
 def to_uint8_rgb(frame):
     """Convert CHW/HWC image to uint8 RGB."""
     frame = np.asarray(frame)
 
-    if frame.ndim == 3 and frame.shape[0] in (1, 3, 4):
-        frame = np.transpose(frame, (1, 2, 0))
-
     if frame.ndim != 3:
         raise ValueError(f"Invalid frame shape: {frame.shape}")
+
+    if frame.shape[0] in (1, 3, 4) and frame.shape[-1] not in (1, 3, 4):
+        frame = np.transpose(frame, (1, 2, 0))
 
     if frame.shape[-1] == 4:
         frame = frame[..., :3]
@@ -33,62 +53,83 @@ def to_uint8_rgb(frame):
     return np.clip(frame, 0, 255).astype(np.uint8)
 
 
-def save_first_episode(h5_path, output_path, camera="pixels", fps=10):
-    h5_path = Path(h5_path)
-    output_path = Path(output_path)
+def save_episode_video():
+    if not H5_PATH.is_file():
+        raise FileNotFoundError(H5_PATH)
 
-    with h5py.File(h5_path, "r") as f:
-        offset = int(f["ep_offset"][0])
-        length = int(f["ep_len"][0])
+    if FPS <= 0:
+        raise ValueError("FPS must be positive")
 
-        frames = f[camera]
+    with h5py.File(H5_PATH, "r") as f:
+        ep_offsets = f["ep_offset"]
+        ep_lengths = f["ep_len"]
+
+        num_episodes = len(ep_lengths)
+
+        if not 0 <= EPISODE_INDEX < num_episodes:
+            raise IndexError(
+                f"Invalid episode index: {EPISODE_INDEX}. "
+                f"Available: 0 to {num_episodes - 1}"
+            )
+
+        if CAMERA not in f:
+            raise KeyError(f"Camera '{CAMERA}' not found")
+
+        offset = int(ep_offsets[EPISODE_INDEX])
+        length = int(ep_lengths[EPISODE_INDEX])
+
+        frames = f[CAMERA]
+
+        if length <= 0 or offset < 0 or offset + length > len(frames):
+            raise ValueError(
+                f"Invalid episode range: offset={offset}, "
+                f"length={length}, total_frames={len(frames)}"
+            )
 
         first_frame = to_uint8_rgb(frames[offset])
         height, width = first_frame.shape[:2]
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+        output_path = (
+            OUTPUT_DIR / f"episode_{EPISODE_INDEX}_{CAMERA}.mp4"
+        )
 
         writer = cv2.VideoWriter(
             str(output_path),
             cv2.VideoWriter_fourcc(*"mp4v"),
-            fps,
+            FPS,
             (width, height),
         )
 
         if not writer.isOpened():
-            raise RuntimeError("Failed to initialize VideoWriter")
+            raise RuntimeError(
+                f"Failed to initialize VideoWriter: {output_path}"
+            )
 
         try:
-            for i in range(offset, offset + length):
+
+            for i in tqdm(
+                range(offset, offset + length),
+                total=length,
+                desc=f"Saving episode {EPISODE_INDEX}",
+                unit="frame",
+            ):
+
                 rgb = to_uint8_rgb(frames[i])
                 bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
                 writer.write(bgr)
         finally:
             writer.release()
 
-    print(f"Episode: 0")
-    print(f"Camera: {camera}")
+    print(f"Episode: {EPISODE_INDEX} / {num_episodes - 1}")
+    print(f"Camera: {CAMERA}")
+    print(f"Offset: {offset}")
     print(f"Frames: {length}")
-    print(f"FPS: {fps}")
+    print(f"FPS: {FPS}")
+    print(f"Resolution: {width}x{height}")
     print(f"Saved: {output_path.resolve()}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument(
-        "--camera",
-        choices=["pixels", "wrist"],
-        default="pixels",
-    )
-    parser.add_argument("--fps", type=float, default=10.0)
-
-    args = parser.parse_args()
-
-    save_first_episode(
-        h5_path=args.input,
-        output_path=args.output,
-        camera=args.camera,
-        fps=args.fps,
-    )
+    save_episode_video()

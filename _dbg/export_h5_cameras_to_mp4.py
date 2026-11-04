@@ -11,8 +11,7 @@ import numpy as np
 
 
 DEFAULT_H5_PATH = Path(
-    "/home/hida/.stable_worldmodel/datasets/flip_mug/"
-    "ep200_tm300_multiview_demo/per_episode/episode_24.h5"
+    "/home/shonosukehida/.stable_worldmodel/eval/flip_mug/val_ep10_tm300_multiview_play/per_episode/episode_3.h5"
 )
 
 
