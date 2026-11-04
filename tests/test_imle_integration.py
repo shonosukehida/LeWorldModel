@@ -6,7 +6,7 @@ from collections import deque
 import tempfile
 from types import SimpleNamespace as NS
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import h5py
 import numpy as np
 import torch
@@ -163,9 +163,11 @@ class IntegrationTests(unittest.TestCase):
             path = Path(tmp) / "data.h5"
             dataset(path)
             cfg.data.dataset.path = str(path)
-            cfg.output_dir = str(Path(tmp) / "output")
-            run.__wrapped__(cfg)
-            checkpoints = list(Path(cfg.output_dir).glob("*/latest.ckpt"))
+            with patch("train_imle_policy.swm.data.utils.get_cache_dir", return_value=tmp):
+                run.__wrapped__(cfg)
+            checkpoints = list(
+                (Path(tmp) / "checkpoints/flip_mug/policy/imle").glob("*/latest.ckpt")
+            )
             self.assertEqual(len(checkpoints), 1)
             state = torch.load(checkpoints[0], map_location="cpu", weights_only=False)
             self.assertTrue(np.isfinite(state["val_loss"]))
@@ -173,6 +175,24 @@ class IntegrationTests(unittest.TestCase):
             self.assertIn("ema", state)
             self.assertGreater(len(state["optimizer_state_dict"]["state"]), 0)
             self.assertTrue(checkpoints[0].with_name("best.ckpt").exists())
+            self.assertTrue(checkpoints[0].with_name("config.yaml").exists())
+            cfg.wandb.enabled = True
+            cfg.trainer.max_epochs = 2
+            wandb = Mock()
+            with patch.dict("sys.modules", {"wandb": wandb}), patch(
+                "train_imle_policy.swm.data.utils.get_cache_dir", return_value=tmp
+            ):
+                run.__wrapped__(cfg)
+            payloads = [call.args[0] for call in wandb.init.return_value.log.call_args_list]
+            epochs = [p for p in payloads if "epoch" in p]
+            steps = [p for p in payloads if "global_step" in p]
+            self.assertEqual([p["epoch"] for p in epochs], [0, 1])
+            self.assertTrue(all("train_loss" in p and "val_loss" in p for p in epochs))
+            self.assertTrue(all("train/step_loss" not in p for p in epochs))
+            self.assertEqual([p["global_step"] for p in steps], list(range(1, len(steps) + 1)))
+            self.assertGreaterEqual(len(steps), 2)
+            wandb.init.return_value.finish.assert_called_once()
+
 
     def test_all_offline_modes_actual_imle(self):
         p, cfg = self.policy()

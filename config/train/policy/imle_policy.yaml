@@ -3,7 +3,6 @@ defaults:
   - data: flip_mug
 
 output_model_name: imle_policy
-output_dir: ./imle_checkpoints
 learning_seed: 41
 seed: 3072
 device: cuda
@@ -13,7 +12,7 @@ policy:
   action_key: action_cartesian
   action_normalization: min_max
   pred_horizon: 16
-  obs_horizon: 8
+  obs_horizon: 2 #8
   action_horizon: 8
 encoder:
   type: convnet # resnet18 | convnet; omitted in old checkpoints => resnet18

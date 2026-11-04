@@ -17,7 +17,46 @@ from action_normalization import fit_action_stats, ActionTransform
 from imle_checkpoint import build_policy, save_checkpoint, modules, parameters
 
 
-def run_epoch(policy, loader, device, optimizer=None, ema=None):
+def checkpoint_directory(cfg):
+    """Use the DP task convention, with a flat timestamped IMLE run directory."""
+    if cfg.data.dataset.name is not None:
+        task_name = Path(cfg.data.dataset.name).parts[0]
+    else:
+        task_name = Path(cfg.data.dataset.path).parent.parent.name
+    return (
+        Path(swm.data.utils.get_cache_dir())
+        / "checkpoints" / task_name / "policy" / "imle"
+        / datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    )
+
+
+class StepLogger:
+    """Keep the optimizer-step axis across epochs, even with W&B disabled."""
+
+    def __init__(self, run):
+        self.run = run
+        self.global_step = 0
+        self.metric_names = set()
+        if run is not None:
+            run.define_metric("global_step")
+            run.define_metric("epoch")
+            for name in ("train_loss", "val_loss", "train/*", "val/*"):
+                run.define_metric(name, step_metric="epoch")
+
+    def __call__(self, loss, metrics):
+        self.global_step += 1
+        if self.run is None:
+            return
+        values = {"train/step_" + k: v for k, v in metrics.items()}
+        values["train/step_loss"] = loss
+        for name in values:
+            if name not in self.metric_names:
+                self.run.define_metric(name, step_metric="global_step")
+                self.metric_names.add(name)
+        self.run.log(dict(global_step=self.global_step, **values))
+
+
+def run_epoch(policy, loader, device, optimizer=None, ema=None, step_logger=None):
     training = optimizer is not None
     for module in modules(policy):
         module.train(training)
@@ -37,10 +76,14 @@ def run_epoch(policy, loader, device, optimizer=None, ema=None):
                 if ema is not None:
                     ema.update(parameters(policy))
             size = batch["action"].shape[0]
-            total += loss.item() * size
+            loss_value = loss.item()
+            total += loss_value * size
             count += size
-            for key, value in policy.loss_metrics.items():
-                logs[key] = logs.get(key, 0.0) + float(value) * size
+            metrics = {key: float(value) for key, value in policy.loss_metrics.items()}
+            for key, value in metrics.items():
+                logs[key] = logs.get(key, 0.0) + value * size
+            if training and step_logger is not None:
+                step_logger(loss_value, metrics)
     if count == 0:
         raise ValueError(
             "Empty IMLE data loader; reduce batch size or supply more samples"
@@ -121,10 +164,9 @@ def run(cfg):
         parameters(policy), decay=cfg.imle.ema_decay, use_num_updates=True
     )
     ema.to(device)
-    output = Path(cfg.output_dir).expanduser() / datetime.now().strftime(
-        "%Y%m%d_%H%M%S_%f"
-    )
+    output = checkpoint_directory(cfg)
     output.mkdir(parents=True, exist_ok=False)
+    print("run_dir:", output)
     OmegaConf.save(cfg, output / "config.yaml")
     run_wandb = None
     if cfg.wandb.enabled:
@@ -137,11 +179,12 @@ def run(cfg):
             name=run_name,
             config=OmegaConf.to_container(cfg, resolve=True),
         )
+    step_logger = StepLogger(run_wandb)
     best, stale = float("inf"), 0
     try:
         for epoch in range(cfg.trainer.max_epochs):
             train_loss, train_logs = run_epoch(
-                policy, train_loader, device, optimizer, ema
+                policy, train_loader, device, optimizer, ema, step_logger
             )
             # s3fmp validates EMA weights and preserves the training RNG stream.
             validation_rng = (

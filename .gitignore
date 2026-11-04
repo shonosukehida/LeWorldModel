@@ -21,3 +21,4 @@ __pycache__/*
 robot/figures/*
 LeWorldModel/_dbg/preprocessing_regression/*
 real_robot_rollouts/*
+imle_checkpoints/*
