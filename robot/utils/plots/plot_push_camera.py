@@ -11,17 +11,17 @@ import numpy as np
 # ============================================================
 
 H5_PATH = Path(
-    "/home/shonosukehida/.stable_worldmodel/datasets/flip_mug/val_ep10_tm300_multiview_play/push.h5"
+    "/home/hida/.stable_worldmodel/datasets/flip_mug/val_ep10_tm300_multiview_play/push.h5"
 )
 
-EPISODE_INDEX = 1  # 0-based index
+EPISODE_INDEX = 0  # 0-based index
 
 CAMERA = "pixels"  # pixels: overhead, wrist: wrist camera
 
 FPS = 10.0
 
 OUTPUT_DIR = Path(
-    "/home/shonosukehida/work/LeWorldModel/robot/utils/plots/figure"
+    "/home/hida/workspace/LeWorldModel/robot/utils/plots/figure"
 )
 
 # ============================================================

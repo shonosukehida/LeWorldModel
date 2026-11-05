@@ -380,6 +380,7 @@ class XArmInferenceEnv:
 
         self._last_qpos = np.zeros(7, dtype=np.float32)
         self._last_qvel = np.zeros(7, dtype=np.float32)
+        self._last_sdk_qpos = np.full(7, np.nan, dtype=np.float32)
         self._last_ee = np.array(
             [0.5, 0.0, 0.3, 0.0, 0.0, 0.0, 1.0],
             dtype=np.float32,
@@ -779,6 +780,34 @@ class XArmInferenceEnv:
         ).copy()
 
         # XArmFollower does not expose qvel, so retain the SDK query for it.
+        # try:
+        #     code, joint_states = self._robot.get_joint_states(
+        #         is_radian=True
+        #     )
+        #     if code != 0:
+        #         raise RuntimeError(
+        #             f"xArm get_joint_states failed with SDK code {code}"
+        #         )
+        #     qvel = np.asarray(
+        #         joint_states[1],
+        #         dtype=np.float32,
+        #     )[:7]
+        # except (
+        #     AttributeError,
+        #     IndexError,
+        #     TypeError,
+        #     RuntimeError,
+        # ):
+        #     qvel = np.zeros(7, dtype=np.float32)
+
+
+        # SDKから取得した関節角度を診断用に保存する
+        # SDK取得失敗時はNaNとする
+        self._last_sdk_qpos = np.full(
+            7, np.nan, dtype=np.float32
+        )
+
+        # XArmFollower does not expose qvel, so retain the SDK query for it.
         try:
             code, joint_states = self._robot.get_joint_states(
                 is_radian=True
@@ -787,10 +816,25 @@ class XArmInferenceEnv:
                 raise RuntimeError(
                     f"xArm get_joint_states failed with SDK code {code}"
                 )
+
             qvel = np.asarray(
                 joint_states[1],
                 dtype=np.float32,
             )[:7]
+
+            # 診断用：SDK由来の関節角度
+            try:
+                sdk_qpos = np.asarray(
+                    joint_states[0],
+                    dtype=np.float32,
+                ).reshape(-1)
+
+                if sdk_qpos.shape == (7,) and np.isfinite(sdk_qpos).all():
+                    self._last_sdk_qpos = sdk_qpos.copy()
+
+            except (TypeError, ValueError):
+                pass
+
         except (
             AttributeError,
             IndexError,
@@ -798,6 +842,8 @@ class XArmInferenceEnv:
             RuntimeError,
         ):
             qvel = np.zeros(7, dtype=np.float32)
+
+
         ee_rpy = self._sdk_value(
             self._robot.get_position(is_radian=True), "get_position"
         )[:6]
@@ -1737,6 +1783,7 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
         "target_qpos",
         "safe_qpos",
         "qpos",
+        "sdk_qpos",
         "qvel",
         "ee_pos_quat",
         "gripper",
@@ -1822,6 +1869,9 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             qpos, qvel, ee = env.get_robot_state()
             # Snapshot before execute, which may read state again.
             actual_gripper = env._last_actual_gripper
+
+            # SDK関節角度も同じタイミングで退避
+            sdk_qpos = env._last_sdk_qpos.copy()
 
             current_proprio = np.concatenate(
                 [
@@ -1947,6 +1997,8 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             records["target_qpos"].append(env._last_target_qpos.copy())
             records["safe_qpos"].append(env._last_safe_qpos.copy())
             records["qpos"].append(qpos)
+            records["sdk_qpos"].append(sdk_qpos)
+
             records["qvel"].append(qvel)
             records["ee_pos_quat"].append(ee)
             records["gripper"].append(env._last_gripper)
@@ -2026,6 +2078,15 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
         )
 
 
+        # Only uninterrupted DP/GPC execution has known fixed chunk boundaries.
+        plot_chunk_size = int(getattr(real_cfg, "dp_execute_steps", 1))
+        split_commanded_chunks = (
+            action_buffer is not None
+            and not reinforcement_enabled
+            and not gpc_reinforcement_enabled
+            and plot_chunk_size > 1
+        )
+
         # commanded Cartesian position と
         # 次stepで観測された実際のEE positionを比較
         if (
@@ -2062,15 +2123,21 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             axis_names = ["x", "y", "z"]
 
             for i, axis_name in enumerate(axis_names):
-                axes[i].plot(
-                    plot_steps,
-                    commanded_xyz[:, i],
-                    label=f"Commanded {axis_name}",
-                )
+                chunk_size = plot_chunk_size if split_commanded_chunks else len(commanded_xyz)
+                for start in range(0, len(commanded_xyz), chunk_size):
+                    end = min(start + chunk_size, len(commanded_xyz))
+                    axes[i].plot(
+                        plot_steps[start:end],
+                        commanded_xyz[start:end, i],
+                        color="tab:blue",
+                        marker="." if end - start == 1 else None,
+                        label=f"Commanded {axis_name}" if start == 0 else None,
+                    )
 
                 axes[i].plot(
                     plot_steps,
                     actual_xyz[:, i],
+                    color="tab:orange",
                     label=f"Actual {axis_name}",
                 )
 
@@ -2111,7 +2178,7 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
         # 次stepで観測された実測関節角を比較
         if (
             len(records["safe_qpos"]) > 1
-            and len(records["qpos"]) > 1
+            and len(records["sdk_qpos"]) > 1
         ):
             safe_qpos_states = np.asarray(
                 records["safe_qpos"],
@@ -2119,11 +2186,11 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             )
 
             actual_qpos_states = np.asarray(
-                records["qpos"],
+                records["sdk_qpos"],
                 dtype=np.float32,
             )
 
-            # safe_qpos[t] の命令後に取得されるのが qpos[t+1]
+            # safe_qpos[t] の命令後に取得されるのが sdk_qpos[t+1]
             commanded_qpos = safe_qpos_states[:-1]
             actual_qpos = actual_qpos_states[1:]
 
@@ -2140,16 +2207,22 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             )
 
             for joint_idx in range(7):
-                axes[joint_idx].plot(
-                    plot_steps,
-                    commanded_qpos[:, joint_idx],
-                    label=f"Commanded Joint {joint_idx + 1}",
-                )
+                chunk_size = plot_chunk_size if split_commanded_chunks else len(commanded_qpos)
+                for start in range(0, len(commanded_qpos), chunk_size):
+                    end = min(start + chunk_size, len(commanded_qpos))
+                    axes[joint_idx].plot(
+                        plot_steps[start:end],
+                        commanded_qpos[start:end, joint_idx],
+                        color="tab:blue",
+                        marker="." if end - start == 1 else None,
+                        label=f"Commanded Joint {joint_idx + 1}" if start == 0 else None,
+                    )
 
                 axes[joint_idx].plot(
                     plot_steps,
                     actual_qpos[:, joint_idx],
-                    label=f"Actual Joint {joint_idx + 1}",
+                    color="tab:orange",
+                    label=f"Actual Joint {joint_idx + 1} (SDK)",
                 )
 
                 axes[joint_idx].set_ylabel(
@@ -2162,7 +2235,7 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             axes[-1].set_xlabel("Step")
 
             fig.suptitle(
-                "Commanded vs Actual Joint Position"
+                "Commanded vs Actual Joint Position (xArm SDK)"
             )
 
             fig.tight_layout(
@@ -2185,6 +2258,77 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             print(
                 "Commanded vs actual joint position plot "
                 f"saved to: {joint_plot_path}"
+            )
+
+        # RobopyとxArm SDKの実測関節角度を比較
+        if len(records["qpos"]) > 1:
+            robopy_qpos = np.asarray(
+                records["qpos"],
+                dtype=np.float32,
+            )
+
+            sdk_qpos = np.asarray(
+                records["sdk_qpos"],
+                dtype=np.float32,
+            )
+
+            plot_steps = np.arange(len(robopy_qpos))
+
+            fig, axes = plt.subplots(
+                7, 1,
+                figsize=(12, 18),
+                sharex=True,
+            )
+
+            for joint_idx in range(7):
+                axes[joint_idx].plot(
+                    plot_steps,
+                    robopy_qpos[:, joint_idx],
+                    color="tab:orange",
+                    label="Robopy",
+                )
+
+                axes[joint_idx].plot(
+                    plot_steps,
+                    sdk_qpos[:, joint_idx],
+                    color="tab:blue",
+                    linestyle="--",
+                    alpha=0.8,
+                    label="xArm SDK",
+                )
+
+                axes[joint_idx].set_ylabel(
+                    f"J{joint_idx + 1} [rad]"
+                )
+
+                axes[joint_idx].legend()
+                axes[joint_idx].grid(True)
+
+            axes[-1].set_xlabel("Step")
+
+            fig.suptitle(
+                "Robopy vs xArm SDK Joint Position"
+            )
+
+            fig.tight_layout(
+                rect=[0, 0, 1, 0.98]
+            )
+
+            plot_path = (
+                run_dir / "robopy_vs_sdk_joint_position.png"
+            )
+
+            fig.savefig(
+                plot_path,
+                dpi=150,
+                bbox_inches="tight",
+            )
+
+            plt.close(fig)
+
+            print(
+                f"Robopy vs SDK joint plot saved to: "
+                f"{plot_path}"
             )
 
 
