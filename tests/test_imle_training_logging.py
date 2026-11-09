@@ -66,6 +66,8 @@ class LoggingTests(unittest.TestCase):
                 definitions = {c.args[0]: c.kwargs for c in run.define_metric.call_args_list}
                 self.assertEqual(definitions['train_loss'], {'step_metric': 'epoch'})
                 self.assertEqual(definitions['val_loss'], {'step_metric': 'epoch'})
+                self.assertEqual(definitions['train_eval_loss'], {'step_metric': 'epoch'})
+                self.assertEqual(definitions['train_eval/*'], {'step_metric': 'epoch'})
                 self.assertEqual(definitions['train/step_imle'], {'step_metric': 'global_step'})
         for summaries, state, ema in results[1:]:
             self.assertEqual(summaries, results[0][0])
@@ -82,3 +84,57 @@ class LoggingTests(unittest.TestCase):
                 output = trainer.checkpoint_directory(cfg)
             self.assertEqual(str(output.parent), '/tmp/cache/checkpoints/flip_mug/policy/imle')
             self.assertRegex(output.name, r'^\d{8}_\d{6}_\d{6}$')
+
+
+class EvaluationTests(unittest.TestCase):
+    def test_ema_snapshot_full_dataset_and_rng(self):
+        for seed in (None, 37):
+            policy = Policy(2, 2)
+            ema = ExponentialMovingAverage(policy.parameters(), decay=0.9)
+            with torch.no_grad():
+                for p in policy.parameters():
+                    p.add_(2)
+            ordinary = [p.clone() for p in policy.parameters()]
+            shadows = [p.clone() for p in ema.shadow_params]
+            updates = ema.num_updates
+            loader = torch.utils.data.DataLoader(
+                [{'action': torch.ones(2) * i} for i in range(5)],
+                batch_size=2, shuffle=False, drop_last=False,
+            )
+            seen = []
+            compute = policy.compute_loss
+
+            def check(batch):
+                self.assertFalse(policy.training)
+                self.assertFalse(torch.is_grad_enabled())
+                for p, shadow in zip(policy.parameters(), shadows):
+                    self.assertTrue(torch.equal(p, shadow))
+                seen.extend(batch['action'][:, 0].tolist())
+                return compute(batch)
+
+            cpu_rng = torch.get_rng_state()
+            cuda_rng = torch.cuda.get_rng_state_all()
+            # Legacy validation consumes RNG only when no fixed seed is set.
+            with ema.average_parameters(trainer.parameters(policy)):
+                if seed is None:
+                    trainer.run_epoch(policy, loader, 'cpu')
+            expected_rng = torch.get_rng_state()
+            torch.set_rng_state(cpu_rng)
+            with patch.object(policy, 'compute_loss', side_effect=check):
+                result = trainer.evaluate_ema(policy, loader, loader, 'cpu', ema, seed)
+            self.assertEqual(seen, list(range(5)) * 2)
+            self.assertTrue(torch.equal(torch.get_rng_state(), expected_rng))
+            for actual, expected in zip(torch.cuda.get_rng_state_all(), cuda_rng):
+                self.assertTrue(torch.equal(actual, expected))
+            self.assertTrue(all(torch.isfinite(torch.tensor(r[0])) for r in result))
+            for p, original in zip(policy.parameters(), ordinary):
+                self.assertTrue(torch.equal(p, original))
+                self.assertIsNone(p.grad)
+            for actual, expected in zip(ema.shadow_params, shadows):
+                self.assertTrue(torch.equal(actual, expected))
+            self.assertEqual(ema.num_updates, updates)
+            if seed is not None:
+                self.assertEqual(result[0], result[1])
+                torch.rand(13)
+                self.assertEqual(result, trainer.evaluate_ema(
+                    policy, loader, loader, 'cpu', ema, seed))

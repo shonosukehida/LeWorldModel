@@ -187,7 +187,9 @@ class IntegrationTests(unittest.TestCase):
             epochs = [p for p in payloads if "epoch" in p]
             steps = [p for p in payloads if "global_step" in p]
             self.assertEqual([p["epoch"] for p in epochs], [0, 1])
-            self.assertTrue(all("train_loss" in p and "val_loss" in p for p in epochs))
+            self.assertTrue(all(all(k in p for k in ("train_loss", "train_eval_loss", "val_loss",
+                                                   "train_eval/imle", "train_eval/gripper_l1")) for p in epochs))
+            self.assertTrue(all(np.isfinite(p["train_eval_loss"]) for p in epochs))
             self.assertTrue(all("train/step_loss" not in p for p in epochs))
             self.assertEqual([p["global_step"] for p in steps], list(range(1, len(steps) + 1)))
             self.assertGreaterEqual(len(steps), 2)

@@ -12,7 +12,7 @@ policy:
   action_key: action_cartesian
   action_normalization: min_max
   pred_horizon: 16
-  obs_horizon: 2 #8
+  obs_horizon: 8 #8
   action_horizon: 8
 encoder:
   type: convnet # resnet18 | convnet; omitted in old checkpoints => resnet18
@@ -51,7 +51,7 @@ optimizer:
 trainer:
   max_epochs: 500
   patience: 20
-  validation_seed: null # s3fmp default; set an integer for fixed validation noise
+  validation_seed: null # s3fmp default; integer restarts EMA train/val noise independently
 wandb:
   enabled: true
   entity: shonosukehida

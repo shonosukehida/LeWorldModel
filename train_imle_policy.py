@@ -40,7 +40,10 @@ class StepLogger:
         if run is not None:
             run.define_metric("global_step")
             run.define_metric("epoch")
-            for name in ("train_loss", "val_loss", "train/*", "val/*"):
+            for name in (
+                "train_loss", "train_eval_loss", "val_loss",
+                "train/*", "train_eval/*", "val/*",
+            ):
                 run.define_metric(name, step_metric="epoch")
 
     def __call__(self, loss, metrics):
@@ -89,6 +92,28 @@ def run_epoch(policy, loader, device, optimizer=None, ema=None, step_logger=None
             "Empty IMLE data loader; reduce batch size or supply more samples"
         )
     return total / count, {key: value / count for key, value in logs.items()}
+
+
+def evaluate_ema(policy, train_eval_loader, val_loader, device, ema, seed):
+    """Evaluate both splits at one EMA snapshot with isolated train-eval RNG.
+
+    With seed=None, validation retains its historical RNG consumption. The added
+    train pass is always isolated; a fixed seed restarts each split independently.
+    """
+    def evaluate(loader, preserve_rng):
+        rng = (
+            torch.random.fork_rng(devices=list(range(torch.cuda.device_count())))
+            if preserve_rng else nullcontext()
+        )
+        with rng:
+            if seed is not None:
+                torch.manual_seed(seed)
+            return run_epoch(policy, loader, device)
+
+    with ema.average_parameters(parameters(policy)):
+        train_result = evaluate(train_eval_loader, preserve_rng=True)
+        val_result = evaluate(val_loader, preserve_rng=seed is not None)
+    return train_result, val_result
 
 
 @hydra.main(
@@ -153,6 +178,7 @@ def run(cfg):
     train_loader = DataLoader(
         train, shuffle=True, drop_last=True, generator=generator, **options
     )
+    train_eval_loader = DataLoader(train, shuffle=False, drop_last=False, **options)
     val_loader = DataLoader(val, shuffle=False, drop_last=False, **options)
     policy = build_policy(cfg, action_dim)
     for module in modules(policy):
@@ -186,17 +212,10 @@ def run(cfg):
             train_loss, train_logs = run_epoch(
                 policy, train_loader, device, optimizer, ema, step_logger
             )
-            # s3fmp validates EMA weights and preserves the training RNG stream.
-            validation_rng = (
-                torch.random.fork_rng(devices=list(range(torch.cuda.device_count())))
-                if cfg.trainer.validation_seed is not None
-                else nullcontext()
+            (train_eval_loss, train_eval_logs), (val_loss, val_logs) = evaluate_ema(
+                policy, train_eval_loader, val_loader, device, ema,
+                cfg.trainer.validation_seed,
             )
-            with validation_rng:
-                if cfg.trainer.validation_seed is not None:
-                    torch.manual_seed(cfg.trainer.validation_seed)
-                with ema.average_parameters(parameters(policy)):
-                    val_loss, val_logs = run_epoch(policy, val_loader, device)
             save_checkpoint(
                 output / "latest.ckpt",
                 policy,
@@ -222,15 +241,18 @@ def run(cfg):
             else:
                 stale += 1
             print(
-                f"epoch={epoch} train_loss={train_loss:.6g} val_loss={val_loss:.6g} output={output}"
+                f"epoch={epoch} train_loss={train_loss:.6g} "
+                f"train_eval_loss={train_eval_loss:.6g} val_loss={val_loss:.6g} output={output}"
             )
             if run_wandb:
                 run_wandb.log(
                     dict(
                         epoch=epoch,
                         train_loss=train_loss,
+                        train_eval_loss=train_eval_loss,
                         val_loss=val_loss,
                         **{"train/" + k: v for k, v in train_logs.items()},
+                        **{"train_eval/" + k: v for k, v in train_eval_logs.items()},
                         **{"val/" + k: v for k, v in val_logs.items()},
                     )
                 )
