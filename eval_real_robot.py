@@ -2790,9 +2790,14 @@ def run(cfg: DictConfig):
                 cfg.eval.real_robot.dry_run
                 and getattr(cfg.eval.real_robot, "dry_run_mode", "episode") == "multi_sample"
             )
+            offline_chunk_rollout = (
+                cfg.eval.real_robot.dry_run
+                and getattr(cfg.eval.real_robot, "dry_run_mode", "episode") == "chunk_rollout"
+            )
+            offline_gpc = offline_multi_sample or offline_chunk_rollout
             diffusion_policy = load_diffusion_policy(
                 checkpoint_path=cfg.gpc.diffusion_checkpoint,
-                image_transform=img_transform(cfg) if offline_multi_sample else dp_img_transform(cfg),
+                image_transform=img_transform(cfg) if offline_gpc else dp_img_transform(cfg),
                 device="cuda",
             )
 
@@ -2801,10 +2806,16 @@ def run(cfg: DictConfig):
                 world_model=model,
                 reward_fn=latent_goal_reward,
                 num_candidates=(getattr(cfg.eval.real_robot, "dry_run_num_candidates", 20)
-                                if offline_multi_sample else cfg.gpc.num_candidates),
+                                if offline_gpc else cfg.gpc.num_candidates),
                 process=process,
                 transform=transform,
             )
+
+            if offline_chunk_rollout:
+                from offline_gpc_eval import run_offline_gpc_chunk_rollout
+                run_offline_gpc_chunk_rollout(
+                    cfg, policy, _load_or_capture_goal, _policy_observation)
+                return
 
             if offline_multi_sample:
                 from offline_gpc_eval import run_offline_gpc_multi_sample

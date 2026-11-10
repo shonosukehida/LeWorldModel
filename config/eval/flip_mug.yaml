@@ -40,8 +40,9 @@ seed: 42
 policy: lewm_weights 
 policy_type: gpc #world_model/gpc/diffusion
 gpc:
-  diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261021_135400/latest.ckpt
+  diffusion_checkpoint: /home/shonosukehida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed_41/20261021_135400/latest.ckpt
   visualization_enabled: true # Record GPC candidates; normalize and plot after rollout
+  num_candidates: 20
 
 
 plan_config:
@@ -77,7 +78,7 @@ eval:
 
 
     dry_run: true #ハードは動かさずにソフトだけをテストする
-    dry_run_mode: episode # episode / multi_sample / chunk_rollout; omitted defaults to episode
+    dry_run_mode: chunk_rollout # episode / multi_sample / chunk_rollout; omitted defaults to episode
     dry_run_timestep: 100
     dry_run_num_candidates: 20
     dry_run_seed: 42
@@ -151,7 +152,7 @@ eval:
 
 
   probing:
-    exe_probe: true
+    exe_probe: false
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
     val_dataset_name: flip_mug/val_ep10_tm300_multiview_play/push #パス指定もOK#flip_mug/val_ep10_tm300_prop/push
