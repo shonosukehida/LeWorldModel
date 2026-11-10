@@ -2595,7 +2595,11 @@ def load_diffusion_policy(
 
 
 
+from offline_gpc_eval import preserve_gpc_offline_rng
+
+
 @hydra.main(version_base=None, config_path="./config/eval", config_name="pusht")
+@preserve_gpc_offline_rng
 def run(cfg: DictConfig):
     """Run evaluation of dinowm vs random policy."""
     
@@ -2782,9 +2786,13 @@ def run(cfg: DictConfig):
 
         elif policy_type == "gpc":
 
+            offline_multi_sample = (
+                cfg.eval.real_robot.dry_run
+                and getattr(cfg.eval.real_robot, "dry_run_mode", "episode") == "multi_sample"
+            )
             diffusion_policy = load_diffusion_policy(
                 checkpoint_path=cfg.gpc.diffusion_checkpoint,
-                image_transform=dp_img_transform(cfg),
+                image_transform=img_transform(cfg) if offline_multi_sample else dp_img_transform(cfg),
                 device="cuda",
             )
 
@@ -2792,10 +2800,17 @@ def run(cfg: DictConfig):
                 diffusion_policy=diffusion_policy,
                 world_model=model,
                 reward_fn=latent_goal_reward,
-                num_candidates=cfg.gpc.num_candidates,
+                num_candidates=(getattr(cfg.eval.real_robot, "dry_run_num_candidates", 20)
+                                if offline_multi_sample else cfg.gpc.num_candidates),
                 process=process,
                 transform=transform,
             )
+
+            if offline_multi_sample:
+                from offline_gpc_eval import run_offline_gpc_multi_sample
+                run_offline_gpc_multi_sample(
+                    cfg, policy, _load_or_capture_goal, _policy_observation)
+                return
 
         else:
             raise ValueError(

@@ -38,7 +38,7 @@ dataset:
 
 seed: 42
 policy: lewm_weights 
-policy_type: diffusion #world_model/gpc/diffusion
+policy_type: gpc #world_model/gpc/diffusion
 gpc:
   diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261021_135400/latest.ckpt
   visualization_enabled: true # Record GPC candidates; normalize and plot after rollout
@@ -73,10 +73,10 @@ eval:
       damping: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # SDK six-axis B array (reserved)
       reference_frame: 0  # 0 = base frame, 1 = tool frame
       compliant_axis: [0, 0, 1, 0, 0, 0]  # [x, y, z, rx, ry, rz], each 0 or 1
-    execute: true
+    execute: false
 
 
-    dry_run: false #ハードは動かさずにソフトだけをテストする
+    dry_run: true #ハードは動かさずにソフトだけをテストする
     dry_run_mode: episode # episode / multi_sample / chunk_rollout; omitted defaults to episode
     dry_run_timestep: 100
     dry_run_num_candidates: 20
@@ -151,13 +151,13 @@ eval:
 
 
   probing:
-    exe_probe: false
+    exe_probe: true
     use_random_encoder: false
     dataset_name: ${eval.dataset_name}
-    val_dataset_name: flip_mug/val_ep10_tm300_play_normal_bright_red_cup/push #パス指定もOK#flip_mug/val_ep10_tm300_prop/push
+    val_dataset_name: flip_mug/val_ep10_tm300_multiview_play/push #パス指定もOK#flip_mug/val_ep10_tm300_prop/push
     plot_all_train_data: true
     plot_all_val_data: true
-    plot_open_data: false
+    plot_open_data: true
     plot_train_dyn_vs_val_dyn: true # true enables shared PCA comparison
     plot_closed_data: 
       plot_whisker:  #closed forward をひげ状にプロット
@@ -165,7 +165,7 @@ eval:
         pred_step: 5
         plot_interval: 5
       plot_pred_horizon: #pred horizon 分の予測をプロット
-        plot: false
+        plot: true
         pred_horizon: 50
     closed_pred_step: 5
     max_samples: 1000 #pcaで可視化する際に集める潜在列のステップ数
