@@ -2618,9 +2618,18 @@ def run(cfg: DictConfig):
             run_offline_dp_multi_sample(cfg, load_diffusion_policy, img_transform(cfg))
         elif mode == "chunk_rollout":
             run_offline_dp_chunk_rollout(cfg, load_diffusion_policy, img_transform(cfg))
+        elif mode == "latent_dist":
+            raise ValueError("dry_run_mode=latent_dist requires policy_type=gpc")
         else:
             raise ValueError(f"Unknown dry_run_mode: {mode}")
         return
+
+    # Reject the new diagnostic mode for other policy types before any setup.
+    real_robot = getattr(cfg.eval, "real_robot", None)
+    if (getattr(real_robot, "dry_run", False)
+            and getattr(real_robot, "dry_run_mode", "episode") == "latent_dist"
+            and cfg.get("policy_type", "world_model") != "gpc"):
+        raise ValueError("dry_run_mode=latent_dist requires policy_type=gpc")
 
     results_path = (
         Path(swm.data.utils.get_cache_dir(), "eval", cfg.policy).parent
@@ -2794,7 +2803,11 @@ def run(cfg: DictConfig):
                 cfg.eval.real_robot.dry_run
                 and getattr(cfg.eval.real_robot, "dry_run_mode", "episode") == "chunk_rollout"
             )
-            offline_gpc = offline_multi_sample or offline_chunk_rollout
+            offline_latent_dist = (
+                cfg.eval.real_robot.dry_run
+                and getattr(cfg.eval.real_robot, "dry_run_mode", "episode") == "latent_dist"
+            )
+            offline_gpc = offline_multi_sample or offline_chunk_rollout or offline_latent_dist
             diffusion_policy = load_diffusion_policy(
                 checkpoint_path=cfg.gpc.diffusion_checkpoint,
                 image_transform=img_transform(cfg) if offline_gpc else dp_img_transform(cfg),
@@ -2810,6 +2823,12 @@ def run(cfg: DictConfig):
                 process=process,
                 transform=transform,
             )
+
+            if offline_latent_dist:
+                from offline_latent_dist_eval import run_offline_latent_dist
+                run_offline_latent_dist(
+                    cfg, policy, _load_or_capture_goal, _policy_observation)
+                return
 
             if offline_chunk_rollout:
                 from offline_gpc_eval import run_offline_gpc_chunk_rollout

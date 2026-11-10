@@ -31,7 +31,7 @@ def preserve_gpc_offline_rng(function):
             return function(cfg)
         robot = getattr(cfg.eval, 'real_robot', None)
         if not (robot is not None and getattr(robot, 'dry_run', False)
-                and getattr(robot, 'dry_run_mode', 'episode') in ('multi_sample', 'chunk_rollout')):
+                and getattr(robot, 'dry_run_mode', 'episode') in ('multi_sample', 'chunk_rollout', 'latent_dist')):
             return function(cfg)
         if cfg.get('policy', 'random') == 'random':
             raise ValueError('Offline GPC requires a trained world model')

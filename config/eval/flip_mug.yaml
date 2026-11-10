@@ -78,7 +78,7 @@ eval:
 
 
     dry_run: true #ハードは動かさずにソフトだけをテストする
-    dry_run_mode: chunk_rollout # episode / multi_sample / chunk_rollout; omitted defaults to episode
+    dry_run_mode: latent_dist # episode / multi_sample / chunk_rollout; omitted defaults to episode
     dry_run_timestep: 100
     dry_run_num_candidates: 20
     dry_run_seed: 42
