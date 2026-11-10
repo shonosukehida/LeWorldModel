@@ -118,7 +118,13 @@ def test_diffusion_exact_prechange_artifacts_and_png():
         '351dbd30365a14fe8fe1219752a3db0db9d4257c:offline_dp_eval.py'], cwd=ROOT, text=True)
     baseline = types.ModuleType('baseline_offline_dp')
     exec(compile(source, '<baseline>', 'exec'), baseline.__dict__)
-    assert source == (ROOT/'offline_dp_eval.py').read_text()
+    # Only the explicitly authorized progress wrapper may differ from baseline.
+    current = (ROOT/'offline_dp_eval.py').read_text()
+    current = current.replace('    from tqdm.auto import tqdm\n', '')
+    current = current.replace(
+        "enumerate(tqdm(rows, total=len(rows), desc='DP chunk rollout', unit='chunk'))",
+        'enumerate(rows)')
+    assert source == current
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp)/'data.h5'
         dp_tests.OfflineTests().dataset(path)

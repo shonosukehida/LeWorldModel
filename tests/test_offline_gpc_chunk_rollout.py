@@ -32,7 +32,7 @@ def test_chunks_selection_rng_gt_independence(tmp_path):
         return r
     policy.reward_fn = reward
     before = torch.get_rng_state(), np.random.get_state()
-    result = gpc.evaluate_gpc_chunk_rollout(policy,path,7,20,42,tmp_path,{},builder)
+    result = gpc.evaluate_gpc_chunk_rollout(policy,path,7,20,42,tmp_path,{},builder, dp_execute_steps=2)
     assert torch.equal(before[0],torch.get_rng_state())
     assert all(np.array_equal(a,b) for a,b in zip(before[1],np.random.get_state()))
     assert calls.call_count == 2
@@ -54,7 +54,7 @@ def test_chunks_selection_rng_gt_independence(tmp_path):
     with h5py.File(path,'a') as f:
         f['action_cartesian'][:] = 999
     policy.world_model.calls.clear()
-    repeat = gpc.evaluate_gpc_chunk_rollout(policy,path,7,20,42,tmp_path,{},builder)
+    repeat = gpc.evaluate_gpc_chunk_rollout(policy,path,7,20,42,tmp_path,{},builder, dp_execute_steps=2)
     assert repeat['candidate_rewards'] == result['candidate_rewards']
     with h5py.File(Path(repeat['metadata']['output_dir'])/'chunk_rollout.h5') as f:
         np.testing.assert_array_equal(saved,f['predicted_chunks'][:])
@@ -81,7 +81,13 @@ def test_plot_chunk_boundaries_and_colors(tmp_path):
 
 def test_dp_chunk_artifacts_against_actual_starting_revision(tmp_path):
     source=subprocess.check_output(['git','show','437aec5d059b4000cdaf994fc597d6f32047a335:offline_dp_eval.py'],cwd=fixtures.ROOT,text=True)
-    assert source==(fixtures.ROOT/'offline_dp_eval.py').read_text()
+    # Only the explicitly authorized progress wrapper may differ from baseline.
+    current = (fixtures.ROOT/'offline_dp_eval.py').read_text()
+    current = current.replace('    from tqdm.auto import tqdm\n', '')
+    current = current.replace(
+        "enumerate(tqdm(rows, total=len(rows), desc='DP chunk rollout', unit='chunk'))",
+        'enumerate(rows)')
+    assert source == current
     baseline=types.ModuleType('baseline'); exec(compile(source,'<baseline>','exec'),baseline.__dict__)
     results=[]
     for i,module in enumerate((baseline,dp)):
@@ -122,6 +128,7 @@ def test_real_checkpoints_cpu_chunk_rollout():
     source=source[:source.index('    dp_result =')]
     source=source.replace('test_production_checkpoints_cpu','check').replace('multi_sample','chunk_rollout')
     source=source.replace("source[key][:5]", "source[key][:17]")
+    source=source.replace("robot.dry_run_timestep, robot.dry_run_num_candidates, robot.dry_run_seed = 2, 20, 42", "robot.dry_run_timestep, robot.dry_run_num_candidates, robot.dry_run_seed = 2, 20, 42\n    robot.dp_execute_steps = 4")
     source += "    assert result['metadata']['num_candidates'] == 20\n    print('Real chunk artifacts:', result['metadata']['output_dir'])\n"
     ns=dict(old.__dict__); exec(source,ns); ns['check']()
 

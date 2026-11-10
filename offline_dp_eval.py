@@ -522,6 +522,7 @@ def plot_chunk_rollout(predicted_chunks, ground_truth, steps, chunk_steps, valid
 
 def evaluate_chunk_rollout(policy, dataset_path, episode_id, num_candidates, seed,
                            output_dir, metadata):
+    from tqdm.auto import tqdm
     if policy.action_dim != 8 or 'action_cartesian' not in policy.process:
         raise ValueError('Offline evaluation requires an 8D action_cartesian checkpoint')
     horizon = _integer(policy.pred_horizon, 'pred_horizon', 1)
@@ -538,7 +539,7 @@ def evaluate_chunk_rollout(policy, dataset_path, episode_id, num_candidates, see
     predicted = np.full((len(rows), num_candidates, action, 8), np.nan)
     valid = np.zeros((len(rows), action), dtype=bool)
     chunk_steps = np.full((len(rows), action), -1, dtype=np.int64)
-    for i, row in enumerate(rows):
+    for i, row in enumerate(tqdm(rows, total=len(rows), desc='DP chunk rollout', unit='chunk')):
         observation = build_observation_history(data, int(row), obs)
         candidates = sample_candidates(policy, observation, num_candidates, seed + i)
         length = min(action, len(steps) - row)

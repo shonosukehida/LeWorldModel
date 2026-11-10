@@ -234,7 +234,7 @@ def run_offline_gpc_chunk_rollout(cfg, policy, goal_loader, observation_builder)
                     goal_wrist_image_path=str(Path(robot.goal_wrist_image_path).expanduser().resolve()),
                     image_size=cfg.eval.img_size,
                     preprocessing='DP training image transform; WM real-robot transform and process')
-    metadata['dp_execute_steps'] = int(getattr(robot, 'dp_execute_steps', 1))
+    execute_steps = getattr(robot, 'dp_execute_steps', 1)
     metadata['normalization_statistics'] = {
         group: {key: {name: np.asarray(getattr(processor, name)).tolist()
                       for name in ('mean_', 'scale_', 'low', 'span')
@@ -246,7 +246,8 @@ def run_offline_gpc_chunk_rollout(cfg, policy, goal_loader, observation_builder)
         policy, robot.dry_run_dataset_path, int(robot.dry_run_episode_idx),
         getattr(robot, 'dry_run_num_candidates', 20),
         getattr(robot, 'dry_run_seed', 42),
-        Path(robot.output_dir) / 'offline_gpc' / 'chunk_rollout', metadata, observation)
+        Path(robot.output_dir) / 'offline_gpc' / 'chunk_rollout', metadata, observation,
+        dp_execute_steps=execute_steps)
 
 
 def plot_gpc_chunk_rollout(predicted, gt, steps, chunk_steps, valid, selected, output_dir):
@@ -286,7 +287,8 @@ def plot_gpc_chunk_rollout(predicted, gt, steps, chunk_steps, valid, selected, o
 
 @isolated_rng
 def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates, seed,
-                               output_dir, metadata, observation_builder):
+                               output_dir, metadata, observation_builder, dp_execute_steps=1):
+    from tqdm.auto import tqdm
     from offline_dp_eval import (_integer, build_observation_history, sample_candidates,
                                  compute_chunk_rollout_metrics)
     import tempfile
@@ -296,6 +298,9 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
     horizon = _integer(dp.pred_horizon, 'pred_horizon', 1)
     obs = _integer(dp.obs_horizon, 'obs_horizon', 1)
     action = _integer(dp.action_horizon, 'action_horizon', 1)
+    execute_steps = _integer(dp_execute_steps, 'dp_execute_steps', 1)
+    if execute_steps > action:
+        raise ValueError('dp_execute_steps must be <= action_horizon')
     if horizon < obs - 1 + action:
         raise ValueError('pred_horizon must be >= obs_horizon - 1 + action_horizon')
     count = _integer(num_candidates, 'dry_run_num_candidates', 1)
@@ -309,18 +314,18 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
         proprio = np.asarray(f['proprio'][episode_rows], dtype=np.float32)
     if proprio.shape != (len(steps), 8) or not np.isfinite(proprio).all():
         raise ValueError('Expected finite measured proprio (T,8)')
-    rows = np.arange(0, len(steps), action)
+    rows = np.arange(0, len(steps), execute_steps)
     if seed > 2**63 - 1 - (len(rows) - 1):
         raise ValueError('dry_run_seed + chunk_index must be <= 2**63 - 1')
-    predicted = np.full((len(rows), count, action, 8), np.nan)
-    valid = np.zeros((len(rows), action), dtype=bool)
-    chunk_steps = np.full((len(rows), action), -1, dtype=np.int64)
+    predicted = np.full((len(rows), count, execute_steps, 8), np.nan)
+    valid = np.zeros((len(rows), execute_steps), dtype=bool)
+    chunk_steps = np.full((len(rows), execute_steps), -1, dtype=np.int64)
     indices, rewards, intervals = [], [], []
-    for i, row in enumerate(rows):
+    for i, row in enumerate(tqdm(rows, total=len(rows), desc='GPC chunk rollout', unit='chunk')):
         candidates = sample_candidates(dp, build_observation_history(data, int(row), obs), count, seed + i)
         info = observation_builder(data, int(row), proprio[row])
         index, reward, interval = select_candidates(policy, candidates, info)
-        length = min(action, len(steps) - row)
+        length = min(execute_steps, len(steps) - row)
         if interval[1] - interval[0] < length:
             raise ValueError('WM evaluation interval must cover the visualized chunk')
         predicted[i, :, :length] = candidates[:, obs - 1:obs - 1 + length]
@@ -334,13 +339,13 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
     metadata = dict(metadata, policy_type='gpc', dry_run_mode='chunk_rollout',
                     dataset_path=str(Path(dataset_path).expanduser().resolve()), episode_idx=int(episode_id),
                     num_candidates=count, seed=seed, pred_horizon=horizon, obs_horizon=obs,
-                    action_horizon=action, chunk_width=action, representative_index=0,
+                    action_horizon=action, dp_execute_steps=execute_steps, chunk_width=execute_steps, representative_index=0,
                     temporal_order=order, chunk_seed_rule='dry_run_seed + chunk_index (zero based)',
                     chunk_seeds=[seed + i for i in range(len(rows))],
                     wm_evaluation_intervals=[list(v) for v in intervals],
                     wm_interval_convention='prediction indices [start, end); evaluated even beyond episode tail',
-                    visualization_interval=[obs - 1, obs - 1 + action],
-                    execution_note='Offline stride is DP action_horizon for comparison; robot executes dp_execute_steps before replanning',
+                    visualization_interval=[obs - 1, obs - 1 + execute_steps],
+                    execution_note='Offline stride and visualized width are dp_execute_steps; WM evaluates the full GPC action_horizon',
                     invalid_padding='NaN only outside chunk_valid_mask; never evaluated or plotted',
                     alignment='prediction index obs_horizon - 1 + j -> stored step at chunk row + j',
                     action_values='physical actions; sample_candidates denormalize=True exactly once')
