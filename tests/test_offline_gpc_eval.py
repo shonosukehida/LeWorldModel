@@ -15,7 +15,7 @@ import offline_dp_eval as dp_eval
 from offline_gpc_eval import (evaluate_gpc_multi_sample, isolated_rng, plot_gpc,
                               preserve_gpc_offline_rng, select_candidates)
 from stable_worldmodel.policy import GPCPolicy
-from stable_worldmodel.reward import latent_goal_reward
+from stable_worldmodel.reward import latent_goal_reward, LatentGoalReward
 import test_offline_dp_eval as dp_tests
 ROOT = dp_tests.ROOT
 
@@ -229,7 +229,7 @@ def test_run_routes_before_hardware_and_uses_offline_transform():
     loader = Mock(return_value=Mock())
     gpc = Mock(return_value=Mock())
     hardware = Mock(side_effect=AssertionError('hardware initialized'))
-    ns = dict(DictConfig=object, Path=Path,
+    ns = dict(DictConfig=object, Path=Path, OmegaConf=OmegaConf, LatentGoalReward=LatentGoalReward,
         swm=SimpleNamespace(data=SimpleNamespace(utils=SimpleNamespace(get_cache_dir=lambda: '/tmp')),
             policy=SimpleNamespace(AutoCostModel=Mock(return_value=model), GPCPolicy=gpc)),
         img_transform=lambda cfg:'offline_transform', dp_img_transform=lambda cfg:'robot_transform',
@@ -258,7 +258,7 @@ def test_existing_apis_and_robot_implementation_unchanged():
         '351dbd30365a14fe8fe1219752a3db0db9d4257c:eval_real_robot.py'],cwd=ROOT,text=True)
     def definitions(source):
         return {n.name: ast.dump(n,include_attributes=False) for n in ast.parse(source).body
-                if isinstance(n,(ast.ClassDef,ast.FunctionDef)) and n.name != 'run'}
+                if isinstance(n,(ast.ClassDef,ast.FunctionDef)) and n.name not in {'run', 'run_xarm_task'}}  # Post-save hook has dedicated tests.
     assert definitions(before) == definitions((ROOT/'eval_real_robot.py').read_text())
     wm_root = ROOT.parent/'stable-worldmodel'
     previous = subprocess.check_output(['git','show',

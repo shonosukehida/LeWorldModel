@@ -12,6 +12,7 @@ from tqdm.auto import tqdm
 from offline_dp_eval import (_integer, load_episode, build_observation_history,
                              sample_candidates)
 from offline_gpc_eval import isolated_rng, select_candidates
+from stable_worldmodel.reward import latent_goal_reward, latent_reward_metadata
 
 
 def _latent(value, name):
@@ -127,6 +128,8 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
     observed = torch.stack(observed)
     observed_dist = _l2(observed, goal_cpu.expand_as(observed))
     gt_latents, selected_latents, indices, rewards = [], [], [], []
+    candidate_costs = []
+    reward_config = latent_reward_metadata(policy)
     for i, row in enumerate(tqdm(valid_rows, total=len(valid_rows),
                                 desc='Evaluating latent distances', unit='rollout')):
         info = observation(row)
@@ -138,14 +141,18 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
             captured['terminal'] = _terminal(output, count, dimension)
             return output
         recording.rollout = rollout
-        index, reward, interval = select_candidates(recording, candidates, info)
+        diagnostics = {}
+        index, reward, interval = select_candidates(recording, candidates, info, diagnostics)
+        candidate_costs.append(diagnostics)
         if interval != (obs - 1, obs - 1 + horizon):
             raise ValueError('GPC evaluation interval differs from the complete action_horizon')
         terminal = captured['terminal']
-        # The same candidate rollout and unchanged reward must give -L2^2.
-        squared = ((terminal - goal_cpu) ** 2).sum(-1)
-        if not torch.allclose(torch.as_tensor(reward[0]), -squared, rtol=1e-5, atol=1e-5):
-            raise ValueError('latent_dist requires the existing latent_goal_reward = -squared L2')
+        # Validate the configured reward separately from ordinary L2 diagnostics.
+        expected = latent_goal_reward(
+            {'predicted_emb': terminal[None, :, None], 'goal_emb': goal_cpu[None, None]}, {},
+            lambda_prop=reward_config['lambda_prop'], image_dim=reward_config['image_latent_dimension'])
+        if not torch.allclose(torch.as_tensor(reward[0]), expected[0], rtol=1e-5, atol=1e-5):
+            raise ValueError('latent_dist candidate rewards differ from the configured latent_goal_reward')
         selected_latents.append(terminal[index])
         indices.append(index)
         rewards.append(reward[0])
@@ -171,11 +178,14 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
                   candidate_rewards=np.asarray(rewards).reshape(len(valid_rows), count),
                   goal_latent=goal_cpu.numpy(), observed_latents=observed.numpy(),
                   gt_terminal_latents=gt_latents.numpy(), gpc_terminal_latents=selected_latents.numpy())
+    for key in ('image_cost', 'prop_cost', 'weighted_total_cost'):
+        if candidate_costs and key in candidate_costs[0]:
+            values[key] = np.stack([cost[key] for cost in candidate_costs])
+    metadata = dict(metadata, **reward_config)
     metadata = dict(metadata, policy_type='gpc', dry_run_mode='latent_dist', episode_idx=int(episode_id),
                     dataset_path=str(Path(dataset_path).expanduser().resolve()),
                     action_horizon=horizon, dp_execute_steps=execute, dry_run_num_candidates=count,
                     dry_run_seed=seed, latent_dimension=dimension, distance='L2 (not squared)',
-                    reward='unchanged latent_goal_reward = -squared L2; torch.argmax(dim=1)',
                     temporal_order=order, rollout_start_rule='stored episode row 0,S,2S,...; observed evaluated every row',
                     alignment='observation row t, physical action_cartesian[t:t+H], future observation row t+H; DP candidates [obs_horizon-1:obs_horizon-1+H]',
                     temporal_assumption='robot/utils/data_conversion.py calculate_action_cartesian stores target[t+1] as action_cartesian[t] (last target repeated); consume stored actions without an extra shift; external datasets must follow this convention',

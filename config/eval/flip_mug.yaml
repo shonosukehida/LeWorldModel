@@ -40,7 +40,8 @@ seed: 42
 policy: lewm_weights 
 policy_type: gpc #world_model/gpc/diffusion
 gpc:
-  diffusion_checkpoint: /home/shonosukehida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed_41/20261021_135400/latest.ckpt
+  lambda_prop: 1.0 # Direct proprio latent goal cost weight; 0=image-only
+  diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261021_135400/latest.ckpt
   visualization_enabled: true # Record GPC candidates; normalize and plot after rollout
   num_candidates: 20
 
@@ -56,14 +57,16 @@ plan_config:
 eval:
   num_eval: 1 #1
   img_size: 224 
-  dataset_name: flip_mug/ep200_tm300_multiview_demo/push #パス指定もOK #flip_mug/ep200_tm300_multiview_demo/push 
-  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz #${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz
+  dataset_name: flip_mug/ep100_tm300_multiview_play_normal_brightness/push #パス指定もOK #flip_mug/ep200_tm300_multiview_demo/push 
+  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep100_tm300_multiview_play_normal_brightness/process_stats.npz #${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/process_stats.npz
   ac_cost_dataset_name: null
 
   # Real xArm flip-mug rollout. action_cartesian follows the training-data
   # layout: [x, y, z, qx, qy, qz, qw, gripper], where gripper is normalized
   # to 0=open and 1=closed.
   real_robot:
+    latent_visualization:
+      enabled: true # Optional post-save JEPA diagnostics; no work during control
     dp_execute_steps: 8 # DP/GPC actions per inference (also dry_run episode); 1..policy.action_horizon
     admittance: #アドミッタンス制御を使うか
       enabled: true
@@ -74,10 +77,10 @@ eval:
       damping: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # SDK six-axis B array (reserved)
       reference_frame: 0  # 0 = base frame, 1 = tool frame
       compliant_axis: [0, 0, 1, 0, 0, 0]  # [x, y, z, rx, ry, rz], each 0 or 1
-    execute: false
+    execute: true
 
 
-    dry_run: true #ハードは動かさずにソフトだけをテストする
+    dry_run: false #ハードは動かさずにソフトだけをテストする
     dry_run_mode: latent_dist # episode / multi_sample / chunk_rollout; omitted defaults to episode
     dry_run_timestep: 100
     dry_run_num_candidates: 20
