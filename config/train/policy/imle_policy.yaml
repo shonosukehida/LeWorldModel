@@ -26,6 +26,7 @@ encoder:
     activation: Mish
     pool_size: 1
 imle:
+  use_proprio: false # Opt in for new training; absent in old checkpoints means false
   # s3fmp/models/cfg/xarm/imle.yaml: N=128, eps=.01, Gaussian std=1.
   n_samples_per_condition: 128
   epsilon: 0.01

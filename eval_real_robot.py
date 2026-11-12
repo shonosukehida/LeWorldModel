@@ -1815,6 +1815,7 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
     dp_policy = None
     dp_image_history = None
     dp_wrist_image_history = None
+    proprio_history = None
 
     if isinstance(policy, swm.policy.DiffusionPolicy,):
         dp_policy = policy
@@ -1827,6 +1828,8 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
         dp_image_history = deque(maxlen=dp_policy.obs_horizon)
 
         dp_wrist_image_history = deque(maxlen=dp_policy.obs_horizon)
+        if getattr(dp_policy, "type", None) == "imle" and dp_policy.use_proprio:
+            proprio_history = deque(maxlen=dp_policy.obs_horizon)
 
     gpc_recorder = None
     try:
@@ -1937,6 +1940,13 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
                     "pixels": dp_pixels[None],
                     "wrist_pixels": dp_wrist_pixels[None],
                 }
+                if proprio_history is not None:
+                    if not proprio_history:
+                        proprio_history.extend([current_proprio.copy() for _ in range(dp_policy.obs_horizon)])
+                    else:
+                        proprio_history.append(current_proprio.copy())
+                    dp_info['proprio'] = np.stack(proprio_history)[None]
+
                 
                 
             projection_state = {"qpos": qpos, "ee": ee, "gripper": env._last_gripper,}

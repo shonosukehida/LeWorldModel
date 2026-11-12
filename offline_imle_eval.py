@@ -11,6 +11,38 @@ from offline_dp_eval import (
 )
 
 
+def load_proprio_episode(path, episode_id):
+    """Read raw state with exactly the same stored row order as the images."""
+    import h5py
+    from offline_dp_eval import load_episode
+    data, steps, order = load_episode(path, episode_id)
+    with h5py.File(Path(path).expanduser(), 'r') as f:
+        if 'proprio' not in f or len(f['proprio']) != len(f['episode_idx']):
+            raise ValueError('IMLE proprio requires an aligned dataset proprio column')
+        rows = np.flatnonzero(np.asarray(f['episode_idx']).reshape(-1) == episode_id)
+        data['proprio'] = np.asarray(f['proprio'][rows], dtype=np.float32)
+    if data['proprio'].shape != (len(steps), 8) or not np.isfinite(data['proprio']).all():
+        raise ValueError('IMLE proprio requires finite (T,8) values')
+    return data, steps, order
+
+
+def proprio_evaluation_options(policy, path, episode_id, output_dir):
+    if not getattr(policy, 'use_proprio', False):
+        return {}
+    from offline_imle_core import build_observation_history
+    from stable_worldmodel.imle.proprio import normalize_proprio
+    data, steps, _ = load_proprio_episode(path, episode_id)
+    raw = np.concatenate([build_observation_history(
+        data, row, policy.obs_horizon, keys=('proprio',))['proprio']
+        for row in range(len(steps))])
+    root = Path(output_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    np.savez(root / 'proprio_histories.npz', step_idx=steps, raw=raw,
+             normalized=normalize_proprio(raw, policy.proprio_stats).numpy())
+    return dict(episode_loader=load_proprio_episode,
+                history_keys=('pixels', 'wrist_pixels', 'proprio'))
+
+
 def run_offline_imle(cfg, image_transform):
     robot = cfg.eval.real_robot
     policy = load_imle_policy(
@@ -18,24 +50,30 @@ def run_offline_imle(cfg, image_transform):
         image_transform,
         device=cfg.gpc.get("imle_device", "cuda"),
     )
+    import offline_dp_eval as evaluation
+    if policy.use_proprio:
+        import offline_imle_core as evaluation
     metadata = dict(
         policy.offline_checkpoint_metadata,
         image_size=cfg.eval.img_size,
         preprocessing="training get_img_preprocessor (range scaling, ImageNet normalization, resize)",
     )
     root = Path(robot.output_dir) / "offline_imle"
+    options = proprio_evaluation_options(policy, robot.dry_run_dataset_path,
+                                         int(robot.dry_run_episode_idx), root)
     mode = robot.get("dry_run_mode", "episode")
     if mode == "episode":
-        return evaluate_episode(
+        return evaluation.evaluate_episode(
             policy,
             robot.dry_run_dataset_path,
             int(robot.dry_run_episode_idx),
             root,
             metadata,
             dp_execute_steps=robot.get("dp_execute_steps", 1),
+            **options,
         )
     if mode == "multi_sample":
-        return evaluate_multi_sample(
+        return evaluation.evaluate_multi_sample(
             policy,
             robot.dry_run_dataset_path,
             int(robot.dry_run_episode_idx),
@@ -44,9 +82,10 @@ def run_offline_imle(cfg, image_transform):
             robot.dry_run_seed,
             root / "multi_sample",
             metadata,
+            **options,
         )
     if mode == "chunk_rollout":
-        return evaluate_chunk_rollout(
+        return evaluation.evaluate_chunk_rollout(
             policy,
             robot.dry_run_dataset_path,
             int(robot.dry_run_episode_idx),
@@ -54,6 +93,7 @@ def run_offline_imle(cfg, image_transform):
             robot.dry_run_seed,
             root / "chunk_rollout",
             metadata,
+            **options,
         )
     raise ValueError(f"Unknown dry_run_mode: {mode}")
 
@@ -68,7 +108,7 @@ def evaluate_imle_gpc(policy, dataset_path, episode_id, output_dir, execute_step
     """
     import h5py
     import importlib.util
-    from offline_dp_eval import load_episode, build_observation_history
+    from offline_imle_core import load_episode, build_observation_history
 
     spec = importlib.util.spec_from_file_location(
         "imle_gpc_visualization", Path(__file__).parent / "utils/gpc_visualization.py"
@@ -85,6 +125,11 @@ def evaluate_imle_gpc(policy, dataset_path, episode_id, output_dir, execute_step
         raise ValueError("IMLE-GPC requires finite Cartesian proprio (T,8)")
     if not 1 <= execute_steps <= policy.action_horizon:
         raise ValueError("dp_execute_steps must fit the GPC action horizon")
+    history_keys = ('pixels', 'wrist_pixels')
+    if getattr(policy.action_policy, 'use_proprio', False):
+        data['proprio'] = proprio
+        history_keys += ('proprio',)
+        proprio_evaluation_options(policy.action_policy, dataset_path, episode_id, output_dir)
     predicted = []
     recorder = vis.GPCRecorder(policy)
     with recorder:
@@ -99,7 +144,7 @@ def evaluate_imle_gpc(policy, dataset_path, episode_id, output_dir, execute_step
                 goal_proprio=proprio[-1][None, None],
             )
             history = build_observation_history(
-                data, row, policy.action_policy.obs_horizon
+                data, row, policy.action_policy.obs_horizon, history_keys
             )
             recorder.begin_step(int(steps[row]))
             chunk = policy.get_action_chunk(obs, dp_info_dict=history)

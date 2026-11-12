@@ -3,6 +3,7 @@
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+import json
 import hydra
 import numpy as np
 import torch
@@ -15,6 +16,22 @@ from train_policy import DiffusionPolicyDataset
 from utils import get_img_preprocessor
 from action_normalization import fit_action_stats, ActionTransform
 from imle_checkpoint import build_policy, save_checkpoint, modules, parameters
+
+
+class IMLEProprioDataset(DiffusionPolicyDataset):
+    """Same-row image/state history; leave the shared DP dataset unchanged."""
+
+    def __getitem__(self, idx):
+        # Fetch one raw window so stochastic data sources cannot desynchronize views.
+        sample = self.dataset[idx]
+        data = {k: sample[k][:self.obs_horizon] for k in ('pixels', 'wrist_pixels')}
+        data[self.action_key] = sample[self.action_key]
+        data = self.action_transform(self.image_transform(data))
+        proprio = torch.as_tensor(sample['proprio'][:self.obs_horizon]).float()
+        if proprio.shape != (self.obs_horizon, 8) or not torch.isfinite(proprio).all():
+            raise ValueError('IMLE dataset proprio requires finite (obs_horizon,8)')
+        return dict(pixels=data['pixels'], wrist_pixels=data['wrist_pixels'],
+                    proprio=proprio, action=data[self.action_key])
 
 
 def checkpoint_directory(cfg):
@@ -127,12 +144,16 @@ def run(cfg):
         raise RuntimeError(
             "CUDA requested but unavailable; use device=cpu for a CPU run"
         )
+    use_proprio = cfg.imle.get("use_proprio", False)
     dataset_cfg = dict(cfg.data.dataset)
     dataset_cfg.update(
         num_steps=cfg.policy.pred_horizon,
         keys_to_load=["pixels", "wrist_pixels", cfg.policy.action_key],
         keys_to_cache=[cfg.policy.action_key],
     )
+    if use_proprio:
+        dataset_cfg['keys_to_load'].append('proprio')
+        dataset_cfg['keys_to_cache'].append('proprio')
     if dataset_cfg.get("path") is not None:
         path = Path(dataset_cfg["path"]).expanduser()
         if not path.is_absolute():
@@ -155,7 +176,8 @@ def run(cfg):
             for k in ("pixels", "wrist_pixels")
         ]
     )
-    dataset = DiffusionPolicyDataset(
+    dataset_class = IMLEProprioDataset if use_proprio else DiffusionPolicyDataset
+    dataset = dataset_class(
         raw,
         cfg.policy.action_key,
         cfg.policy.obs_horizon,
@@ -180,7 +202,16 @@ def run(cfg):
     )
     train_eval_loader = DataLoader(train, shuffle=False, drop_last=False, **options)
     val_loader = DataLoader(val, shuffle=False, drop_last=False, **options)
-    policy = build_policy(cfg, action_dim)
+    proprio_stats = None
+    if use_proprio:
+        from stable_worldmodel.imle.proprio import fit_proprio_stats
+        # Only selected Train observation windows contribute; validation is untouched.
+        train_proprio = torch.cat([
+            torch.as_tensor(raw[i]['proprio'][:cfg.policy.obs_horizon])
+            for i in train.indices
+        ])
+        proprio_stats = fit_proprio_stats(train_proprio)
+    policy = build_policy(cfg, action_dim, proprio_stats=proprio_stats)
     for module in modules(policy):
         module.to(device)
     optimizer = torch.optim.AdamW(
@@ -192,6 +223,23 @@ def run(cfg):
     ema.to(device)
     output = checkpoint_directory(cfg)
     output.mkdir(parents=True, exist_ok=False)
+    if use_proprio:
+        from stable_worldmodel.imle.proprio import normalize_proprio
+        def distribution(values):
+            x = values.double()
+            return {name: value.tolist() for name, value in dict(
+                min=x.amin(0), max=x.amax(0), mean=x.mean(0),
+                std=x.std(0, correction=0),
+            ).items()}
+        diagnostics = {"layout": proprio_stats["proprio_layout"],
+                       "fit_source": "Train observation windows only; repeated rows retain window weights"}
+        for name, values in (("train", train_proprio), ("validation", torch.cat([
+            torch.as_tensor(raw[i]['proprio'][:cfg.policy.obs_horizon]) for i in val.indices
+        ]))):
+            normalized = normalize_proprio(values, proprio_stats)
+            diagnostics[name] = dict(count=len(values), raw=distribution(values),
+                                     normalized=distribution(normalized))
+        (output / "proprio_diagnostics.json").write_text(json.dumps(diagnostics, indent=2, allow_nan=False) + "\n")
     print("run_dir:", output)
     OmegaConf.save(cfg, output / "config.yaml")
     run_wandb = None

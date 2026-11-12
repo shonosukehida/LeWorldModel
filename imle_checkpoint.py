@@ -64,7 +64,7 @@ def encoder_architecture(cfg):
     )
 
 
-def build_policy(cfg, action_dim=8, process=None, transform=None):
+def build_policy(cfg, action_dim=8, process=None, transform=None, proprio_stats=None):
     if action_dim != 8:
         raise ValueError("IMLE robot adapter requires 8D Cartesian actions")
     architecture = encoder_architecture(cfg)
@@ -98,6 +98,7 @@ def build_policy(cfg, action_dim=8, process=None, transform=None):
         kernel_size=cfg.imle.kernel_size,
         heads=cfg.imle.heads,
         separate_gripper=cfg.imle.separate_gripper,
+        use_proprio=cfg.imle.get("use_proprio", False),
     )
     policy = IMLEPolicy(
         model=model,
@@ -112,6 +113,8 @@ def build_policy(cfg, action_dim=8, process=None, transform=None):
         epsilon=cfg.imle.epsilon,
         epsilon_scale_by_dim=cfg.imle.epsilon_scale_by_dim,
         gripper_loss_weight=cfg.imle.gripper_loss_weight,
+        use_proprio=cfg.imle.get("use_proprio", False),
+        proprio_stats=proprio_stats,
         process=process,
         transform=transform,
     )
@@ -127,6 +130,8 @@ def save_checkpoint(
     architecture = encoder_architecture(cfg)
     if architecture != policy.encoder_architecture:
         raise ValueError("IMLE encoder config disagrees with the constructed policy")
+    if cfg.imle.get("use_proprio", False) != policy.use_proprio:
+        raise ValueError("IMLE use_proprio config disagrees with policy")
     config = OmegaConf.to_container(cfg, resolve=True)
     config["encoder"]["type"] = architecture["type"]
     if architecture["type"] == "convnet":
@@ -154,6 +159,10 @@ def save_checkpoint(
         gripper_convention="0=open,1=closed",
         **{k: v.cpu() if torch.is_tensor(v) else v for k, v in action_stats.items()},
     )
+    state["use_proprio"] = policy.use_proprio
+    if policy.use_proprio:
+        from stable_worldmodel.imle.proprio import validate_proprio_stats
+        state["proprio_stats"] = validate_proprio_stats(policy.proprio_stats)
     if ema is not None:
         state["ema"] = ema.state_dict()
     path = Path(path)
@@ -221,9 +230,12 @@ def load_imle_policy(checkpoint_path, image_transform, device="cuda"):
             raise ValueError(f"IMLE checkpoint {key} disagrees with saved config")
     if state["architecture"] != state["config"]["imle"]:
         raise ValueError("IMLE checkpoint architecture disagrees with saved config")
+    if state.get("use_proprio", False) != cfg.imle.get("use_proprio", False):
+        raise ValueError("IMLE use_proprio disagrees with saved config")
     policy = build_policy(
         cfg,
         state["action_dim"],
+        proprio_stats=state.get("proprio_stats"),
         process={
             "action_cartesian": restore_action_processor(state, state["action_dim"])
         },
@@ -262,5 +274,6 @@ def load_imle_policy(checkpoint_path, image_transform, device="cuda"):
         sampling="one-shot Gaussian noise; s3fmp IMLE",
         uses_ema="ema" in state,
         encoder_architecture=architecture,
+        use_proprio=policy.use_proprio,
     )
     return policy
