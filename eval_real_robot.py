@@ -2003,6 +2003,12 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             # action = action_result[0] if isinstance(action_result, tuple) else action_result 
             if stop_requested:
                 break
+            imle_source = getattr(policy, "action_policy", policy)
+            if getattr(imle_source, "type", None) == "imle":
+                if str(cfg.plan_config.action_space) != "cartesian":
+                    raise ValueError("IMLE requires Cartesian action execution")
+                from imle_runtime import validate_imle_action
+                validate_imle_action(action, env, ee)
             commanded = env.execute(action, str(cfg.plan_config.action_space))
 
             records["pixels"].append(image)
@@ -2640,6 +2646,22 @@ def run(cfg: DictConfig):
             raise ValueError(f"Unknown dry_run_mode: {mode}")
         return
 
+    imle_checkpoint_path = None
+    if (cfg.get("policy_type") == "imle"
+            or (cfg.get("policy_type") == "gpc"
+                and cfg.get("gpc", {}).get("imle_checkpoint") is not None)):
+        from imle_runtime import validate_checkpoint_selection
+        imle_checkpoint_path = validate_checkpoint_selection(cfg)
+        if cfg.eval.real_robot.dry_run:
+            if cfg.get("policy_type") == "imle":
+                from offline_imle_eval import run_offline_imle
+                run_offline_imle(cfg, img_transform(cfg))
+            else:
+                from offline_imle_eval import run_offline_imle_gpc_from_config
+                run_offline_imle_gpc_from_config(
+                    cfg, img_transform(cfg), swm.policy.AutoCostModel)
+            return
+
     # Reject the new diagnostic mode for other policy types before any setup.
     real_robot = getattr(cfg.eval, "real_robot", None)
     if (getattr(real_robot, "dry_run", False)
@@ -2824,6 +2846,23 @@ def run(cfg: DictConfig):
                 device="cuda",
             )
 
+
+        elif policy_type == "imle":
+            from imle_checkpoint import load_imle_policy
+            policy = load_imle_policy(
+                imle_checkpoint_path, img_transform(cfg),
+                cfg.gpc.get("imle_device", "cuda"))
+
+        elif policy_type == "gpc" and imle_checkpoint_path is not None:
+            from imle_checkpoint import load_imle_policy
+            action_policy = load_imle_policy(
+                imle_checkpoint_path, img_transform(cfg),
+                cfg.gpc.get("imle_device", "cuda"))
+            policy = swm.policy.GPCPolicy(
+                action_policy=action_policy, world_model=model,
+                reward_fn=LatentGoalReward(model, cfg.gpc.get("lambda_prop", 1.0)),
+                num_candidates=cfg.gpc.num_candidates,
+                process=process, transform=transform)
 
         elif policy_type == "gpc":
 

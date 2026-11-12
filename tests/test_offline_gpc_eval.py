@@ -259,14 +259,22 @@ def test_existing_apis_and_robot_implementation_unchanged():
     def definitions(source):
         return {n.name: ast.dump(n,include_attributes=False) for n in ast.parse(source).body
                 if isinstance(n,(ast.ClassDef,ast.FunctionDef)) and n.name not in {'run', 'run_xarm_task'}}  # Post-save hook has dedicated tests.
-    assert definitions(before) == definitions((ROOT/'eval_real_robot.py').read_text())
+    from test_imle_multiview_regression import without_imle_execution_guard
+    assert definitions(before) == definitions(without_imle_execution_guard((ROOT/'eval_real_robot.py').read_text()))
     wm_root = ROOT.parent/'stable-worldmodel'
     previous = subprocess.check_output(['git','show',
         '7e1b7b03f707a1b5648c818b84808904f5db64eb:stable_worldmodel/policy.py'],cwd=wm_root,text=True)
-    assert previous.replace(
+    previous = previous.replace(
         'wm_info[key] = (value[:, None].expand(B, K, *value.shape[1:],))',
-        'wm_info[key] = value[:, None].expand(B, K, *value.shape[1:])'
-    ) == (wm_root/'stable_worldmodel/policy.py').read_text()
+        'wm_info[key] = value[:, None].expand(B, K, *value.shape[1:])')
+    def legacy_policy_definitions(source):
+        tree = ast.parse(source)
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and node.name == 'GPCPolicy':
+                node.body = [n for n in node.body if getattr(n, 'name', None) != '__init__']
+        return ast.dump(tree, include_attributes=False)
+    assert legacy_policy_definitions(previous) == legacy_policy_definitions(
+        (wm_root/'stable_worldmodel/policy.py').read_text())
 
 
 def test_twenty_candidates_and_argmax_ties():

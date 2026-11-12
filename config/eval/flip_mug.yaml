@@ -40,6 +40,8 @@ seed: 42
 policy: lewm_weights 
 policy_type: gpc #world_model/gpc/diffusion
 gpc:
+  imle_checkpoint: null # Explicit opt-in; set diffusion_checkpoint to null for IMLE
+  imle_device: cuda
   lambda_prop: 1.0 # Direct proprio latent goal cost weight; 0=image-only
   diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261021_135400/latest.ckpt
   visualization_enabled: true # Record GPC candidates; normalize and plot after rollout
