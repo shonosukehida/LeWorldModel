@@ -139,7 +139,10 @@ def test_eight_step_artifacts_match_prechange_gpc(tmp_path):
         for k in a: np.testing.assert_array_equal(a[k][()],b[k][()])
     for name in ('position','orientation','gripper'):
         assert (outs[0]/f'chunk_rollout_{name}.png').read_bytes()==(outs[1]/f'chunk_rollout_{name}.png').read_bytes()
+    assert results[1]['metadata']['lambda_prop'] == 1.0
+    assert results[1]['metadata']['image_latent_dimension'] is None
     for result in results:
-        for key in ('run_id','output_dir','execution_note','dp_execute_steps'):
+        for key in ('run_id','output_dir','execution_note','dp_execute_steps',
+                    'lambda_prop','image_latent_dimension','reward'):
             result['metadata'].pop(key,None)
     assert results[0]==results[1]

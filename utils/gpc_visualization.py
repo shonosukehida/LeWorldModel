@@ -136,6 +136,16 @@ class GPCRecorder:
                                      rewards=values, best_idx=best,
                                      num_candidates=len(values),
                                      action_horizon=self.pending.shape[1]))
+            # Record decomposition only when the configured reward exposes a verified boundary.
+            if isinstance(getattr(original, "image_dim", None), int):
+                from stable_worldmodel.reward import latent_goal_costs
+                output = args[0] if args else kwargs['rollout_output']
+                image, prop = latent_goal_costs(output, original.image_dim)
+                self.records[-1].update(
+                    image_cost=image.detach().cpu().numpy().copy()[0],
+                    prop_cost=prop.detach().cpu().numpy().copy()[0],
+                    weighted_total_cost=-values,
+                    selected_candidate_index=best, lambda_prop=original.lambda_prop)
             self.pending = None
             elapsed = time.perf_counter() - started
             self.records[-1]["capture_seconds"] = self._sample_seconds + elapsed
@@ -165,7 +175,9 @@ class GPCRecorder:
                        configured_action_horizon=np.array(self.policy.action_horizon),
                        step_idx=np.array([r["step_idx"] for r in self.records], dtype=np.int64),
                        capture_seconds=np.array(self.capture_seconds),
-                       record_count=np.array(len(self.records)))
+                       record_count=np.array(len(self.records)),
+                       lambda_prop=np.array(getattr(self.policy.reward_fn, 'lambda_prop', 1.0)
+                           if isinstance(getattr(self.policy.reward_fn, 'lambda_prop', 1.0), (int, float)) else 1.0))
         # Named arrays support variable K/H without pickle or lost step mapping.
         for index, record in enumerate(self.records):
             physical = record["candidate_actions_physical"]

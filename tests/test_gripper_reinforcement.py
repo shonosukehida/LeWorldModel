@@ -65,6 +65,7 @@ class FakeEnv:
         self._last_actual_gripper = 0.
         self._last_target_qpos = np.zeros(7)
         self._last_safe_qpos = np.zeros(7)
+        self._last_sdk_qpos = np.zeros(7)
         self.close = Mock()
     def get_images(self):
         self.step += 1

@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from offline_dp_eval import evaluate_multi_sample, load_episode
+from stable_worldmodel.reward import latent_reward_metadata, latent_goal_costs
 
 
 def isolated_rng(function):
@@ -39,7 +40,18 @@ def preserve_gpc_offline_rng(function):
     return wrapped
 
 
-def select_candidates(policy, candidates, wm_observation):
+def candidate_costs(reward_fn, output, rewards):
+    """Optional diagnostics, independent of selection and its reduction order."""
+    boundary = getattr(reward_fn, 'image_dim', None)
+    if boundary is None:
+        return {}
+    image, prop = latent_goal_costs(output, boundary)
+    return dict(image_cost=image.detach().cpu().numpy()[0],
+                prop_cost=prop.detach().cpu().numpy()[0],
+                weighted_total_cost=-rewards.detach().cpu().numpy()[0])
+
+
+def select_candidates(policy, candidates, wm_observation, diagnostics=None):
     """Replay physical proposals through the existing GPC API, without sampling.
 
     Copies only the policy containers; models and processors remain shared and
@@ -55,6 +67,8 @@ def select_candidates(policy, candidates, wm_observation):
     def reward(output, info):
         rewards = policy.reward_fn(output, info)
         captured['rewards'] = rewards
+        if diagnostics is not None:
+            diagnostics.update(candidate_costs(policy.reward_fn, output, rewards))
         return rewards
 
     replay.reward_fn = reward
@@ -109,6 +123,7 @@ def plot_gpc(predicted, gt, index, interval, out, episode, timestep):
 def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, seed,
                               output_dir, metadata, observation_builder):
     """Keep DP artifact generation unchanged; add GPC-specific artifacts separately."""
+    metadata = dict(metadata, **latent_reward_metadata(policy))
     data, steps, _ = load_episode(dataset_path, episode)
     rows = np.flatnonzero(steps == timestep)
     if len(rows) != 1:
@@ -136,7 +151,7 @@ def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, se
         def sample_action_sequences(self, *args, **kwargs):
             sampled = dp.sample_action_sequences(*args, **kwargs)
             candidates = sampled[0].detach().cpu().numpy().copy()
-            index, rewards, interval = select_candidates(policy, candidates, wm_info)
+            index, rewards, interval = select_candidates(policy, candidates, wm_info, captured)
             captured.update(index=index, rewards=rewards, interval=interval)
             return sampled
 
@@ -152,6 +167,9 @@ def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, se
         gt = f['ground_truth_actions'][:]
         f['selected_candidate_index'] = index
         f['candidate_rewards'] = rewards
+        for key in ('image_cost', 'prop_cost', 'weighted_total_cost'):
+            if key in captured:
+                f[key] = captured[key]
         f['selected_candidate_actions'] = candidates[index]
         f['wm_evaluation_interval'] = interval
         f.attrs['metadata'] = json.dumps(result['metadata'], allow_nan=False)
@@ -321,10 +339,13 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
     valid = np.zeros((len(rows), execute_steps), dtype=bool)
     chunk_steps = np.full((len(rows), execute_steps), -1, dtype=np.int64)
     indices, rewards, intervals = [], [], []
+    costs = []
     for i, row in enumerate(tqdm(rows, total=len(rows), desc='GPC chunk rollout', unit='chunk')):
         candidates = sample_candidates(dp, build_observation_history(data, int(row), obs), count, seed + i)
         info = observation_builder(data, int(row), proprio[row])
-        index, reward, interval = select_candidates(policy, candidates, info)
+        diagnostics = {}
+        index, reward, interval = select_candidates(policy, candidates, info, diagnostics)
+        costs.append(diagnostics)
         length = min(execute_steps, len(steps) - row)
         if interval[1] - interval[0] < length:
             raise ValueError('WM evaluation interval must cover the visualized chunk')
@@ -336,6 +357,7 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
         intervals.append(interval)
     indices, rewards = np.asarray(indices), np.asarray(rewards)
     selected = predicted[np.arange(len(rows)), indices].copy()
+    metadata = dict(metadata, **latent_reward_metadata(policy))
     metadata = dict(metadata, policy_type='gpc', dry_run_mode='chunk_rollout',
                     dataset_path=str(Path(dataset_path).expanduser().resolve()), episode_idx=int(episode_id),
                     num_candidates=count, seed=seed, pred_horizon=horizon, obs_horizon=obs,
@@ -362,6 +384,9 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
                                selected_candidate_indices=indices, candidate_rewards=rewards,
                                selected_chunks=selected, wm_evaluation_intervals=intervals).items():
             f.create_dataset(key, data=value)
+        for key in ('image_cost', 'prop_cost', 'weighted_total_cost'):
+            if costs and key in costs[0]:
+                f[key] = np.stack([value[key] for value in costs])
         f.attrs['metadata'] = json.dumps(metadata, allow_nan=False)
     (out / 'chunk_rollout_metrics.json').write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')
     plot_gpc_chunk_rollout(predicted, data['action_cartesian'], steps, chunk_steps, valid, indices, out)

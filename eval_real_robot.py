@@ -48,7 +48,7 @@ from stable_worldmodel.diffusion import (
     ConditionalUnet1D,
     create_obs_encoder,
 )
-from stable_worldmodel.reward import latent_goal_reward
+from stable_worldmodel.reward import latent_goal_reward, LatentGoalReward
 
 from collections import deque
 from utils import get_eval_img_preprocessor
@@ -1681,7 +1681,23 @@ def run_xarm_task(cfg, policy, process, results_path):
     try:
         return _run_xarm_task_with_env(cfg, policy, process, results_path, env)
     finally:
-        env.close()
+        try:
+            env.close()
+        finally:
+            # All legacy persistence in _run_xarm_task_with_env has finished.
+            # Keep imports and work absent for legacy/disabled configurations.
+            if (cfg.get("policy_type") == "gpc"
+                    and OmegaConf.select(cfg, "eval.real_robot.execute", default=False) is True
+                    and OmegaConf.select(cfg, "eval.real_robot.dry_run", default=False) is False
+                    and OmegaConf.select(cfg, "eval.real_robot.latent_visualization.enabled", default=False) is True):
+                try:
+                    from real_robot_latent_visualization import run_after_save
+                    run_after_save(cfg, policy, results_path)
+                except Exception as error:
+                    # Includes optional-module import errors; never mask control errors.
+                    import traceback
+                    print(f"[Latent visualization error] {type(error).__name__}: {error}")
+                    traceback.print_exc()
 
 
 def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
@@ -1987,6 +2003,12 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             # action = action_result[0] if isinstance(action_result, tuple) else action_result 
             if stop_requested:
                 break
+            imle_source = getattr(policy, "action_policy", policy)
+            if getattr(imle_source, "type", None) == "imle":
+                if str(cfg.plan_config.action_space) != "cartesian":
+                    raise ValueError("IMLE requires Cartesian action execution")
+                from imle_runtime import validate_imle_action
+                validate_imle_action(action, env, ee)
             commanded = env.execute(action, str(cfg.plan_config.action_space))
 
             records["pixels"].append(image)
@@ -2624,6 +2646,22 @@ def run(cfg: DictConfig):
             raise ValueError(f"Unknown dry_run_mode: {mode}")
         return
 
+    imle_checkpoint_path = None
+    if (cfg.get("policy_type") == "imle"
+            or (cfg.get("policy_type") == "gpc"
+                and cfg.get("gpc", {}).get("imle_checkpoint") is not None)):
+        from imle_runtime import validate_checkpoint_selection
+        imle_checkpoint_path = validate_checkpoint_selection(cfg)
+        if cfg.eval.real_robot.dry_run:
+            if cfg.get("policy_type") == "imle":
+                from offline_imle_eval import run_offline_imle
+                run_offline_imle(cfg, img_transform(cfg))
+            else:
+                from offline_imle_eval import run_offline_imle_gpc_from_config
+                run_offline_imle_gpc_from_config(
+                    cfg, img_transform(cfg), swm.policy.AutoCostModel)
+            return
+
     # Reject the new diagnostic mode for other policy types before any setup.
     real_robot = getattr(cfg.eval, "real_robot", None)
     if (getattr(real_robot, "dry_run", False)
@@ -2750,7 +2788,23 @@ def run(cfg: DictConfig):
 
         model = None
         if policy_type in ("world_model", "gpc"):
-            model = swm.policy.AutoCostModel(cfg.policy) #cfg.policy: flip_mug/ep200_tm300_gripper/lewm
+            model_reference = cfg.policy
+            latent_metadata = None
+            if (cfg.get("policy_type") == "gpc"
+                    and OmegaConf.select(cfg, "eval.real_robot.execute", default=False) is True
+                    and OmegaConf.select(cfg, "eval.real_robot.dry_run", default=False) is False
+                    and OmegaConf.select(cfg, "eval.real_robot.latent_visualization.enabled", default=False) is True):
+                try:
+                    from real_robot_latent_visualization import checkpoint_path, capture_metadata
+                    latent_checkpoint = checkpoint_path(cfg.policy)
+                    # Pin the same resolved file so metadata names the actual loaded WM.
+                    model_reference = str(latent_checkpoint)[:-len("_object.ckpt")]
+                    latent_metadata = capture_metadata(cfg, process, latent_checkpoint)
+                except Exception as error:
+                    import traceback
+                    traceback.print_exc()
+                    latent_metadata = {"error": f"{type(error).__name__}: {error}"}
+            model = swm.policy.AutoCostModel(model_reference) # Same checkpoint loader and model.
 
             if cfg.eval.probing.get("use_random_encoder", False):
                 print("Using a randomly reinitialized encoder")
@@ -2793,6 +2847,23 @@ def run(cfg: DictConfig):
             )
 
 
+        elif policy_type == "imle":
+            from imle_checkpoint import load_imle_policy
+            policy = load_imle_policy(
+                imle_checkpoint_path, img_transform(cfg),
+                cfg.gpc.get("imle_device", "cuda"))
+
+        elif policy_type == "gpc" and imle_checkpoint_path is not None:
+            from imle_checkpoint import load_imle_policy
+            action_policy = load_imle_policy(
+                imle_checkpoint_path, img_transform(cfg),
+                cfg.gpc.get("imle_device", "cuda"))
+            policy = swm.policy.GPCPolicy(
+                action_policy=action_policy, world_model=model,
+                reward_fn=LatentGoalReward(model, cfg.gpc.get("lambda_prop", 1.0)),
+                num_candidates=cfg.gpc.num_candidates,
+                process=process, transform=transform)
+
         elif policy_type == "gpc":
 
             offline_multi_sample = (
@@ -2817,12 +2888,15 @@ def run(cfg: DictConfig):
             policy = swm.policy.GPCPolicy(
                 diffusion_policy=diffusion_policy,
                 world_model=model,
-                reward_fn=latent_goal_reward,
+                reward_fn=LatentGoalReward(model, cfg.gpc.get("lambda_prop", 1.0)),
                 num_candidates=(getattr(cfg.eval.real_robot, "dry_run_num_candidates", 20)
                                 if offline_gpc else cfg.gpc.num_candidates),
                 process=process,
                 transform=transform,
             )
+
+            if latent_metadata is not None:
+                policy._latent_visualization_metadata = latent_metadata
 
             if offline_latent_dist:
                 from offline_latent_dist_eval import run_offline_latent_dist
