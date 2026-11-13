@@ -3,6 +3,7 @@
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 import json
 import hydra
 import numpy as np
@@ -16,6 +17,25 @@ from train_policy import DiffusionPolicyDataset
 from utils import get_img_preprocessor
 from action_normalization import fit_action_stats, ActionTransform
 from imle_checkpoint import build_policy, save_checkpoint, modules, parameters
+
+
+def collect_proprio_windows(raw, indices, obs_horizon):
+    """Match raw[i]['proprio'][:obs_horizon] without loading other columns.
+
+    Keep split order and repeated rows exactly as in the original torch.cat.
+    The trainer constructs raw with transform=None. Dataset clip indices already
+    encode episode boundaries; offsets and frameskip map them to stored rows.
+    """
+    proprio = raw.get_col_data("proprio")
+    clips = np.asarray(raw.clip_indices)[np.asarray(indices, dtype=np.int64)]
+    starts = np.asarray(raw.offsets)[clips[:, 0]] + clips[:, 1]
+    steps = np.arange(raw.num_steps)[:obs_horizon] * raw.frameskip
+    rows = starts[:, None] + steps[None, :]
+    return torch.from_numpy(proprio[rows.reshape(-1)])
+
+
+def log_preprocessing_time(stage, started):
+    print(f"[IMLE preprocessing] {stage}: {perf_counter() - started:.6f}s", flush=True)
 
 
 class IMLEProprioDataset(DiffusionPolicyDataset):
@@ -165,11 +185,20 @@ def run(cfg):
         dataset_cfg["path"] = str(path)
     else:
         dataset_cfg.pop("path", None)
+    if use_proprio:
+        preprocessing_started = stage_started = perf_counter()
+        print("[IMLE preprocessing] starting dataset initialization", flush=True)
     raw = swm.data.HDF5Dataset(**dataset_cfg, transform=None)
+    if use_proprio:
+        log_preprocessing_time("dataset initialization/cache", stage_started)
+        stage_started = perf_counter()
     action_dim = raw.get_dim(cfg.policy.action_key)
     stats = fit_action_stats(
         raw, cfg.policy.action_key, cfg.policy.action_normalization
     )
+    if use_proprio:
+        log_preprocessing_time("action statistics", stage_started)
+        stage_started = perf_counter()
     images = spt.data.transforms.Compose(
         *[
             get_img_preprocessor(source=k, target=k, img_size=cfg.img_size)
@@ -202,15 +231,17 @@ def run(cfg):
     )
     train_eval_loader = DataLoader(train, shuffle=False, drop_last=False, **options)
     val_loader = DataLoader(val, shuffle=False, drop_last=False, **options)
+    if use_proprio:
+        log_preprocessing_time("transforms/split/loaders", stage_started)
+        stage_started = perf_counter()
     proprio_stats = None
     if use_proprio:
         from stable_worldmodel.imle.proprio import fit_proprio_stats
         # Only selected Train observation windows contribute; validation is untouched.
-        train_proprio = torch.cat([
-            torch.as_tensor(raw[i]['proprio'][:cfg.policy.obs_horizon])
-            for i in train.indices
-        ])
+        train_proprio = collect_proprio_windows(raw, train.indices, cfg.policy.obs_horizon)
         proprio_stats = fit_proprio_stats(train_proprio)
+        log_preprocessing_time("Train proprio collection/statistics", stage_started)
+        stage_started = perf_counter()
     policy = build_policy(cfg, action_dim, proprio_stats=proprio_stats)
     for module in modules(policy):
         module.to(device)
@@ -221,6 +252,9 @@ def run(cfg):
         parameters(policy), decay=cfg.imle.ema_decay, use_num_updates=True
     )
     ema.to(device)
+    if use_proprio:
+        log_preprocessing_time("policy/device/optimizer/EMA", stage_started)
+        stage_started = perf_counter()
     output = checkpoint_directory(cfg)
     output.mkdir(parents=True, exist_ok=False)
     if use_proprio:
@@ -233,13 +267,15 @@ def run(cfg):
             ).items()}
         diagnostics = {"layout": proprio_stats["proprio_layout"],
                        "fit_source": "Train observation windows only; repeated rows retain window weights"}
-        for name, values in (("train", train_proprio), ("validation", torch.cat([
-            torch.as_tensor(raw[i]['proprio'][:cfg.policy.obs_horizon]) for i in val.indices
-        ]))):
+        for name, values in (("train", train_proprio), ("validation", collect_proprio_windows(
+            raw, val.indices, cfg.policy.obs_horizon
+        ))):
             normalized = normalize_proprio(values, proprio_stats)
             diagnostics[name] = dict(count=len(values), raw=distribution(values),
                                      normalized=distribution(normalized))
         (output / "proprio_diagnostics.json").write_text(json.dumps(diagnostics, indent=2, allow_nan=False) + "\n")
+        log_preprocessing_time("proprio diagnostics/output directory", stage_started)
+        stage_started = perf_counter()
     print("run_dir:", output)
     OmegaConf.save(cfg, output / "config.yaml")
     run_wandb = None
@@ -255,6 +291,9 @@ def run(cfg):
         )
     step_logger = StepLogger(run_wandb)
     best, stale = float("inf"), 0
+    if use_proprio:
+        log_preprocessing_time("config/logging setup", stage_started)
+        log_preprocessing_time("total before first epoch", preprocessing_started)
     try:
         for epoch in range(cfg.trainer.max_epochs):
             train_loss, train_logs = run_epoch(
