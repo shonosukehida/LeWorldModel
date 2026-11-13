@@ -87,7 +87,8 @@ def test_dp_chunk_artifacts_against_actual_starting_revision(tmp_path):
     current = current.replace(
         "enumerate(tqdm(rows, total=len(rows), desc='DP chunk rollout', unit='chunk'))",
         'enumerate(rows)')
-    assert source == current
+    from test_offline_dp_eval import without_jepa_offline_extensions
+    assert source == without_jepa_offline_extensions(current)
     baseline=types.ModuleType('baseline'); exec(compile(source,'<baseline>','exec'),baseline.__dict__)
     results=[]
     for i,module in enumerate((baseline,dp)):

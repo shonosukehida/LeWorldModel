@@ -124,7 +124,8 @@ def test_diffusion_exact_prechange_artifacts_and_png():
     current = current.replace(
         "enumerate(tqdm(rows, total=len(rows), desc='DP chunk rollout', unit='chunk'))",
         'enumerate(rows)')
-    assert source == current
+    from test_offline_dp_eval import without_jepa_offline_extensions
+    assert source == without_jepa_offline_extensions(current)
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp)/'data.h5'
         dp_tests.OfflineTests().dataset(path)
@@ -255,15 +256,24 @@ def test_run_routes_before_hardware_and_uses_offline_transform():
 def test_existing_apis_and_robot_implementation_unchanged():
     import ast
     before = subprocess.check_output(['git','show',
-        '351dbd30365a14fe8fe1219752a3db0db9d4257c:eval_real_robot.py'],cwd=ROOT,text=True)
+        '5beec045e9d17f0511f7b64c187a07148422b4a4:eval_real_robot.py'],cwd=ROOT,text=True)
     def definitions(source):
+        tree = ast.parse(source)
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name == 'load_diffusion_policy':
+                # JEPA-only dispatch is independently covered by test_jepa_dp.
+                node.body = [n for n in node.body if not (isinstance(n, ast.If)
+                    and ast.unparse(n.test) == "checkpoint.get('encoder_type') == 'jepa'")]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If) and ast.unparse(node.test) == "getattr(dp_policy, 'use_proprio', False)":
+                node.test = ast.parse('getattr(dp_policy, "type", None) == "imle" and dp_policy.use_proprio', mode='eval').body
+        source = ast.unparse(tree)
         return {n.name: ast.dump(n,include_attributes=False) for n in ast.parse(source).body
                 if isinstance(n,(ast.ClassDef,ast.FunctionDef)) and n.name not in {'run', 'run_xarm_task'}}  # Post-save hook has dedicated tests.
-    from test_imle_multiview_regression import without_imle_execution_guard
-    assert definitions(before) == definitions(without_imle_execution_guard((ROOT/'eval_real_robot.py').read_text()))
+    assert definitions(before) == definitions((ROOT/'eval_real_robot.py').read_text())
     wm_root = ROOT.parent/'stable-worldmodel'
     previous = subprocess.check_output(['git','show',
-        '7e1b7b03f707a1b5648c818b84808904f5db64eb:stable_worldmodel/policy.py'],cwd=wm_root,text=True)
+        'c393f481a4430e75f06aa42bb5ae13f9150fbb37:stable_worldmodel/policy.py'],cwd=wm_root,text=True)
     previous = previous.replace(
         'wm_info[key] = (value[:, None].expand(B, K, *value.shape[1:],))',
         'wm_info[key] = value[:, None].expand(B, K, *value.shape[1:])')
@@ -272,6 +282,16 @@ def test_existing_apis_and_robot_implementation_unchanged():
         for node in tree.body:
             if isinstance(node, ast.ClassDef) and node.name == 'GPCPolicy':
                 node.body = [n for n in node.body if getattr(n, 'name', None) != '__init__']
+        class ExpandObservationHook(ast.NodeTransformer):
+            def visit_Call(self, node):
+                if isinstance(node.func, ast.Attribute) and node.func.attr == '_encode_observation_info':
+                    info = ast.unparse(node.args[0])
+                    return ast.parse(f'self._encode_observation(pixels={info}["pixels"], wrist_pixels={info}.get("wrist_pixels", None))', mode='eval').body
+                return self.generic_visit(node)
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and node.name == 'DiffusionPolicy':
+                node.body = [n for n in node.body if getattr(n, 'name', None) != '_encode_observation_info']
+        tree = ExpandObservationHook().visit(tree)
         return ast.dump(tree, include_attributes=False)
     assert legacy_policy_definitions(previous) == legacy_policy_definitions(
         (wm_root/'stable_worldmodel/policy.py').read_text())

@@ -1,0 +1,11 @@
+defaults:
+  - diffusion_policy
+  - _self_
+
+output_model_name: jepa_diffusion_policy
+encoder:
+  type: jepa
+  # Explicit paths to the three artifacts from the SAME JEPA training run.
+  checkpoint: null # *_object.ckpt, not a Lightning state_dict
+  world_config: null # the JEPA run's config.yaml
+  process_stats: null # process_stats.npz from the JEPA pretraining dataset

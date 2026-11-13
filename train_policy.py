@@ -36,7 +36,9 @@ class DiffusionPolicyDataset(Dataset):
         obs_horizon,
         image_transform,
         action_transform,
+        use_proprio=False,
     ):
+        self.use_proprio = use_proprio
         self.dataset = dataset
         self.action_key = action_key
         self.obs_horizon = obs_horizon
@@ -68,11 +70,14 @@ class DiffusionPolicyDataset(Dataset):
         data = self.image_transform(data)
         data = self.action_transform(data)
 
-        return {
+        result = {
             "pixels": data["pixels"],
             "wrist_pixels": data["wrist_pixels"],
             "action": data[self.action_key],
         }
+        if self.use_proprio:
+            result["proprio"] = sample["proprio"][:self.obs_horizon].float()
+        return result
 
 
 
@@ -203,6 +208,9 @@ def save_checkpoint(
     checkpoint.pop("action_mean")
     checkpoint.pop("action_std")
     checkpoint.update({k: v.cpu() if torch.is_tensor(v) else v for k, v in action_stats.items()})
+    if encoder_type == "jepa":
+        from jepa_dp import checkpoint_artifact
+        checkpoint.update(checkpoint_artifact(policy))
     torch.save(checkpoint, path,)
 
 
@@ -329,6 +337,13 @@ def evaluate(
 )
 def run(cfg):
     print("cfg:", cfg)
+    use_jepa = cfg.get("encoder", {}).get("type") == "jepa"
+    if use_jepa:
+        from jepa_dp import load_pretrained_encoder
+        from stable_worldmodel.diffusion.jepa import EmptyWristEncoder, JEPADiffusionPolicy
+        jepa_encoder, jepa_source = load_pretrained_encoder(dict(cfg.encoder))
+        # World-model preprocessing has priority over the DP image-size setting.
+        cfg.img_size = jepa_encoder.image_size
 
     # --------------------------------------------------------
     # Seed
@@ -367,6 +382,9 @@ def run(cfg):
         "wrist_pixels",
         cfg.policy.action_key,
     ]
+
+    if use_jepa:
+        dataset_cfg["keys_to_load"].append("proprio")
 
     dataset_cfg["keys_to_cache"] = [
         cfg.policy.action_key,
@@ -465,6 +483,7 @@ def run(cfg):
         obs_horizon=cfg.policy.obs_horizon,
         image_transform=image_transform,
         action_transform=action_transform,
+        use_proprio=use_jepa,
     )
 
     raw_sample = dataset[0]
@@ -536,8 +555,11 @@ def run(cfg):
     # --------------------------------------------------------
 
     encoder_type, encoder_config = resolve_obs_encoder_config(cfg.get("encoder", {}))
-    obs_encoder = create_obs_encoder(encoder_type, encoder_config)
-    wrist_obs_encoder = create_obs_encoder(encoder_type, encoder_config)
+    if use_jepa:
+        obs_encoder, wrist_obs_encoder = jepa_encoder, EmptyWristEncoder()
+    else:
+        obs_encoder = create_obs_encoder(encoder_type, encoder_config)
+        wrist_obs_encoder = create_obs_encoder(encoder_type, encoder_config)
     print(f"Observation encoder: {encoder_type}, config={encoder_config}")
     print(obs_encoder)
     print(f"Parameters per view: {sum(p.numel() for p in obs_encoder.parameters()):,}; "
@@ -548,7 +570,7 @@ def run(cfg):
         wrist_obs_encoder.output_shape()[0]
     )
 
-    if wrist_obs_feature_dim != obs_feature_dim:
+    if not use_jepa and wrist_obs_feature_dim != obs_feature_dim:
         raise ValueError(
             "Overhead and wrist feature dimensions differ: "
             f"{obs_feature_dim} vs "
@@ -619,7 +641,8 @@ def run(cfg):
     # Diffusion Policy
     # --------------------------------------------------------
 
-    policy = DiffusionPolicy(
+    policy_class = JEPADiffusionPolicy if use_jepa else DiffusionPolicy
+    policy = policy_class(
         model=model,
         obs_encoder=obs_encoder,
         wrist_obs_encoder=wrist_obs_encoder,
@@ -638,6 +661,9 @@ def run(cfg):
         transform=None,
     )
 
+    if use_jepa:
+        policy.jepa_source = jepa_source
+
     policy.model.to(device)
     policy.obs_encoder.to(device)
     policy.wrist_obs_encoder.to(device)
@@ -653,6 +679,9 @@ def run(cfg):
             policy.wrist_obs_encoder.parameters(),
         )
     )
+
+    if use_jepa:
+        parameters = [p for p in parameters if p.requires_grad]
 
     optimizer = torch.optim.AdamW(
         parameters,
