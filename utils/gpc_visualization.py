@@ -21,7 +21,8 @@ def evaluation_ranks(rewards):
     return ranks
 
 
-def plot_candidates(actions, rewards, best_idx, step_idx, save_path=None):
+def plot_candidates(actions, rewards, best_idx, step_idx, save_path=None,
+                    selected_candidate_index=None):
     import matplotlib.pyplot as plt
     from matplotlib.colors import ListedColormap, Normalize
     from matplotlib.cm import ScalarMappable
@@ -29,17 +30,19 @@ def plot_candidates(actions, rewards, best_idx, step_idx, save_path=None):
     ranks = evaluation_ranks(rewards)
     k, horizon, dim = actions.shape
     if dim != 8 or ranks[best_idx] != 1:
-        raise ValueError("Expected 8D Cartesian candidates and argmax selection")
+        raise ValueError("Expected 8D Cartesian candidates and best_idx equal to argmax")
+    selected = best_idx if selected_candidate_index is None else selected_candidate_index
     cmap = ListedColormap(plt.get_cmap("Greys")(np.linspace(.95, .25, 256)))
     norm = Normalize(vmin=1, vmax=max(k, 2))
     fig, axes = plt.subplots(3, 1, sharex=True, figsize=(10, 9), layout="constrained")
     for axis_idx, ax in enumerate(axes):
         for candidate_idx in range(k):
-            if candidate_idx != best_idx:
+            if candidate_idx != selected:
                 ax.plot(np.arange(horizon), actions[candidate_idx, :, axis_idx],
                         color=cmap(norm(ranks[candidate_idx])), linewidth=1)
-        ax.plot(np.arange(horizon), actions[best_idx, :, axis_idx],
-                color="#8B0000", linewidth=2.8, label="WM selected target sequence")
+        ax.plot(np.arange(horizon), actions[selected, :, axis_idx],
+                color="#8B0000", linewidth=2.8, label=("WM selected target sequence" if selected == best_idx
+                       else "Executed target sequence (candidate 0)"))
         ax.set_ylabel(f"{'XYZ'[axis_idx]} (normalized)")
         ax.set_ylim(-1, 1)
         ax.set_yticks([-1.0, -0.5, 0.0, 0.5, 1.0])
@@ -51,8 +54,10 @@ def plot_candidates(actions, rewards, best_idx, step_idx, save_path=None):
         cb.ax.invert_yaxis()
     axes[0].legend()
     axes[-1].set_xlabel("Prediction time (step)")
-    fig.suptitle(f"Step {step_idx} | num_candidates={k} | selected index={best_idx} (Rank 1)\n"
-                 "DP-normalized target actions; not measured robot trajectories")
+    title = f"Step {step_idx} | num_candidates={k} | selected index={selected} (Rank {ranks[selected]})"
+    if selected != best_idx:
+        title += f" | WM best index={best_idx}"
+    fig.suptitle(title + "\nDP-normalized target actions; not measured robot trajectories")
     if save_path is not None:
         try:
             fig.savefig(save_path, dpi=150)
@@ -134,6 +139,7 @@ class GPCRecorder:
             self.records.append(dict(step_idx=self.step_idx,
                                      candidate_actions_physical=self.pending,
                                      rewards=values, best_idx=best,
+                                     selected_candidate_index=(0 if self.policy.execute_first_candidate else best),
                                      num_candidates=len(values),
                                      action_horizon=self.pending.shape[1]))
             # Record decomposition only when the configured reward exposes a verified boundary.
@@ -154,7 +160,7 @@ class GPCRecorder:
                     prop_cost=prop.detach().cpu().numpy().copy()[0],
                     weighted_total_cost=-values)
                 self.records[-1].update(
-                    selected_candidate_index=best, lambda_prop=original.lambda_prop,
+                    lambda_prop=original.lambda_prop,
                     lambda_overhead=getattr(original, 'lambda_overhead', 1.0),
                     lambda_wrist=getattr(original, 'lambda_wrist', 1.0))
             self.pending = None
@@ -184,6 +190,7 @@ class GPCRecorder:
         payload = dict(normalization_space=np.array("DP training normalization"),
                        action_key=np.array(self.action_key),
                        configured_action_horizon=np.array(self.policy.action_horizon),
+                       execute_first_candidate=np.array(self.policy.execute_first_candidate),
                        step_idx=np.array([r["step_idx"] for r in self.records], dtype=np.int64),
                        capture_seconds=np.array(self.capture_seconds),
                        record_count=np.array(len(self.records)),
@@ -205,7 +212,8 @@ class GPCRecorder:
         for record in self.records:
             plot_candidates(record["candidate_actions"], record["rewards"],
                             record["best_idx"], record["step_idx"],
-                            root / "gpc_actions" / f"step_{record['step_idx']:04d}.png")
+                            root / "gpc_actions" / f"step_{record['step_idx']:04d}.png",
+                            selected_candidate_index=record["selected_candidate_index"])
         return root
 
 
@@ -222,7 +230,9 @@ def render_archive(archive_path, output_dir=None):
             step = int(data[prefix + "step_idx"])
             plot_candidates(data[prefix + "candidate_actions"], data[prefix + "rewards"],
                             int(data[prefix + "best_idx"]), step,
-                            output_dir / f"step_{step:04d}.png")
+                            output_dir / f"step_{step:04d}.png",
+                            selected_candidate_index=(int(data[prefix + "selected_candidate_index"])
+                                if prefix + "selected_candidate_index" in data else None))
 
 
 if __name__ == "__main__":

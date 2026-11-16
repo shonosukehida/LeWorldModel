@@ -40,6 +40,7 @@ seed: 42
 policy: lewm_weights 
 policy_type: gpc #world_model/gpc/diffusion
 gpc:
+  execute_first_candidate: false # Evaluate all candidates, then execute DP candidate 0 when true
   imle_checkpoint: null # Explicit opt-in; set diffusion_checkpoint to null for IMLE
   # IMLE input layout and proprio statistics come exclusively from its checkpoint.
   imle_device: cuda

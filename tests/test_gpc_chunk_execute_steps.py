@@ -135,7 +135,8 @@ def test_eight_step_artifacts_match_prechange_gpc(tmp_path):
             lambda *args:old.observation(),**kwargs))
     outs=[Path(r['metadata']['output_dir']) for r in results]
     with h5py.File(outs[0]/'chunk_rollout.h5') as a,h5py.File(outs[1]/'chunk_rollout.h5') as b:
-        assert set(a)==set(b)
+        assert set(b) == set(a) | {'best_idx'}
+        np.testing.assert_array_equal(b['best_idx'], b['selected_candidate_indices'])
         for k in a: np.testing.assert_array_equal(a[k][()],b[k][()])
     for name in ('position','orientation','gripper'):
         assert (outs[0]/f'chunk_rollout_{name}.png').read_bytes()==(outs[1]/f'chunk_rollout_{name}.png').read_bytes()
@@ -145,6 +146,8 @@ def test_eight_step_artifacts_match_prechange_gpc(tmp_path):
     assert results[1]['metadata']['lambda_wrist'] == 1.0
     for key in ('overhead_latent_dimension', 'wrist_latent_dimension', 'proprio_latent_dimension'):
         assert results[1]['metadata'][key] is None
+    assert results[1].pop('best_idx') == results[1]['selected_candidate_indices']
+    assert results[1]['metadata'].pop('execute_first_candidate') is False
     for result in results:
         for key in ('run_id','output_dir','execution_note','dp_execute_steps',
                     'lambda_prop','lambda_overhead','lambda_wrist','image_latent_dimension',

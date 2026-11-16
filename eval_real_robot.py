@@ -2869,6 +2869,7 @@ def run(cfg: DictConfig):
                 imle_checkpoint_path, img_transform(cfg),
                 cfg.gpc.get("imle_device", "cuda"))
             policy = swm.policy.GPCPolicy(
+                execute_first_candidate=cfg.gpc.get("execute_first_candidate", False),
                 action_policy=action_policy, world_model=model,
                 reward_fn=LatentGoalReward(
                     model, cfg.gpc.get("lambda_prop", 1.0),
@@ -2899,6 +2900,7 @@ def run(cfg: DictConfig):
             )
 
             policy = swm.policy.GPCPolicy(
+                execute_first_candidate=cfg.gpc.get("execute_first_candidate", False),
                 diffusion_policy=diffusion_policy,
                 world_model=model,
                 reward_fn=LatentGoalReward(

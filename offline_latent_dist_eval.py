@@ -176,6 +176,7 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
                   gt_distance_delta=gt_dist - observed_dist[valid_rows],
                   gpc_distance_delta=gpc_dist - observed_dist[valid_rows],
                   wm_prediction_error=_l2(gt_latents, observed[valid_rows + horizon]),
+                  best_idx=np.asarray([cost["best_idx"] for cost in candidate_costs], dtype=np.int64),
                   selected_candidate_indices=np.asarray(indices, dtype=np.int64),
                   candidate_rewards=np.asarray(rewards).reshape(len(valid_rows), count),
                   goal_latent=goal_cpu.numpy(), observed_latents=observed.numpy(),
@@ -184,7 +185,8 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
         if candidate_costs and key in candidate_costs[0]:
             values[key] = np.stack([cost[key] for cost in candidate_costs])
     metadata = dict(metadata, **reward_config)
-    metadata = dict(metadata, policy_type='gpc', dry_run_mode='latent_dist', episode_idx=int(episode_id),
+    metadata = dict(metadata, execute_first_candidate=policy.execute_first_candidate,
+                    policy_type='gpc', dry_run_mode='latent_dist', episode_idx=int(episode_id),
                     dataset_path=str(Path(dataset_path).expanduser().resolve()),
                     action_horizon=horizon, dp_execute_steps=execute, dry_run_num_candidates=count,
                     dry_run_seed=seed, latent_dimension=dimension, distance='L2 (not squared)',

@@ -179,6 +179,7 @@ def run_offline_imle_gpc(cfg, image_transform, world_model_loader, process, tran
     world_model.interpolate_pos_encoding = True
     action_policy = load_imle_policy(cfg.gpc.imle_checkpoint, image_transform, device)
     policy = GPCPolicy(
+        execute_first_candidate=cfg.gpc.get("execute_first_candidate", False),
         action_policy=action_policy,
         world_model=world_model,
         reward_fn=LatentGoalReward(

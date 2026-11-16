@@ -86,7 +86,10 @@ def select_candidates(policy, candidates, wm_observation, diagnostics=None):
     rewards = captured['rewards'].detach().clone()
     if rewards.shape != (1, len(candidates)) or not torch.isfinite(rewards).all():
         raise ValueError('Expected finite candidate rewards (1,K)')
-    index = int(torch.argmax(rewards, dim=1).item())
+    best_idx = int(torch.argmax(rewards, dim=1).item())
+    index = int(replay.selected_candidate_index.item())
+    if diagnostics is not None:
+        diagnostics.update(best_idx=best_idx, selected_candidate_index=index)
     start = policy.diffusion_policy.obs_horizon - 1
     end = min(start + policy.action_horizon, candidates.shape[1])
     if not np.array_equal(chunk[0], candidates[index, start:end]):
@@ -132,7 +135,8 @@ def plot_gpc(predicted, gt, index, interval, out, episode, timestep):
 def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, seed,
                               output_dir, metadata, observation_builder):
     """Keep DP artifact generation unchanged; add GPC-specific artifacts separately."""
-    metadata = dict(metadata, **latent_reward_metadata(policy))
+    metadata = dict(metadata, **latent_reward_metadata(policy),
+                    execute_first_candidate=policy.execute_first_candidate)
     data, steps, _ = load_episode(dataset_path, episode)
     rows = np.flatnonzero(steps == timestep)
     if len(rows) != 1:
@@ -168,12 +172,13 @@ def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, se
                                    count, seed, output_dir, metadata)
     out = Path(result['metadata']['output_dir'])
     index, rewards, interval = captured['index'], captured['rewards'], captured['interval']
-    result.update(selected_candidate_index=index, candidate_rewards=rewards.tolist())
+    result.update(best_idx=captured['best_idx'], selected_candidate_index=index, candidate_rewards=rewards.tolist())
     result['metadata'].update(wm_evaluation_interval=list(interval),
                               wm_interval_convention='prediction indices [start, end); full candidate plotted')
     with h5py.File(out / 'multi_sample_rollout.h5', 'a') as f:
         candidates = f['predicted_actions'][:]
         gt = f['ground_truth_actions'][:]
+        f['best_idx'] = captured['best_idx']
         f['selected_candidate_index'] = index
         f['candidate_rewards'] = rewards
         for key in ('image_cost', 'overhead_cost', 'wrist_cost', 'prop_cost', 'weighted_total_cost'):
@@ -366,7 +371,8 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
         intervals.append(interval)
     indices, rewards = np.asarray(indices), np.asarray(rewards)
     selected = predicted[np.arange(len(rows)), indices].copy()
-    metadata = dict(metadata, **latent_reward_metadata(policy))
+    metadata = dict(metadata, **latent_reward_metadata(policy),
+                    execute_first_candidate=policy.execute_first_candidate)
     metadata = dict(metadata, policy_type='gpc', dry_run_mode='chunk_rollout',
                     dataset_path=str(Path(dataset_path).expanduser().resolve()), episode_idx=int(episode_id),
                     num_candidates=count, seed=seed, pred_horizon=horizon, obs_horizon=obs,
@@ -385,11 +391,13 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
     out = Path(tempfile.mkdtemp(prefix=f'episode_{episode_id}_', dir=parent))
     metadata.update(run_id=out.name, output_dir=str(out.resolve()))
     result = dict(compute_chunk_rollout_metrics(predicted, valid, 0), metadata=metadata,
+                  best_idx=rewards.argmax(axis=1).tolist(),
                   selected_candidate_indices=indices.tolist(), candidate_rewards=rewards.tolist())
     with h5py.File(out / 'chunk_rollout.h5', 'w') as f:
         for key, value in dict(predicted_chunks=predicted, ground_truth_actions=data['action_cartesian'],
                                step_idx=steps, chunk_start_steps=steps[rows], chunk_step_idx=chunk_steps,
                                chunk_valid_mask=valid, representative_index=0,
+                               best_idx=rewards.argmax(axis=1),
                                selected_candidate_indices=indices, candidate_rewards=rewards,
                                selected_chunks=selected, wm_evaluation_intervals=intervals).items():
             f.create_dataset(key, data=value)

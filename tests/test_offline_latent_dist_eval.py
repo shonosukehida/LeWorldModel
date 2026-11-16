@@ -263,7 +263,9 @@ def test_existing_evaluators_and_robot_methods_unchanged():
     for name in before:
         if name not in {'preserve_gpc_offline_rng', 'select_candidates', 'evaluate_gpc_multi_sample',
                         'evaluate_gpc_chunk_rollout'}: assert before[name]==after[name]
-    from test_imle_multiview_regression import without_imle_execution_guard
-    before=definitions(previous('eval_real_robot.py')); after=definitions(without_imle_execution_guard((root/'eval_real_robot.py').read_text()))
+    # Compare robot safety/control against the revision before this experiment.
+    robot_before = subprocess.check_output(['git', 'show',
+        '3f7a6325ee7e46951c71ca186c6f242e19ac1326:eval_real_robot.py'], cwd=root, text=True)
+    before=definitions(robot_before); after=definitions((root/'eval_real_robot.py').read_text())
     for name in before:
         if name not in {'run', 'run_xarm_task'}: assert before[name]==after[name]
