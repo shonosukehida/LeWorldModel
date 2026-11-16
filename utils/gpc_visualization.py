@@ -138,14 +138,25 @@ class GPCRecorder:
                                      action_horizon=self.pending.shape[1]))
             # Record decomposition only when the configured reward exposes a verified boundary.
             if isinstance(getattr(original, "image_dim", None), int):
-                from stable_worldmodel.reward import latent_goal_costs
+                from stable_worldmodel.reward import latent_goal_costs, latent_goal_modality_costs
                 output = args[0] if args else kwargs['rollout_output']
-                image, prop = latent_goal_costs(output, original.image_dim)
+                overhead_dim = getattr(original, 'overhead_dim', None)
+                if isinstance(overhead_dim, int):
+                    overhead, wrist, prop = latent_goal_modality_costs(output, overhead_dim, original.image_dim)
+                    image = overhead + wrist
+                    self.records[-1].update(
+                        overhead_cost=overhead.detach().cpu().numpy().copy()[0],
+                        wrist_cost=wrist.detach().cpu().numpy().copy()[0])
+                else:
+                    image, prop = latent_goal_costs(output, original.image_dim)
                 self.records[-1].update(
                     image_cost=image.detach().cpu().numpy().copy()[0],
                     prop_cost=prop.detach().cpu().numpy().copy()[0],
-                    weighted_total_cost=-values,
-                    selected_candidate_index=best, lambda_prop=original.lambda_prop)
+                    weighted_total_cost=-values)
+                self.records[-1].update(
+                    selected_candidate_index=best, lambda_prop=original.lambda_prop,
+                    lambda_overhead=getattr(original, 'lambda_overhead', 1.0),
+                    lambda_wrist=getattr(original, 'lambda_wrist', 1.0))
             self.pending = None
             elapsed = time.perf_counter() - started
             self.records[-1]["capture_seconds"] = self._sample_seconds + elapsed
@@ -178,6 +189,9 @@ class GPCRecorder:
                        record_count=np.array(len(self.records)),
                        lambda_prop=np.array(getattr(self.policy.reward_fn, 'lambda_prop', 1.0)
                            if isinstance(getattr(self.policy.reward_fn, 'lambda_prop', 1.0), (int, float)) else 1.0))
+        for name in ('lambda_overhead', 'lambda_wrist'):
+            value = getattr(self.policy.reward_fn, name, 1.0)
+            payload[name] = np.array(value if isinstance(value, (int, float)) else 1.0)
         # Named arrays support variable K/H without pickle or lost step mapping.
         for index, record in enumerate(self.records):
             physical = record["candidate_actions_physical"]

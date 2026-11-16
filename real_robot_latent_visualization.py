@@ -80,7 +80,7 @@ def _evaluate_saved(cfg, policy, run_dir):
         private = GPCPolicy(SimpleNamespace(action_horizon=1), model, None,
                             process=deepcopy(policy.process), transform=deepcopy(policy.transform))
         from stable_worldmodel.reward import latent_reward_metadata
-        details = dict(metadata, lambda_prop=latent_reward_metadata(policy)['lambda_prop'],
+        details = dict(metadata, **latent_reward_metadata(policy),
                        device=str(next(model.parameters()).device),
                        torch_version=str(torch.__version__))
         output = evaluate_rollout(private, Path(run_dir) / 'rollout.h5', metadata=details)

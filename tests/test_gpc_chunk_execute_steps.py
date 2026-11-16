@@ -141,8 +141,13 @@ def test_eight_step_artifacts_match_prechange_gpc(tmp_path):
         assert (outs[0]/f'chunk_rollout_{name}.png').read_bytes()==(outs[1]/f'chunk_rollout_{name}.png').read_bytes()
     assert results[1]['metadata']['lambda_prop'] == 1.0
     assert results[1]['metadata']['image_latent_dimension'] is None
+    assert results[1]['metadata']['lambda_overhead'] == 1.0
+    assert results[1]['metadata']['lambda_wrist'] == 1.0
+    for key in ('overhead_latent_dimension', 'wrist_latent_dimension', 'proprio_latent_dimension'):
+        assert results[1]['metadata'][key] is None
     for result in results:
         for key in ('run_id','output_dir','execution_note','dp_execute_steps',
-                    'lambda_prop','image_latent_dimension','reward'):
+                    'lambda_prop','lambda_overhead','lambda_wrist','image_latent_dimension',
+                    'overhead_latent_dimension','wrist_latent_dimension','proprio_latent_dimension','reward'):
             result['metadata'].pop(key,None)
     assert results[0]==results[1]

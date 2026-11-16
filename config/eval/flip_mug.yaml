@@ -43,7 +43,9 @@ gpc:
   imle_checkpoint: null # Explicit opt-in; set diffusion_checkpoint to null for IMLE
   # IMLE input layout and proprio statistics come exclusively from its checkpoint.
   imle_device: cuda
-  lambda_prop: 1.0 # Direct proprio latent goal cost weight; 0=image-only
+  lambda_overhead: 1.0 # Terminal overhead latent squared L2 weight
+  lambda_wrist: 1.0 # Terminal wrist latent squared L2 weight
+  lambda_prop: 1.0 # Terminal proprio latent squared L2 weight
   diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261021_135400/latest.ckpt
   visualization_enabled: true # Record GPC candidates; normalize and plot after rollout
   num_candidates: 20

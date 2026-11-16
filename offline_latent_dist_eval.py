@@ -150,7 +150,9 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
         # Validate the configured reward separately from ordinary L2 diagnostics.
         expected = latent_goal_reward(
             {'predicted_emb': terminal[None, :, None], 'goal_emb': goal_cpu[None, None]}, {},
-            lambda_prop=reward_config['lambda_prop'], image_dim=reward_config['image_latent_dimension'])
+            lambda_prop=reward_config['lambda_prop'], image_dim=reward_config['image_latent_dimension'],
+            lambda_overhead=reward_config['lambda_overhead'], lambda_wrist=reward_config['lambda_wrist'],
+            overhead_dim=reward_config['overhead_latent_dimension'])
         if not torch.allclose(torch.as_tensor(reward[0]), expected[0], rtol=1e-5, atol=1e-5):
             raise ValueError('latent_dist candidate rewards differ from the configured latent_goal_reward')
         selected_latents.append(terminal[index])
@@ -178,7 +180,7 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
                   candidate_rewards=np.asarray(rewards).reshape(len(valid_rows), count),
                   goal_latent=goal_cpu.numpy(), observed_latents=observed.numpy(),
                   gt_terminal_latents=gt_latents.numpy(), gpc_terminal_latents=selected_latents.numpy())
-    for key in ('image_cost', 'prop_cost', 'weighted_total_cost'):
+    for key in ('image_cost', 'overhead_cost', 'wrist_cost', 'prop_cost', 'weighted_total_cost'):
         if candidate_costs and key in candidate_costs[0]:
             values[key] = np.stack([cost[key] for cost in candidate_costs])
     metadata = dict(metadata, **reward_config)

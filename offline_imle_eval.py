@@ -181,7 +181,10 @@ def run_offline_imle_gpc(cfg, image_transform, world_model_loader, process, tran
     policy = GPCPolicy(
         action_policy=action_policy,
         world_model=world_model,
-        reward_fn=LatentGoalReward(world_model, cfg.gpc.get("lambda_prop", 1.0)),
+        reward_fn=LatentGoalReward(
+            world_model, cfg.gpc.get("lambda_prop", 1.0),
+            lambda_overhead=cfg.gpc.get("lambda_overhead", 1.0),
+            lambda_wrist=cfg.gpc.get("lambda_wrist", 1.0)),
         num_candidates=cfg.gpc.num_candidates,
         process=process,
         transform=transform,

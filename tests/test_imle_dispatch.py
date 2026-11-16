@@ -41,6 +41,9 @@ def test_legacy_yaml_values_unchanged_and_imle_disabled():
     assert new.gpc.imle_checkpoint is None
     del new.gpc.imle_checkpoint
     del new.gpc.imle_device
+    for key in ('lambda_overhead', 'lambda_wrist'):
+        assert new.gpc[key] == 1.0
+        del new.gpc[key]
     assert OmegaConf.to_container(old, resolve=False) == OmegaConf.to_container(new, resolve=False)
 
 
@@ -53,6 +56,8 @@ def test_imle_gpc_config_loads_checkpoint_and_wm_statistics_read_only(tmp_path, 
     from create_process_stats import create_process_stats
     torch.set_num_threads(1)
     train = config()
+    # This legacy image-conditioned fixture has no checkpoint proprio statistics.
+    train.imle.use_proprio = False
     proposal = build_policy(train)
     checkpoint = tmp_path / 'imle.ckpt'
     save_checkpoint(checkpoint, proposal, torch.optim.AdamW(parameters(proposal)),
@@ -71,6 +76,8 @@ def test_imle_gpc_config_loads_checkpoint_and_wm_statistics_read_only(tmp_path, 
     cfg.gpc.imle_device = 'cpu'
     cfg.gpc.num_candidates = 3
     cfg.gpc.lambda_prop = 0.0
+    cfg.gpc.lambda_overhead = 0.25
+    cfg.gpc.lambda_wrist = 2.0
     cfg.eval.dataset_name = str(data)
     cfg.eval.normalization_stats_path = str(stat_path)
     cfg.eval.real_robot.dry_run_mode = "episode"
@@ -87,6 +94,8 @@ def test_imle_gpc_config_loads_checkpoint_and_wm_statistics_read_only(tmp_path, 
             cfg, lambda x: x.float() / 255, lambda path: world)
     gpc = evaluate.call_args.args[0]
     assert gpc.reward_fn.lambda_prop == 0.0
+    assert gpc.reward_fn.lambda_overhead == 0.25
+    assert gpc.reward_fn.lambda_wrist == 2.0
     assert gpc.num_candidates == 3
     assert result.shape == (3, 8)
     if saved_stats:

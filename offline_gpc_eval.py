@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from offline_dp_eval import evaluate_multi_sample, load_episode
-from stable_worldmodel.reward import latent_reward_metadata, latent_goal_costs
+from stable_worldmodel.reward import latent_reward_metadata, latent_goal_costs, latent_goal_modality_costs
 
 
 def isolated_rng(function):
@@ -45,10 +45,19 @@ def candidate_costs(reward_fn, output, rewards):
     boundary = getattr(reward_fn, 'image_dim', None)
     if boundary is None:
         return {}
-    image, prop = latent_goal_costs(output, boundary)
-    return dict(image_cost=image.detach().cpu().numpy()[0],
-                prop_cost=prop.detach().cpu().numpy()[0],
-                weighted_total_cost=-rewards.detach().cpu().numpy()[0])
+    overhead_dim = getattr(reward_fn, 'overhead_dim', None)
+    costs = {}
+    if overhead_dim is not None:
+        overhead, wrist, prop = latent_goal_modality_costs(output, overhead_dim, boundary)
+        image = overhead + wrist
+        costs.update(overhead_cost=overhead.detach().cpu().numpy()[0],
+                     wrist_cost=wrist.detach().cpu().numpy()[0])
+    else:
+        image, prop = latent_goal_costs(output, boundary)
+    costs.update(image_cost=image.detach().cpu().numpy()[0],
+                 prop_cost=prop.detach().cpu().numpy()[0],
+                 weighted_total_cost=-rewards.detach().cpu().numpy()[0])
+    return costs
 
 
 def select_candidates(policy, candidates, wm_observation, diagnostics=None):
@@ -167,7 +176,7 @@ def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, se
         gt = f['ground_truth_actions'][:]
         f['selected_candidate_index'] = index
         f['candidate_rewards'] = rewards
-        for key in ('image_cost', 'prop_cost', 'weighted_total_cost'):
+        for key in ('image_cost', 'overhead_cost', 'wrist_cost', 'prop_cost', 'weighted_total_cost'):
             if key in captured:
                 f[key] = captured[key]
         f['selected_candidate_actions'] = candidates[index]
@@ -384,7 +393,7 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
                                selected_candidate_indices=indices, candidate_rewards=rewards,
                                selected_chunks=selected, wm_evaluation_intervals=intervals).items():
             f.create_dataset(key, data=value)
-        for key in ('image_cost', 'prop_cost', 'weighted_total_cost'):
+        for key in ('image_cost', 'overhead_cost', 'wrist_cost', 'prop_cost', 'weighted_total_cost'):
             if costs and key in costs[0]:
                 f[key] = np.stack([value[key] for value in costs])
         f.attrs['metadata'] = json.dumps(metadata, allow_nan=False)

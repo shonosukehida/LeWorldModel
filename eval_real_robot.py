@@ -2870,7 +2870,10 @@ def run(cfg: DictConfig):
                 cfg.gpc.get("imle_device", "cuda"))
             policy = swm.policy.GPCPolicy(
                 action_policy=action_policy, world_model=model,
-                reward_fn=LatentGoalReward(model, cfg.gpc.get("lambda_prop", 1.0)),
+                reward_fn=LatentGoalReward(
+                    model, cfg.gpc.get("lambda_prop", 1.0),
+                    lambda_overhead=cfg.gpc.get("lambda_overhead", 1.0),
+                    lambda_wrist=cfg.gpc.get("lambda_wrist", 1.0)),
                 num_candidates=cfg.gpc.num_candidates,
                 process=process, transform=transform)
 
@@ -2898,7 +2901,10 @@ def run(cfg: DictConfig):
             policy = swm.policy.GPCPolicy(
                 diffusion_policy=diffusion_policy,
                 world_model=model,
-                reward_fn=LatentGoalReward(model, cfg.gpc.get("lambda_prop", 1.0)),
+                reward_fn=LatentGoalReward(
+                    model, cfg.gpc.get("lambda_prop", 1.0),
+                    lambda_overhead=cfg.gpc.get("lambda_overhead", 1.0),
+                    lambda_wrist=cfg.gpc.get("lambda_wrist", 1.0)),
                 num_candidates=(getattr(cfg.eval.real_robot, "dry_run_num_candidates", 20)
                                 if offline_gpc else cfg.gpc.num_candidates),
                 process=process,
