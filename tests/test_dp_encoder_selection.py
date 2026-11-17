@@ -11,6 +11,7 @@ from stable_worldmodel.diffusion import (
     ResNet18ObsEncoder, ConvObsEncoder, ConditionalUnet1D,
     create_obs_encoder, resolve_obs_encoder_config,
 )
+from stable_worldmodel.diffusion.obs_encoder import SpatialSoftmax
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from omegaconf import OmegaConf
 from action_normalization import validate_action_stats, restore_action_processor
@@ -63,10 +64,10 @@ def save(path, p, cfg):
 
 
 @torch.no_grad()
-def outputs(p):
+def outputs(p, image_size=32):
     for net in (p.model, p.obs_encoder, p.wrist_obs_encoder): net.eval()
     n = p.obs_horizon
-    pixels = torch.linspace(0, 1, n*3*32*32).reshape(1,n,3,32,32)
+    pixels = torch.linspace(0, 1, n*3*image_size*image_size).reshape(1,n,3,image_size,image_size)
     wrist = pixels.flip(-1)
     a = p.obs_encoder(pixels.flatten(0,1))
     b = p.wrist_obs_encoder(wrist.flatten(0,1))
@@ -103,6 +104,33 @@ class EncoderSelectionTests(unittest.TestCase):
         for fn in (lambda: create_obs_encoder('typo'), lambda: resolve_obs_encoder_config({'type':'typo'})):
             with self.assertRaisesRegex(ValueError, 'Unknown encoder_type'): fn()
 
+    def test_gap_initialization_and_training_exact(self):
+        torch.manual_seed(314)
+        old = policy(config(), old=True)
+        old_rng = torch.get_rng_state()
+        torch.manual_seed(314)
+        cfg = config(); cfg.encoder.pooling = 'gap'
+        new = policy(cfg)
+        self.assertTrue(torch.equal(old_rng, torch.get_rng_state()))
+        batch = {'pixels':torch.rand(1,2,3,64,64), 'wrist_pixels':torch.rand(1,2,3,64,64),
+                 'action':torch.randn(1,8,8)}
+        for a,b in ((old.model,new.model), (old.obs_encoder,new.obs_encoder),
+                    (old.wrist_obs_encoder,new.wrist_obs_encoder)):
+            self.assertEqual(list(a.state_dict()),list(b.state_dict()))
+            for key,value in a.state_dict().items(): self.assertTrue(torch.equal(value,b.state_dict()[key]))
+        results=[]
+        for p in (old,new):
+            nets=(p.model,p.obs_encoder,p.wrist_obs_encoder)
+            params=[param for net in nets for param in net.parameters()]
+            optimizer=torch.optim.Adam(params)
+            torch.manual_seed(271)
+            loss=p.compute_loss(batch); loss.backward(); optimizer.step()
+            results.append((loss.detach(),torch.get_rng_state()))
+        self.assertTrue(all(torch.equal(a,b) for a,b in zip(*results)))
+        for a,b in ((old.model,new.model), (old.obs_encoder,new.obs_encoder),
+                    (old.wrist_obs_encoder,new.wrist_obs_encoder)):
+            for key,value in a.state_dict().items(): self.assertTrue(torch.equal(value,b.state_dict()[key]))
+
     def test_legacy_checkpoint_and_exact_inference(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'legacy.ckpt'
@@ -136,8 +164,10 @@ class EncoderSelectionTests(unittest.TestCase):
                 ckpt=torch.load(path,weights_only=False)
                 self.assertEqual(ckpt['encoder_type'],kind)
                 if kind=='conv': self.assertEqual(ckpt['encoder_config'],{'feature_dim':dim})
+                else: self.assertEqual(ckpt['encoder_config'],{'pretrained':False})
                 # The full training config cannot override reconstruction metadata.
-                ckpt['config']['encoder']={'type':'conv' if kind=='resnet18' else 'resnet18', 'feature_dim':999}
+                ckpt['config']['encoder']={'type':'conv' if kind=='resnet18' else 'resnet18',
+                                           'feature_dim':999, 'pooling':'spatial_softmax'}
                 torch.save(ckpt,path)
                 restored=loader()(path,lambda x: x,'cpu')
                 self.assertIsNot(restored.obs_encoder,restored.wrist_obs_encoder)
@@ -172,3 +202,153 @@ class EncoderSelectionTests(unittest.TestCase):
             evaluate_multi_sample(restored,dataset,7,1,2,42,directory/'multi_sample',{})
             self.assertTrue((directory/'episode/metrics.json').exists())
             self.assertTrue(list((directory/'multi_sample').rglob('multi_sample_metrics.json')))
+
+
+class SpatialSoftmaxTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        torch.set_num_threads(2)
+
+    compare = EncoderSelectionTests.compare
+
+    def test_expected_coordinates_and_gradients(self):
+        pool = SpatialSoftmax()
+        # Channel 0 weights [[1, 2], [3, 4]]; channel 1 reverses them.
+        x = torch.tensor([[[[1., 2.], [3., 4.]], [[4., 3.], [2., 1.]]]],
+                         dtype=torch.float64).log().requires_grad_()
+        result = pool(x)
+        torch.testing.assert_close(result, torch.tensor([[.2, .4, -.2, -.4]], dtype=x.dtype))
+        self.assertEqual(result.shape, (1, 4))
+        self.assertTrue(torch.isfinite(result).all())
+        self.assertTrue((result.abs() <= 1).all())
+        result.square().sum().backward()
+        self.assertTrue(torch.isfinite(x.grad).all())
+        self.assertGreater(x.grad.abs().sum().item(), 0)
+        self.assertEqual(dict(pool.state_dict()), {})
+        self.assertEqual(list(pool.parameters()), [])
+        for shape in ((2,3,1,1), (2,3,3,7), (2,3,7,3)):
+            self.assertTrue(torch.allclose(pool(torch.zeros(shape)), torch.zeros(shape[0],shape[1]*2), atol=1e-6))
+        with self.assertRaisesRegex(ValueError, 'feature map'): pool(torch.zeros(2,3,4))
+
+    @unittest.skipUnless(torch.cuda.is_available(), 'CUDA unavailable')
+    def test_cuda(self):
+        x = torch.randn(2,3,7,9, device='cuda', requires_grad=True)
+        y = SpatialSoftmax()(x)
+        self.assertTrue(y.is_cuda and torch.isfinite(y).all())
+        y.square().sum().backward()
+        self.assertGreater(x.grad.abs().sum().item(), 0)
+
+    def test_config_validation_and_gap_conv_compatibility(self):
+        for kind in ('resnet18', 'conv'):
+            old_settings = {'pretrained':False} if kind == 'resnet18' else {'feature_dim':512}
+            for setting in ({'type':kind}, {'type':kind, 'pooling':'gap'}):
+                self.assertEqual(resolve_obs_encoder_config(setting), (kind,old_settings))
+            self.assertEqual(resolve_obs_encoder_config({'type':kind, 'pooling':'spatial_softmax'}),
+                             (kind,dict(old_settings,pooling='spatial_softmax')))
+            for invalid in ('typo', None, 1):
+                with self.assertRaisesRegex(ValueError, 'Unknown pooling'):
+                    resolve_obs_encoder_config({'type':kind, 'pooling':invalid})
+                with self.assertRaisesRegex(ValueError, 'Unknown pooling'):
+                    create_obs_encoder(kind, {'pooling':invalid})
+            cls = ResNet18ObsEncoder if kind == 'resnet18' else ConvObsEncoder
+            with self.assertRaisesRegex(ValueError, 'Unknown pooling'): cls(pooling='typo')
+        # Reconstruct the exact original ConvNet sequence, including initialization RNG.
+        torch.manual_seed(17)
+        old = torch.nn.Sequential(
+            torch.nn.Conv2d(3,32,5,2,2), torch.nn.ReLU(),
+            torch.nn.Conv2d(32,64,3,2,1), torch.nn.ReLU(),
+            torch.nn.Conv2d(64,128,3,2,1), torch.nn.ReLU(),
+            torch.nn.AdaptiveAvgPool2d((1,1)), torch.nn.Flatten(), torch.nn.Linear(128,37))
+        old_rng = torch.get_rng_state()
+        torch.manual_seed(17)
+        new = create_obs_encoder('conv', {'feature_dim':37})
+        self.assertTrue(torch.equal(old_rng, torch.get_rng_state()))
+        self.assertEqual({k:v.shape for k,v in old.state_dict().items()},
+                         {k:v.shape for k,v in new.backbone.state_dict().items()})
+        new.backbone.load_state_dict(old.state_dict(), strict=True)
+        image = torch.randn(2,3,64,64)
+        self.assertTrue(torch.equal(old(image), new(image)))
+
+    def test_encoder_spatial_maps_and_sizes(self):
+        for kind, channels, dim in (('resnet18',512,512), ('conv',128,37)):
+            net = create_obs_encoder(kind, {'pooling':'spatial_softmax', **({'feature_dim':dim} if kind=='conv' else {})}).eval()
+            pool = net.backbone.avgpool if kind=='resnet18' else net.backbone[6]
+            projection = net.backbone.fc if kind=='resnet18' else net.backbone[8]
+            self.assertEqual((projection.in_features,projection.out_features), (2*channels,dim))
+            for size in (64,224):
+                captured=[]
+                hook=pool.register_forward_hook(lambda m,args,out: captured.append((args[0].shape,out)))
+                image=torch.randn(2,3,size,size, requires_grad=True)
+                features=net(image)
+                hook.remove()
+                shape, coordinates=captured[0]
+                self.assertGreater(shape[-1],1)
+                self.assertEqual(coordinates.shape,(2,2*channels))
+                self.assertTrue((coordinates.abs()<=1).all())
+                self.assertEqual(features.shape,(2,dim))
+                self.assertTrue(torch.isfinite(features).all())
+                features.square().mean().backward()
+                self.assertGreater(image.grad.abs().sum().item(),0)
+                net.zero_grad()
+
+    def test_spatial_training_checkpoint_offline_and_gpc(self):
+        from test_offline_dp_eval import OfflineTests
+        from test_offline_gpc_eval import WorldModel
+        from offline_dp_eval import evaluate_episode, evaluate_multi_sample
+        from stable_worldmodel.reward import latent_goal_reward
+        import h5py
+        import numpy as np
+        for kind in ('resnet18','conv'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                cfg=config(kind,37)
+                cfg.encoder.pooling='spatial_softmax'
+                p=policy(cfg)
+                nets=(p.model,p.obs_encoder,p.wrist_obs_encoder)
+                optimizer=torch.optim.Adam([param for net in nets for param in net.parameters()], lr=1e-3)
+                before=[next(net.parameters()).detach().clone() for net in nets]
+                batch={'pixels':torch.rand(1,2,3,64,64), 'wrist_pixels':torch.rand(1,2,3,64,64),
+                       'action':torch.randn(1,8,8)}
+                loss=p.compute_loss(batch)
+                self.assertTrue(torch.isfinite(loss))
+                loss.backward()
+                for net in nets:
+                    grad=next(net.parameters()).grad
+                    self.assertTrue(torch.isfinite(grad).all())
+                    self.assertGreater(grad.abs().sum().item(),0)
+                optimizer.step()
+                for net,prev in zip(nets,before): self.assertFalse(torch.equal(prev,next(net.parameters())))
+                expected=outputs(p,64)
+                directory=Path(tmp); checkpoint=directory/'spatial.ckpt'
+                save(checkpoint,p,cfg)
+                ckpt=torch.load(checkpoint,weights_only=False)
+                self.assertEqual(ckpt['encoder_config']['pooling'],'spatial_softmax')
+                # Contradict both type and pooling in full config; metadata must win.
+                ckpt['config']['encoder']={'type':'conv' if kind=='resnet18' else 'resnet18','pooling':'gap'}
+                torch.save(ckpt,checkpoint)
+                restored=loader()(checkpoint,lambda x:x,'cpu')
+                self.compare(expected, outputs(restored,64), f'spatial {kind}')
+                for key,net in [('model_state_dict',restored.model),('obs_encoder_state_dict',restored.obs_encoder),
+                                ('wrist_obs_encoder_state_dict',restored.wrist_obs_encoder)]:
+                    net.load_state_dict(ckpt[key],strict=True)
+                # Removing pooling must fail strict restoration rather than convert weights.
+                del ckpt['encoder_config']['pooling']; torch.save(ckpt,checkpoint)
+                with self.assertRaises(RuntimeError): loader()(checkpoint,lambda x:x,'cpu')
+                dataset=directory/'data.h5'; OfflineTests().dataset(dataset)
+                with h5py.File(dataset, 'a') as data:
+                    for key in ('pixels', 'wrist_pixels'):
+                        images = data[key][:].repeat(16, axis=1).repeat(16, axis=2)
+                        del data[key]
+                        data[key] = images
+                evaluate_episode(restored,dataset,7,directory/'episode',{})
+                evaluate_multi_sample(restored,dataset,7,1,2,42,directory/'multi_sample',{})
+                self.assertTrue((directory/'episode/metrics.json').exists())
+                self.assertTrue(list((directory/'multi_sample').rglob('multi_sample_metrics.json')))
+                # GPC uses this same checkpoint loader in eval_real_robot.main.
+                gpc=swm.policy.GPCPolicy(restored,WorldModel(),latent_goal_reward,num_candidates=2,
+                                         process=restored.process,transform={})
+                info={'pixels':np.zeros((1,2,64,64,3),np.float32),
+                      'wrist_pixels':np.zeros((1,2,64,64,3),np.float32),
+                      'goal':np.zeros((1,1,64,64,3),np.float32)}
+                chunk=gpc.get_action_chunk(info)
+                self.assertEqual(chunk.shape,(1,3,8))
+                self.assertTrue(np.isfinite(chunk).all())

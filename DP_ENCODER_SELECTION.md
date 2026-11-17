@@ -107,3 +107,74 @@ PYTHONPATHをそのコピーに向け同じテストを実行、同一9件の失
 最終の新規テスト実行結果: **5 passed, 3 subtests passed**（15.30秒）。
 上記の必須互換性検証はすべて成功。ResNet18クラスのASTも変更前と同一であることを確認。
 両リポジトリの`git diff --check`も成功。
+
+## Spatial Softmax追加（2026-11-17）
+
+`encoder.pooling: gap | spatial_softmax`で集約方式を選択する。省略時は`gap`。
+不正値は`ValueError`。Spatial Softmax版は新規学習する。
+
+| encoder | GAP | Spatial Softmax | 最終特徴次元 |
+|---|---|---|---|
+| resnet18 | 既存avgpool + fc=Identity | avgpool=SpatialSoftmax + fc=Linear(1024,512) | 512 |
+| conv | AdaptiveAvgPool2d + Flatten + Linear(128,D) | SpatialSoftmax + Flatten + Linear(256,D) | D=feature_dim |
+
+Spatial Softmaxは各チャネルの空間softmax（固定温度1）から、[-1,1]の格子上で
+期待座標を計算する。出力順は(x0,y0,x1,y1,...)。長さ1の軸は座標0とする。
+格子は入力のdevice/dtypeで生成し、パラメータやpersistent bufferを持たない。
+入力解像度は固定しないが、ResNet18の32×32入力は最終マップが1×1になるため
+位置情報を持たない。テストでは64×64と224×224で座標と勾配を確認する。
+
+GAPのモジュール構造、初期化順、forward経路、state_dictキー・shapeは維持する。
+設定解決の戻り値も従来どおりで、`pooling=gap`を明示しても保存辞書に追加しない。
+Spatial Softmax時のみ既存の`encoder_config`に`pooling: spatial_softmax`を保存する。
+トップレベル項目の追加はない。復元は既存ローダーのメタデータを優先する。
+旧checkpointはGAPになり、full configの異なるpooling指定は復元構造を上書きしない。
+strictロードは維持し、GAP/Spatial Softmax間の重み自動変換は行わない。
+
+train_policy.py、eval_real_robot.py、DiffusionPolicy、ConditionalUnet1D、GPC、IMLEは変更しない。
+凍結比較ソースtests/baseline_dp_encoderも変更しない。
+
+実行コマンド（各リポジトリ直下、CPU）:
+
+```bash
+# LeWorldModel
+MPLCONFIGDIR=/tmp/spatial-mpl OMP_NUM_THREADS=2 .venv/bin/python -m pytest -q tests/test_dp_encoder_selection.py tests/test_dp_action_chunks.py tests/test_offline_dp_eval.py tests/test_offline_dp_images.py tests/test_gpc* tests/test_offline_gpc* tests/test_imle* tests/test_action_normalization.py tests/test_image_preprocessing.py tests/test_process_stats.py
+# stable-worldmodel
+MPLCONFIGDIR=/tmp/spatial-mpl OMP_NUM_THREADS=2 .venv/bin/python -m pytest -q tests/test_policy.py tests/test_gpc_execute_first_candidate.py
+```
+
+最新ブランチとの一致をfetch後に確認:
+LeWorldModel `b01ee178333790ea414e6eef813f81a2fa4e609c`、
+stable-worldmodel `81f8e230ed76ca9dff4e50a7bf7168e2c5c39f33`。
+
+互換性・追加機能テスト単独の最終結果: **10 passed, 1 skipped, 5 subtests passed**。
+凍結実装と旧実物checkpointで、overhead/wrist特徴、U-Net条件、行動列、推論後RNGは
+`torch.equal`で一致（最大絶対差0）。同一seedのGAP初期化・学習loss・更新後の全重みと
+RNGも一致。ConvNet GAPは旧Sequentialのキー・shape・strictロード・出力・初期化RNGを比較。
+Spatial Softmaxは手計算、座標範囲、64/224入力、両ビューの非ゼロ勾配、Adam更新、保存、
+strict復元、メタデータ優先、保存前後の推論完全一致を確認。
+offline episode/multi_sample（64×64画像）と実GPCPolicyからの候補生成・評価・行動選択も成功。
+誤ってpoolingメタデータを削除したSpatial Softmax重みはstrictロードで失敗することも確認。
+
+stable-worldmodel回帰テストは変更前後とも **40 passed, 9 failed**。
+失敗一覧と理由は同一で、WorldModelPolicy fixtureのaction_space不足によるValueError。
+
+未検証: GPU（利用不可につきskip）、実機動作、長時間の実データ学習、
+pretrained=Trueでのネットワークからの重み取得。
+
+LeWorldModel広域回帰の比較:
+
+| 実行 | passed | failed | skipped | subtests passed |
+|---|---:|---:|---:|---:|
+| 変更前 | 167 | 16 | 3 | 64 |
+| 変更後（追加Spatialテストを含む） | 171 | 16 | 4 | 66 |
+| エンコーダテスト最終版単独（GAP学習一致検証も含む） | 10 | 0 | 1 | 5 |
+
+変更前後のFAILED一覧とエラー詳細（E行）は完全一致し、新規失敗は0。
+16件はsubtestの失敗を含む。既存失敗はIMLE proprio統計不足、過去revisionとの
+設定・ソース固定比較の不一致、test_process_statsのAST切り出しによる
+`SyntaxError: return outside function`。対象外のコードやテストは修正しない。
+追加skipはCUDA不在。他のskipは既存のCUDA/外部checkpoint条件による。
+ログは`/tmp/spatial-{baseline,current}-{lewm,swm}.log`と
+`/tmp/spatial-feature-final.log`。
+両リポジトリの`git diff --check`は成功。
