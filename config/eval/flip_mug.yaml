@@ -38,13 +38,13 @@ dataset:
 
 seed: 42
 policy: lewm_weights 
-policy_type: gpc #world_model/gpc/diffusion
+policy_type: diffusion #world_model/gpc/diffusion
 gpc:
   imle_checkpoint: null # Explicit opt-in; set diffusion_checkpoint to null for IMLE
   # IMLE input layout and proprio statistics come exclusively from its checkpoint.
   imle_device: cuda
   lambda_prop: 1.0 # Direct proprio latent goal cost weight; 0=image-only
-  diffusion_checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed41/20261021_135400/latest.ckpt
+  diffusion_checkpoint: /home/shonosukehida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed_41/20261021_135400/latest.ckpt
   visualization_enabled: true # Record GPC candidates; normalize and plot after rollout
   num_candidates: 20
 
@@ -80,11 +80,11 @@ eval:
       damping: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # SDK six-axis B array (reserved)
       reference_frame: 0  # 0 = base frame, 1 = tool frame
       compliant_axis: [0, 0, 1, 0, 0, 0]  # [x, y, z, rx, ry, rz], each 0 or 1
-    execute: true
+    execute: false
 
 
-    dry_run: false #ハードは動かさずにソフトだけをテストする
-    dry_run_mode: latent_dist # episode / multi_sample / chunk_rollout; omitted defaults to episode
+    dry_run: true #ハードは動かさずにソフトだけをテストする
+    dry_run_mode: chunk_rollout # episode / multi_sample / chunk_rollout; omitted defaults to episode
     dry_run_timestep: 100
     dry_run_num_candidates: 20
     dry_run_seed: 42
