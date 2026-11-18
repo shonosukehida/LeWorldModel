@@ -54,6 +54,7 @@ class Monitor:
                     git = subprocess.run(["git", "rev-parse", "HEAD"], cwd=Path(__file__).parent,
                                          text=True, capture_output=True)
                     args = {k: options[k] for k in ("project","entity","name","group","tags","mode")}
+                    args.update(name=config["run_name"], id=config["run_id"])
                     if options["mode"] == "online" and self.run_id:
                         args.update(id=self.run_id, resume="must")
                     self.run = wandb.init(**args, dir=str(out.resolve()), config={

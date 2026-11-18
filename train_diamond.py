@@ -1,5 +1,7 @@
 """Offline six-frame DIAMOND training. No collector or robot dependencies."""
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import math
 import time
 from pathlib import Path
@@ -12,6 +14,7 @@ import torch
 from torch.utils.data import default_collate
 
 from diamond_monitor import Monitor, legacy_totals, preview
+from diamond_run import prepare_run
 from diamond_dataset import DiamondDataset, inspect_file, load_wm_stats, split_episodes
 from stable_worldmodel.wm.diamond.checkpoint import read_checkpoint, restore_rng, save_checkpoint
 from stable_worldmodel.wm.diamond.model import ALIGNMENT, DiamondWorldModel
@@ -51,6 +54,8 @@ def probe(model, dataset, cfg, device, full=False):
 
 @hydra.main(version_base=None, config_path="config/train", config_name="diamond")
 def main(cfg):
+    started = datetime.now(ZoneInfo("Asia/Tokyo"))
+    previous = None
     config = OmegaConf.to_container(cfg, resolve=True)
     if cfg.action_alignment != ALIGNMENT["action"]:
         raise ValueError("Unsupported action alignment")
@@ -104,13 +109,13 @@ def main(cfg):
         if state is None:
             state = legacy_totals(Path(cfg.resume).expanduser().with_name("metrics.jsonl"),
                                   step, length, cfg.batch_size)
+        previous = cp["config"]
         del cp
     if cfg.steps <= step:
         raise ValueError("steps must exceed the restored global_step")
     # Each invocation has its own output, including resumes. No prior logs/checkpoints overwritten.
-    out = Path(config["output"]).expanduser()
-    out.mkdir(parents=True, exist_ok=False)
-    (out/"config.yaml").write_text(OmegaConf.to_yaml(cfg, resolve=True))
+    out = prepare_run(config, previous, state, started)
+    (out/"config.yaml").write_text(OmegaConf.to_yaml(OmegaConf.create(config)))
     (out/"data.json").write_text(json.dumps(dict(dataset=dataset, split=split, alignment=ALIGNMENT,
                                                 normalizer=normalizer), indent=2))
     print("Recorded rows at stride 1. Acquisition period and physical action causality unverified.", flush=True)

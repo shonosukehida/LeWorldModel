@@ -25,3 +25,9 @@ W&B WorkspaceのLine plotでXをglobal_stepにしてstep loss、lr、grad norm�
 新checkpointはepoch内の加重和・サンプル数とオンラインrun IDをconfig.epoch_monitorに保存する。途中終了時の部分平均を表示した後も分子・分母は保持する。旧版ではcheckpointと同じディレクトリのmetrics.jsonlから該当区間を復元する。不足時はepoch_history_complete=falseとし、そのepochのtrain平均を省く。次の完全なepochから通常集計に戻る。学習checkpoint既存のepochフィールドは従来の定義を維持する。
 
 wandb.log_images=trueでは、image_every_epochs間隔で固定val窓・固定行動・固定noiseからimage_horizon時刻を自己回帰生成する。val/predictionsにはカメラ別に、各行がt+1からt+H、左から最後の実観測・GT・予測の画像を送信する。既定では画像生成は無効。
+
+### 開始日時と再開先
+
+学習入口で取得したAsia/Tokyoの日時を使う。既定の出力は `outputs/diamond/YYYYMMDD_HHMMSS/`、表示名は `diamond_YYYYMMDD_HHMMSS`（先頭はwandb.nameで変更可）。同一秒に同じ既定パスを取得する場合は、ディレクトリと表示名に順に `_02` 等が付く。明示したoutputは従来どおりそのパスを占有する。異なる出力ルートで同じ表示名になってもrun_idは独立する。
+
+config.yaml、checkpointのconfig、W&B configでrun_timestamp、started_at、run_id、run_nameを確認できる。再開時には元の情報を引き継ぎ、既定では元timestamp付きの別ディレクトリ（_resume、_resume_02等）に保存する。旧checkpointに日時がない場合は警告して再開時の日時を使い、保存済みオンラインID・表示名があれば継承する。サーバー側にしかない旧表示名はSDKに委ねる。IDがなければ新しいIDを割り当てる。offlineでは同じ識別子を記録し、各起動のログをローカルに保存する。

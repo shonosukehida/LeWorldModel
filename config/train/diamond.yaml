@@ -1,6 +1,6 @@
 dataset: ~/.stable_worldmodel/datasets/flip_mug/ep100_tm300_multiview_play_normal_brightness/push.h5
 stats: null  # null resolves to process_stats.npz next to the selected HDF5
-output: outputs/diamond/${now:%Y%m%d-%H%M%S-%f}
+output: null  # Auto: outputs/diamond/YYYYMMDD_HHMMSS in Asia/Tokyo
 resume: null
 views: [pixels, wrist_pixels]
 action_alignment: stored_row_t

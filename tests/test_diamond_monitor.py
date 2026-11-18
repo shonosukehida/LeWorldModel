@@ -18,8 +18,8 @@ from stable_worldmodel.wm.diamond.checkpoint import read_checkpoint
 def test_equivalent_epochs_and_partial_resume(tmp_path, monkeypatch):
     runs = []
     class Run:
-        id = "mock-run"
         def __init__(self, **kw):
+            self.id = kw["id"]
             self.args = kw
             self.rows = []
             self.axes = {}
@@ -58,7 +58,11 @@ def test_equivalent_epochs_and_partial_resume(tmp_path, monkeypatch):
     cfg.merge_with(dict(steps=5,output=str(tmp_path/"on"),resume=str(cp)))
     main.__wrapped__(cfg)
     rows = runs[0].rows + runs[1].rows
-    assert runs[1].args["id"] == "mock-run" and runs[1].args["resume"] == "must"
+    assert runs[1].args["id"] == runs[0].id and runs[1].args["resume"] == "must"
+    saved = read_checkpoint(cp)["config"]
+    for key in ("run_timestamp", "started_at", "run_id", "run_name"):
+        assert runs[1].args["config"][key] == runs[0].args["config"][key] == saved[key]
+    assert runs[1].args["name"] == runs[0].args["name"] == saved["run_name"]
     assert runs[1].axes["val/loss_epoch"] == runs[1].axes["train/loss_epoch"] == "epoch"
     assert [r["global_step"] for r in rows] == list(range(1,6))
     assert [r["epoch_progress"] for r in rows] == [.5,1.,1.5,2.,2.5]
