@@ -1,7 +1,10 @@
 """JEPA-DP checkpoint integration. No robot imports or random initialization of JEPA."""
 from copy import deepcopy
 import hashlib
+import math
+import os
 from pathlib import Path
+from tempfile import mkdtemp, TemporaryDirectory
 
 import torch
 from torch import nn
@@ -9,15 +12,20 @@ from omegaconf import OmegaConf
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from stable_worldmodel.diffusion import ConditionalUnet1D
 from stable_worldmodel.diffusion.jepa import (
-    FrozenJEPAEncoder, EmptyWristEncoder, JEPADiffusionPolicy,
+    FEATURE_MODULES, FrozenJEPAEncoder, EmptyWristEncoder, JEPADiffusionPolicy,
 )
 from action_normalization import restore_action_processor
 from normalization_stats import load_normalization_process
 from utils import get_eval_img_preprocessor
 
 
-FEATURE_MODULES = ("overhead_encoder", "wrist_encoder", "overhead_projector",
-                   "wrist_projector", "prop_encoder")
+def finetune_config(settings):
+    options = {"mode": "frozen", "unfreeze_last_n_blocks": 3, "lr": 1e-5}
+    options.update(settings.get("finetune", {}))
+    lr = options["lr"]
+    if isinstance(lr, bool) or not isinstance(lr, (float, int)) or not math.isfinite(lr) or lr < 0:
+        raise ValueError(f"encoder.finetune.lr must be a nonnegative finite number, got {lr!r}")
+    return options
 
 
 def fingerprint(path):
@@ -26,6 +34,52 @@ def fingerprint(path):
         for block in iter(lambda: stream.read(1024 * 1024), b''):
             digest.update(block)
         return digest.hexdigest()
+
+
+def verify_jepa_source(source):
+    for key, artifact in source.items():
+        actual = fingerprint(artifact["path"])
+        if actual != artifact["sha256"]:
+            raise RuntimeError(f"JEPA {key} changed: {artifact['path']}, "
+                               f"expected SHA-256 {artifact['sha256']}, got {actual}")
+
+
+def create_jepa_run_dir(path, policy):
+    try:
+        path.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        # Concurrent runs may have the same second-resolution timestamp.
+        path = Path(mkdtemp(prefix=path.name + "_", dir=path.parent))
+    policy.jepa_rolling_checkpoints = {path.resolve() / name: None for name in ("best.ckpt", "latest.ckpt")}
+    return path
+
+
+def save_jepa_checkpoint(path, checkpoint, policy):
+    path = Path(path)
+    path = path.parent.resolve() / path.name
+    for artifact in policy.jepa_source.values():
+        source = Path(artifact["path"])
+        if path.resolve() == source or (path.exists() and source.exists() and path.samefile(source)):
+            raise ValueError(f"Refusing to overwrite protected JEPA source: {path}")
+
+    # Only the training process which created this fresh directory may update
+    # its rolling checkpoints. Direct saves and epoch snapshots are create-only.
+    rolling = getattr(policy, "jepa_rolling_checkpoints", {})
+    previous = rolling.get(path)
+    if path.is_symlink() or (previous is None and path.exists()):
+        raise FileExistsError(f"Refusing to overwrite existing checkpoint: {path}")
+    with TemporaryDirectory(dir=path.parent) as staging:
+        staged = Path(staging) / "checkpoint.pt"
+        torch.save(checkpoint, staged)
+        identity = staged.stat()
+        if previous is not None and path.exists():
+            if not os.path.samestat(previous, path.lstat()):
+                raise FileExistsError(f"Rolling checkpoint was replaced by another file: {path}")
+            os.replace(staged, path)
+        else:
+            os.link(staged, path)  # Atomically fail if another writer claimed the name.
+        if path in rolling:
+            rolling[path] = identity
 
 
 def load_pretrained_encoder(settings):
@@ -39,6 +93,9 @@ def load_pretrained_encoder(settings):
         if not settings.get(key):
             raise ValueError(f"encoder.{key} must reference the JEPA training artifact")
         paths[key] = Path(settings[key]).expanduser().resolve(strict=True)
+    provenance = {key: {'path': str(path), 'sha256': fingerprint(path)}
+                  for key, path in paths.items()}
+    options = finetune_config(settings)
     world_config = OmegaConf.load(paths['world_config'])
     image_size = int(world_config.img_size)
     root = torch.load(paths['checkpoint'], map_location='cpu', weights_only=False)
@@ -56,13 +113,12 @@ def load_pretrained_encoder(settings):
     if 'proprio' not in process:
         raise ValueError("JEPA process_stats must include world-training proprio statistics")
     prop = process['proprio']
-    encoder = FrozenJEPAEncoder(world, prop.mean_, prop.scale_, image_size)
+    encoder = FrozenJEPAEncoder(world, prop.mean_, prop.scale_, image_size, mode=options["mode"],
+                                unfreeze_last_n_blocks=options["unfreeze_last_n_blocks"])
     expected = (int(world_config.wm.embed_dim), int(world_config.wm.embed_dim),
                 int(world_config.wm.prop_embed_dim))
     if encoder.feature_dims != expected or encoder.proprio_mean.shape[-1] != world_config.wm.prop_dim:
         raise ValueError("JEPA checkpoint architecture does not match world_config")
-    provenance = {key: {'path': str(path), 'sha256': fingerprint(path)}
-                  for key, path in paths.items()}
     provenance['world_config'] = dict(provenance['world_config'],
                                      config=OmegaConf.to_container(world_config, resolve=False))
     return encoder, provenance
@@ -86,7 +142,7 @@ def load_jepa_policy(checkpoint, checkpoint_path, device):
         raise ValueError('Unsupported JEPA-DP checkpoint version')
     encoder = checkpoint['jepa_encoder']
     if not isinstance(encoder, FrozenJEPAEncoder):
-        raise ValueError('Missing frozen JEPA architecture')
+        raise ValueError('Missing JEPA encoder architecture')
     if (tuple(checkpoint['jepa_feature_dims']) != encoder.feature_dims
             or checkpoint['obs_feature_dim'] != encoder.output_shape()[0]
             or checkpoint['wrist_obs_feature_dim'] != 0

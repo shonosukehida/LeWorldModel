@@ -18,10 +18,10 @@ proprio      → 事前学習時のzscore → prop_encoder       ┘
 確認した実物では overhead=192、wrist=192、proprio=32、合計416。
 `obs_horizon=8` なら `global_cond` は3328次元。追加の学習可能な射影層はない。
 
-`FrozenJEPAEncoder` は5つの特徴抽出モジュールを `requires_grad_(False)` にし、
-`train()` を呼んでも子モジュールを含めevalを維持する。forwardは `torch.no_grad()`。
-OptimizerにはU-Netのパラメータだけを渡す。predictor/action_encoder/pred_projは
-Identityに置換し、重みを持ち回らず、特徴抽出でも呼び出さない。
+`FrozenJEPAEncoder` は旧Checkpointの復元に使うクラス名を維持している。
+学習時は `encoder.finetune.mode` に応じて対象モジュールだけをtrainモードにし、
+検証・推論時はEncoder全体をevalモードにする。predictor/action_encoder/pred_projは
+Policy用のコピー上でIdentityに置換する。
 互換性ハンドル `EmptyWristEncoder` の次元は0。Wristの実処理は複合Encoder内で行う。
 
 DPの変更は観測辞書を渡す `_encode_observation_info` フックだけ。
@@ -68,6 +68,22 @@ JEPA-DP学習時に追加のランダム明るさ拡張は適用しない。
   data.dataset.path=/absolute/path/to/demonstrations/push.h5
 ```
 
+上記コマンドのHydra上書きで方式を選択する。設定省略時は `frozen`。
+下表はローカルの `lewm20261103_155756/lewm_epoch_10_object.ckpt`（両ViTが各12ブロック）、
+既定U-Net、観測2ステップ、行動8次元での学習対象パラメータ数。
+
+| Hydra上書き | Encoderの学習対象 | Encoder | U-Net | 合計 |
+|---|---|---:|---:|---:|
+| `encoder.finetune.mode=frozen` | 全層凍結 | 0 | 77,148,168 | 77,148,168 |
+| `encoder.finetune.mode=partial encoder.finetune.unfreeze_last_n_blocks=3` | 各ViTの末尾3ブロック | 2,669,184 | 77,148,168 | 79,817,352 |
+| `encoder.finetune.mode=full` | 両ViTの観測特徴抽出部、両Projector、Proprio Encoder | 12,591,072 | 77,148,168 | 89,739,240 |
+
+`partial` のNは1以上、両ViTの深さ以下の整数を指定する。最終LayerNorm、Patch Embedding、
+ProjectorのBatchNorm統計を含め、選択したブロック以外は凍結する。
+`optimizer.lr=1e-4` がU-Net、`encoder.finetune.lr=1e-5` が学習対象Encoderの既定学習率。
+両グループに `optimizer.weight_decay` を適用し、`trainer.gradient_clip_val` は全勾配に共通の上限とする。
+開始ログで実際のパラメータ数と学習率を確認できる。W&B有効時は同じFine-tuning設定をRun configに記録する。
+
 `pred_horizon`/`obs_horizon`/`action_horizon`、`action_key`（既定action_cartesian）、
 `action_normalization`、`model`、`diffusion`、`loader`、`optimizer`、`trainer`の設定は従来どおり。
 CPUでは `device=cpu loader.num_workers=0 wandb.enabled=false` を追加できる。
@@ -75,7 +91,9 @@ CPUでは `device=cpu loader.num_workers=0 wandb.enabled=false` を追加でき�
 
 既定保存先は `$STABLEWM_HOME/checkpoints/<task>/policy/jepa_diffusion_policy/<dataset>/seed_<seed>/<timestamp>/`。
 `STABLEWM_HOME` 未設定時は既存キャッシュ先を使う。`best.ckpt`/`latest.ckpt`/epoch別Checkpointを保存する。
-通常DPの `diffusion_policy` ディレクトリと区別される。
+同一秒に別のJEPA-DP Runが開始された場合は末尾に識別子を付け、新規ディレクトリを確保する。
+開始時に3つの参照元ファイルのSHA-256を `config.yaml` の `encoder.source_sha256` に記録し、
+学習終了時に再計算して一致を確認する。
 
 ## dry run
 
@@ -124,9 +142,14 @@ dry run入口で未使用の `FrankaSimEnv` importによるEGL初期化が起き
 - `obs_encoder_state_dict`: 同じEncoderの重みとproprio統計。復元時 `strict=True` でロードする。
 - `jepa_feature_dims` / `jepa_image_size`: 出力次元と前処理情報。
 - `jepa_source`: 元のCheckpoint・世界モデル設定・統計ファイルの絶対パス、SHA-256、世界モデル設定の写し。
+- `encoder_config.finetune`: 学習時の方式、末尾ブロック数、Encoder学習率。
 
-U-Net重み、action正規化統計、horizon、scheduler、Hydra設定も共に保存する。
-推論時は元のJEPAアーティファクトがなくても復元できる。
+U-Net重み、AdamWの状態、action正規化統計、horizon、scheduler、Hydra設定も共に保存する。
+推論は `gpc.diffusion_checkpoint=/absolute/path/to/run/best.ckpt` で保存済みPolicyを選択する。
+`load_jepa_policy()` は同ファイルの更新済みEncoder重みを厳密ロードする。
+元のJEPAアーティファクトにアクセスせず、旧凍結版も同じ入口で復元できる。
+参照元3ファイルへの保存はシンボリックリンク・ハードリンク経由でも拒否する。
+Run内で更新できるのは `best.ckpt` と `latest.ckpt`。epoch別ファイルとRun外の保存は新規作成に限定する。
 元の世界モデルと同様、モデルオブジェクトの復元には互換性のあるPythonクラスと依存環境が必要。
 ResNet18/Convの保存形式とstate_dictキーは変えない。Encoder種別なしの旧CheckpointはResNet18として復元する。
 
@@ -209,7 +232,7 @@ train_loss=1.157674、train_eval_loss=1.126583、val_loss=0.974786。
 `/home/shonosukehida/.stable_worldmodel/checkpoints/flip_mug/policy/diffusion_policy/ep200_tm300_multiview_demo/seed_41/20261021_135400/latest.ckpt`
 も使用した。
 
-## 最終テスト結果
+## 凍結版導入時のテスト結果（2026-11-13）
 
 上記の関連10ファイルをまとめて実行し、**86 passed、2 skipped、46 subtests passed**（230.63秒）。
 失敗なし。skipはCUDA不在と、旧テストが固定参照する別ユーザー配下のCheckpoint不在。
@@ -230,3 +253,14 @@ train_loss=1.157674、train_eval_loss=1.126583、val_loss=0.974786。
 実データCLIログ: `/tmp/jepa-real-training.log`、`/tmp/jepa-real-episode.log`、
 `/tmp/jepa-real-multi.log`、`/tmp/jepa-real-chunk.log`。
 変更は両作業ブランチの作業ツリーに保持しており、commit/pushはしていない。
+
+## Fine-tuningの検証（2026-11-18）
+
+上記のCPU回帰テスト10ファイルは101件成功、失敗0件、2件skip、サブテスト46件成功。
+skipはCUDAと固定パス `/home/hida` 配下の旧DP Checkpointを必要とするテスト。
+保存先の保護を確認する最終再実行でも `tests/test_jepa_dp.py` の20件が成功した。
+
+- 合成データで3方式を各2 epoch実行し、学習対象・凍結バッファ・AdamWグループ・保存後の特徴量と行動を確認した。凍結版は同一seedで従来のLossと更新後の重みが完全一致した。
+- 実物の `lewm_epoch_10_object.ckpt` のSHA-256は検証前後とも `b530905cc48d93f7f944c02e6da3fd608658cec37b176da1de96b4972ed39d26`。付属の `config.yaml` と `process_stats.npz` も一致した。
+- 既存の凍結版 `20261113_125033/best.ckpt` は変更前後のコードで特徴量と100ステップ推論の行動系列が完全一致し、ファイルのSHA-256も一致した。
+- `full` の合成Checkpointで `eval_real_robot.py` の3つのDP dry runをCPU実行し、各モードでPNG、HDF5、metrics JSONを生成した。実機操作と実データでの再学習は行っていない。
