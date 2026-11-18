@@ -18,6 +18,19 @@ validate_every: 100
 val_batches: 1
 save_every: 500
 train_windows: null  # Set to 1 for the short overfit probe.
+validate_every_epochs: 1
+validation_mode: fixed  # fixed or full
+wandb:
+  enabled: false
+  project: flip-mug-diamond
+  entity: null
+  name: null
+  group: null
+  tags: [diamond, flip-mug, multiview]
+  mode: online
+  log_images: false
+  image_every_epochs: 5
+  image_horizon: 4
 hydra:
   run:
     dir: .
