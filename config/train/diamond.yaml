@@ -1,0 +1,30 @@
+dataset: ~/.stable_worldmodel/datasets/flip_mug/ep100_tm300_multiview_play_normal_brightness/push.h5
+stats: null  # null resolves to process_stats.npz next to the selected HDF5
+output: outputs/diamond/${now:%Y%m%d-%H%M%S-%f}
+resume: null
+views: [pixels, wrist_pixels]
+action_alignment: stored_row_t
+device: cpu
+seed: 123
+val_fraction: 0.1
+batch_size: 32
+steps: 1000  # Offline optimizer steps, drawn uniformly with replacement.
+lr: 0.0001
+eps: 0.00000001
+weight_decay: 0.01
+warmup_steps: 100
+grad_clip: 1.0
+validate_every: 100
+val_batches: 1
+save_every: 500
+train_windows: null  # Set to 1 for the short overfit probe.
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+  job_logging:
+    handlers:
+      file:
+        filename: /dev/null
