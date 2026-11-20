@@ -136,6 +136,7 @@ def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, se
                               output_dir, metadata, observation_builder):
     """Keep DP artifact generation unchanged; add GPC-specific artifacts separately."""
     metadata = dict(metadata, **latent_reward_metadata(policy),
+                    goal_mode=policy.goal_mode,
                     execute_first_candidate=policy.execute_first_candidate)
     data, steps, _ = load_episode(dataset_path, episode)
     rows = np.flatnonzero(steps == timestep)
@@ -189,7 +190,7 @@ def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, se
         f.attrs['metadata'] = json.dumps(result['metadata'], allow_nan=False)
     (out / 'multi_sample_metrics.json').write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')
     plot_gpc(candidates, gt, index, interval, out, episode, timestep)
-    print(f'Multi-sample GPC evaluation saved to: {out}')
+    print(f'Multi-sample GPC evaluation (goal_mode={policy.goal_mode}) saved to: {out}')
     return result
 
 
@@ -372,6 +373,7 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
     indices, rewards = np.asarray(indices), np.asarray(rewards)
     selected = predicted[np.arange(len(rows)), indices].copy()
     metadata = dict(metadata, **latent_reward_metadata(policy),
+                    goal_mode=policy.goal_mode,
                     execute_first_candidate=policy.execute_first_candidate)
     metadata = dict(metadata, policy_type='gpc', dry_run_mode='chunk_rollout',
                     dataset_path=str(Path(dataset_path).expanduser().resolve()), episode_idx=int(episode_id),
@@ -407,5 +409,5 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
         f.attrs['metadata'] = json.dumps(metadata, allow_nan=False)
     (out / 'chunk_rollout_metrics.json').write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')
     plot_gpc_chunk_rollout(predicted, data['action_cartesian'], steps, chunk_steps, valid, indices, out)
-    print(f'Chunk rollout GPC evaluation saved to: {out}')
+    print(f'Chunk rollout GPC evaluation (goal_mode={policy.goal_mode}) saved to: {out}')
     return result

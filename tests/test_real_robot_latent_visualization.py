@@ -1,6 +1,7 @@
 """Post-save hook tests without importing robot modules or contacting hardware."""
 import ast
 from copy import deepcopy
+import json
 from pathlib import Path
 import random
 import sys
@@ -156,7 +157,14 @@ class AutomaticTests(unittest.TestCase):
             np.testing.assert_allclose(file['observed_latent_distance'][:],
                                        np.array([5, 0, 10]) / process['proprio'].scale_[0, 0], rtol=1e-6)
         # Repeated automatic evaluation refreshes the same output directory.
+        policy.goal_mode = 'current_observation'
         self.assertEqual(auto.run_after_save(cfg, policy, fixture.root), output)
+        with h5py.File(output / 'latent_distance.h5') as file:
+            metadata = json.loads(file.attrs['metadata'])
+            self.assertEqual(metadata['goal_mode'], 'current_observation')
+            self.assertEqual(metadata['diagnostic_reference'], 'final_goal')
+            np.testing.assert_allclose(file['observed_latent_distance'][:],
+                                       np.array([5, 0, 10]) / process['proprio'].scale_[0, 0], rtol=1e-6)
         self.assertEqual(before, fingerprint(fixture.source))
 
 

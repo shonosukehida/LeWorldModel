@@ -75,6 +75,7 @@ class VisualizationTests(unittest.TestCase):
             recorder.save(tmp)
             with np.load(Path(tmp)/'gpc/data/candidates.npz', allow_pickle=False) as data:
                 self.assertEqual(data['normalization_space'], 'DP training normalization')
+                self.assertEqual(data['goal_mode'], 'final_goal')
                 self.assertEqual(data['step_idx'].tolist(), [7])
                 normalized = data['record_0000_candidate_actions']
                 self.assertEqual(normalized.shape, (4,4,8))
@@ -83,12 +84,33 @@ class VisualizationTests(unittest.TestCase):
                 self.assertEqual(data['record_0000_action_horizon'], 4)
             self.assertTrue((Path(tmp)/'gpc/gpc_actions/step_0007.png').exists())
 
+    def test_current_observation_label_and_legacy_archive(self):
+        from unittest.mock import patch
+        policy, _ = make_policy()
+        policy.goal_mode = 'current_observation'
+        with vis.GPCRecorder(policy) as recorder:
+            recorder.begin_step(1)
+            policy.get_action({})
+        with tempfile.TemporaryDirectory() as tmp, patch.object(vis, 'plot_candidates') as plot:
+            recorder.save(tmp)
+            self.assertEqual(plot.call_args.kwargs['goal_mode'], 'current_observation')
+            archive = Path(tmp) / 'gpc/data/candidates.npz'
+            vis.render_archive(archive)
+            self.assertEqual(plot.call_args.kwargs['goal_mode'], 'current_observation')
+            with np.load(archive, allow_pickle=False) as saved:
+                self.assertEqual(saved['goal_mode'], 'current_observation')
+                legacy = {key: saved[key] for key in saved.files if key != 'goal_mode'}
+            np.savez(archive, **legacy)
+            vis.render_archive(archive)
+            self.assertEqual(plot.call_args.kwargs['goal_mode'], 'final_goal')
+
     def test_plot_rank_colors_xyz_and_ties(self):
         actions = np.arange(4*5*8).reshape(4,5,8)
         rewards = np.array([1., 4., 4., -2.])
         np.testing.assert_array_equal(vis.evaluation_ranks(rewards), [3,1,2,4])
-        fig, axes = vis.plot_candidates(actions, rewards, 1, 7)
+        fig, axes = vis.plot_candidates(actions, rewards, 1, 7, goal_mode='current_observation')
         try:
+            self.assertIn('goal_mode=current_observation', fig._suptitle.get_text())
             self.assertEqual(len(axes), 3)
             for i, ax in enumerate(axes):
                 self.assertEqual(ax.get_ylabel(), f"{'XYZ'[i]} (normalized)")

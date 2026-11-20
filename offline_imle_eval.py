@@ -103,8 +103,7 @@ def evaluate_imle_gpc(policy, dataset_path, episode_id, output_dir, execute_step
     """Exercise actual GPC/WM selection and recorder without robot initialization.
 
     Observations come from the dataset, never from simulated action feedback.
-    The last stored observation is the goal. This evaluates proposals/selection,
-    not closed-loop task success.
+    The last stored observation supplies the fixed goal in final_goal mode.
     """
     import h5py
     import importlib.util
@@ -156,9 +155,13 @@ def evaluate_imle_gpc(policy, dataset_path, episode_id, output_dir, execute_step
         f.create_dataset("predicted_action", data=np.asarray(predicted))
         f.create_dataset("ground_truth_action", data=data["action_cartesian"])
         f.create_dataset("step_idx", data=steps)
+        f.attrs["goal_mode"] = policy.goal_mode
         f.attrs["evaluation"] = (
             "dataset observations; final dataset observation goal; no hardware"
+            if policy.goal_mode == "final_goal"
+            else "dataset observations; current dataset observation goal; no hardware"
         )
+    print(f"IMLE-GPC dry-run (goal_mode={policy.goal_mode}) saved to {root}")
     return np.asarray(predicted)
 
 
@@ -179,6 +182,7 @@ def run_offline_imle_gpc(cfg, image_transform, world_model_loader, process, tran
     world_model.interpolate_pos_encoding = True
     action_policy = load_imle_policy(cfg.gpc.imle_checkpoint, image_transform, device)
     policy = GPCPolicy(
+        goal_mode=cfg.gpc.get("goal_mode", "final_goal"),
         execute_first_candidate=cfg.gpc.get("execute_first_candidate", False),
         action_policy=action_policy,
         world_model=world_model,

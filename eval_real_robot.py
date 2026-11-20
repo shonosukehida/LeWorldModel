@@ -2869,6 +2869,7 @@ def run(cfg: DictConfig):
                 imle_checkpoint_path, img_transform(cfg),
                 cfg.gpc.get("imle_device", "cuda"))
             policy = swm.policy.GPCPolicy(
+                goal_mode=cfg.gpc.get("goal_mode", "final_goal"),
                 execute_first_candidate=cfg.gpc.get("execute_first_candidate", False),
                 action_policy=action_policy, world_model=model,
                 reward_fn=LatentGoalReward(
@@ -2900,6 +2901,7 @@ def run(cfg: DictConfig):
             )
 
             policy = swm.policy.GPCPolicy(
+                goal_mode=cfg.gpc.get("goal_mode", "final_goal"),
                 execute_first_candidate=cfg.gpc.get("execute_first_candidate", False),
                 diffusion_policy=diffusion_policy,
                 world_model=model,
@@ -2912,9 +2914,6 @@ def run(cfg: DictConfig):
                 process=process,
                 transform=transform,
             )
-
-            if latent_metadata is not None:
-                policy._latent_visualization_metadata = latent_metadata
 
             if offline_latent_dist:
                 from offline_latent_dist_eval import run_offline_latent_dist
@@ -2950,6 +2949,13 @@ def run(cfg: DictConfig):
     if cfg.eval.real_robot.execute:
         if policy == "random" or isinstance(policy, swm.policy.RandomPolicy):
             raise ValueError("Real-robot inference requires a trained policy")
+        if cfg.get("policy_type") == "gpc":
+            if latent_metadata is not None:
+                policy._latent_visualization_metadata = latent_metadata
+            # Include the effective default in rollout.h5 for older configs.
+            if "goal_mode" not in cfg.gpc:
+                cfg = OmegaConf.merge({"gpc": {"goal_mode": policy.goal_mode}}, cfg)
+            print(f"GPC goal_mode={policy.goal_mode}")
         run_xarm_task(cfg, policy, process, results_path)
 
 

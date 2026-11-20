@@ -112,6 +112,53 @@ def test_artifacts_one_sampling_gt_independence_measured_proprio_and_rng():
             evaluate_gpc_multi_sample(policy, dataset, 7, 1, 3, 42, tmp, {}, builder)
 
 
+@pytest.mark.parametrize('mode', ['multi_sample', 'chunk_rollout'])
+def test_current_goal_offline_rewards_and_metadata(tmp_path, monkeypatch, mode):
+    import offline_gpc_eval as gpc
+    from test_offline_latent_dist_eval import setup
+
+    dataset, policy, build_observation, _ = setup(tmp_path, length=9)
+    policy.goal_mode = 'current_observation'
+
+    def measured_observation(data, row, proprio):
+        data['offline_step_idx'] = np.arange(100, 109)
+        info = build_observation(data, row, proprio)
+        info['goal'] = np.full_like(info['pixels'], 200)
+        info['goal_wrist_pixels'] = np.full_like(info['wrist_pixels'], 150)
+        info['goal_proprio'] = np.full_like(info['proprio'], 80.)
+        return info
+
+    if mode == 'multi_sample':
+        monkeypatch.setattr(dp_eval, 'plot_multi_sample', Mock())
+        monkeypatch.setattr(gpc, 'plot_gpc', Mock())
+        result = gpc.evaluate_gpc_multi_sample(
+            policy, dataset, 7, 104, 3, 42, tmp_path, {}, measured_observation)
+        output_name, rows = 'multi_sample_rollout.h5', [4]
+    else:
+        monkeypatch.setattr(gpc, 'plot_gpc_chunk_rollout', Mock())
+        result = gpc.evaluate_gpc_chunk_rollout(
+            policy, dataset, 7, 3, 42, tmp_path, {}, measured_observation, dp_execute_steps=4)
+        output_name, rows = 'chunk_rollout.h5', [0, 4, 8]
+
+    expected = []
+    assert len(policy.world_model.calls) == len(rows)
+    with h5py.File(dataset) as data:
+        for row, (info, actions) in zip(rows, policy.world_model.calls):
+            proprio = torch.from_numpy(data['proprio'][row])
+            image = float(data['pixels'][row].mean() + data['wrist_pixels'][row].mean())
+            target = proprio + image / 100
+            terminal = (info['proprio'] + actions.cumsum(dim=2))[0, :, -1]
+            expected.append(-((terminal - target) ** 2).sum(-1).numpy())
+    out = Path(result['metadata']['output_dir'])
+    metrics = json.loads((out / f'{mode}_metrics.json').read_text())
+    assert metrics['metadata']['goal_mode'] == 'current_observation'
+    with h5py.File(out / output_name) as saved:
+        assert json.loads(saved.attrs['metadata'])['goal_mode'] == 'current_observation'
+        assert saved['candidate_rewards'].shape == (len(rows), 3)
+        np.testing.assert_array_equal(saved['candidate_rewards'][:], expected)
+        np.testing.assert_array_equal(np.atleast_1d(saved['best_idx'][()]), np.argmax(expected, axis=1))
+
+
 def test_diffusion_exact_prechange_artifacts_and_png():
     # Pin the actual pre-implementation revision, rather than a moving HEAD.
     source = subprocess.check_output(['git', 'show',
@@ -268,10 +315,25 @@ def test_existing_apis_and_robot_implementation_unchanged():
     previous = previous.replace(
         'wm_info[key] = (value[:, None].expand(B, K, *value.shape[1:],))',
         'wm_info[key] = value[:, None].expand(B, K, *value.shape[1:])')
+
+    class FinalGoalPath(ast.NodeTransformer):
+        """Resolve goal_mode guards and compare every statement on the legacy path."""
+        def visit_If(self, node):
+            test = node.test
+            if ast.unparse(test) == "self.goal_mode == 'final_goal'":
+                return node.body
+            if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+                test = test.values[0]
+            if ast.unparse(test) == "self.goal_mode == 'current_observation'":
+                return node.orelse
+            return self.generic_visit(node)
+
     def legacy_policy_definitions(source):
         tree = ast.parse(source)
         for node in tree.body:
             if isinstance(node, ast.ClassDef) and node.name == 'GPCPolicy':
+                rollout = next(method for method in node.body if getattr(method, 'name', None) == 'rollout')
+                FinalGoalPath().visit(rollout)
                 # Selection has its own exact pre-change regression in stable-worldmodel.
                 node.body = [n for n in node.body if getattr(n, 'name', None)
                              not in {'__init__', 'get_action_chunk'}

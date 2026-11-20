@@ -96,6 +96,8 @@ class IntegrationTests(unittest.TestCase):
 
     def policy(self):
         cfg = config()
+        # This fixture constructs image-only proposals; its WM still uses proprio.
+        cfg.imle.use_proprio = False
         p = build_policy(cfg)
         for m in modules(p):
             m.eval()

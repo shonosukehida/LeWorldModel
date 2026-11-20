@@ -22,7 +22,7 @@ def evaluation_ranks(rewards):
 
 
 def plot_candidates(actions, rewards, best_idx, step_idx, save_path=None,
-                    selected_candidate_index=None):
+                    selected_candidate_index=None, goal_mode="final_goal"):
     import matplotlib.pyplot as plt
     from matplotlib.colors import ListedColormap, Normalize
     from matplotlib.cm import ScalarMappable
@@ -57,6 +57,7 @@ def plot_candidates(actions, rewards, best_idx, step_idx, save_path=None,
     title = f"Step {step_idx} | num_candidates={k} | selected index={selected} (Rank {ranks[selected]})"
     if selected != best_idx:
         title += f" | WM best index={best_idx}"
+    title += f" | goal_mode={goal_mode}"
     fig.suptitle(title + "\nDP-normalized target actions; not measured robot trajectories")
     if save_path is not None:
         try:
@@ -188,6 +189,7 @@ class GPCRecorder:
         (root / "data").mkdir(parents=True, exist_ok=True)
         (root / "gpc_actions").mkdir(exist_ok=True)
         payload = dict(normalization_space=np.array("DP training normalization"),
+                       goal_mode=np.array(self.policy.goal_mode),
                        action_key=np.array(self.action_key),
                        configured_action_horizon=np.array(self.policy.action_horizon),
                        execute_first_candidate=np.array(self.policy.execute_first_candidate),
@@ -213,7 +215,8 @@ class GPCRecorder:
             plot_candidates(record["candidate_actions"], record["rewards"],
                             record["best_idx"], record["step_idx"],
                             root / "gpc_actions" / f"step_{record['step_idx']:04d}.png",
-                            selected_candidate_index=record["selected_candidate_index"])
+                            selected_candidate_index=record["selected_candidate_index"],
+                            goal_mode=self.policy.goal_mode)
         return root
 
 
@@ -232,7 +235,8 @@ def render_archive(archive_path, output_dir=None):
                             int(data[prefix + "best_idx"]), step,
                             output_dir / f"step_{step:04d}.png",
                             selected_candidate_index=(int(data[prefix + "selected_candidate_index"])
-                                if prefix + "selected_candidate_index" in data else None))
+                                if prefix + "selected_candidate_index" in data else None),
+                            goal_mode=str(data["goal_mode"]) if "goal_mode" in data else "final_goal")
 
 
 if __name__ == "__main__":

@@ -147,6 +147,7 @@ def test_eight_step_artifacts_match_prechange_gpc(tmp_path):
     for key in ('overhead_latent_dimension', 'wrist_latent_dimension', 'proprio_latent_dimension'):
         assert results[1]['metadata'][key] is None
     assert results[1].pop('best_idx') == results[1]['selected_candidate_indices']
+    assert results[1]['metadata'].pop('goal_mode') == 'final_goal'
     assert results[1]['metadata'].pop('execute_first_candidate') is False
     for result in results:
         for key in ('run_id','output_dir','execution_note','dp_execute_steps',

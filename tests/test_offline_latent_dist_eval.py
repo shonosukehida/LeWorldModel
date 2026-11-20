@@ -170,6 +170,64 @@ def test_shape_validation():
     with pytest.raises(ValueError): latent._l2(torch.zeros(8),torch.zeros(9))
 
 
+def test_current_observation_rewards_and_separate_fixed_goal_diagnostics(tmp_path):
+    path, base, builder, _ = setup(tmp_path)
+    policy = old.GPCPolicy(base.diffusion_policy, base.world_model, base.reward_fn,
+                           process=base.process, transform=base.transform,
+                           goal_mode='current_observation')
+    outputs = []
+    for goal_pixel in (0, 200):
+        def observation(data, row, proprio):
+            info = builder(data, row, proprio)
+            info['goal'].fill(goal_pixel)
+            info['goal_wrist_pixels'].fill(goal_pixel)
+            return info
+
+        policy.world_model.calls.clear()
+        result = latent.evaluate_latent_dist(policy, path, 7, 3, 42, tmp_path, {}, observation, 8)
+        metadata = result['metadata']
+        out = Path(metadata['output_dir'])
+        assert metadata['goal_mode'] == 'current_observation'
+        assert 'saved final goal' in metadata['goal_distance_reference']
+        assert (out / 'rollout_distance_to_current_observation.png').is_file()
+        with h5py.File(out / 'latent_distance.h5') as file:
+            assert json.loads(file.attrs['metadata']) == metadata
+            rows = np.array([0, 8])
+            starts = file['observed_latents'][:][rows]
+            fixed_goal = file['goal_latent'][:]
+            assert not np.array_equal(starts[0], starts[1])
+            for kind in ('gt', 'gpc'):
+                terminal = file[f'{kind}_terminal_latents'][:]
+                np.testing.assert_allclose(file[f'{kind}_rollout_terminal_distance'][:],
+                                           np.linalg.norm(terminal - fixed_goal, axis=1), rtol=1e-6)
+                np.testing.assert_allclose(file[f'{kind}_rollout_terminal_distance_to_current_observation'][:],
+                                           np.linalg.norm(terminal - starts, axis=1), rtol=1e-6)
+            rewards = file['candidate_rewards'][:]
+            assert rewards.shape == (2, 3)
+            for i, (info, actions) in enumerate(policy.world_model.calls[::2]):
+                terminal = info['proprio'][0, :, 0] + actions[0].cumsum(dim=1)[:, -1]
+                expected = -((terminal - torch.from_numpy(starts[i])) ** 2).sum(-1)
+                np.testing.assert_array_equal(rewards[i], expected.numpy())
+            selected = file['selected_candidate_indices'][:]
+            np.testing.assert_array_equal(selected, rewards.argmax(axis=1))
+            outputs.append((rewards, selected, fixed_goal))
+
+    np.testing.assert_array_equal(outputs[0][0], outputs[1][0])
+    np.testing.assert_array_equal(outputs[0][1], outputs[1][1])
+    assert not np.array_equal(outputs[0][2], outputs[1][2])
+
+
+def test_current_observation_short_episode_keeps_empty_distance_shapes(tmp_path):
+    path, policy, builder, _ = setup(tmp_path, length=5)
+    policy.goal_mode = 'current_observation'
+    with patch.object(latent, 'plot_latent_dist'):
+        result = latent.evaluate_latent_dist(policy, path, 7, 3, 42, tmp_path, {}, builder, 4)
+    with h5py.File(Path(result['metadata']['output_dir']) / 'latent_distance.h5') as file:
+        assert file['candidate_rewards'].shape == (0, 3)
+        for kind in ('gt', 'gpc'):
+            assert file[f'{kind}_rollout_terminal_distance_to_current_observation'].shape == (0,)
+
+
 @pytest.mark.skipif(not all(p.exists() for p in (old.REAL_DP,Path(f'{old.REAL_WM}_object.ckpt'),old.REAL_DATA,old.REAL_STATS)),reason='Production files unavailable')
 def test_real_checkpoints_cpu_latent_dist():
     source=inspect.getsource(old.test_production_checkpoints_cpu)

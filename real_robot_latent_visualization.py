@@ -81,6 +81,7 @@ def _evaluate_saved(cfg, policy, run_dir):
                             process=deepcopy(policy.process), transform=deepcopy(policy.transform))
         from stable_worldmodel.reward import latent_reward_metadata
         details = dict(metadata, **latent_reward_metadata(policy),
+                       goal_mode=policy.goal_mode, diagnostic_reference='final_goal',
                        device=str(next(model.parameters()).device),
                        torch_version=str(torch.__version__))
         output = evaluate_rollout(private, Path(run_dir) / 'rollout.h5', metadata=details)

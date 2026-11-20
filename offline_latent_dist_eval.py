@@ -48,20 +48,25 @@ def plot_latent_dist(values, horizon, out):
     specs = (
         ('observed_latent_distance', values['observed_step_idx'],
          [('observed_latent_distance', 'black', 'Observed latent distance')],
-         'Episode step', 'Latent L2 distance to Goal'),
+         'Episode step', 'Latent L2 distance to saved final goal'),
         ('rollout_latent_distance', t,
          [('current_observed_distance', 'black', 'Observed at start t'),
           ('gt_rollout_terminal_distance', 'blue', f'GT action rollout ({horizon}-step terminal)'),
           ('gpc_rollout_terminal_distance', 'red', f'GPC selected rollout ({horizon}-step terminal)')],
-         'Rollout start step t', 'Predicted terminal latent L2 distance to Goal'),
+         'Rollout start step t', 'Latent L2 distance to saved final goal'),
         ('latent_distance_delta', t,
          [('gt_distance_delta', 'blue', f'GT rollout ({horizon}-step)'),
           ('gpc_distance_delta', 'red', f'GPC rollout ({horizon}-step)')],
-         'Rollout start step t', 'Predicted terminal distance − Current distance'),
+         'Rollout start step t', 'Change in L2 distance to saved final goal'),
         ('wm_prediction_error', t,
          [('wm_prediction_error', 'purple', f'GT prediction vs observed at t+{horizon}')],
          'Rollout start step t', 'Latent L2 prediction error'),
     )
+    if 'gpc_rollout_terminal_distance_to_current_observation' in values:
+        specs += (('rollout_distance_to_current_observation', t,
+                   [('gt_rollout_terminal_distance_to_current_observation', 'blue', 'GT action rollout'),
+                    ('gpc_rollout_terminal_distance_to_current_observation', 'red', 'GPC selected rollout')],
+                   'Rollout start step t', 'Terminal latent L2 distance to observation at t'),)
     for name, x, curves, xlabel, ylabel in specs:
         fig, ax = plt.subplots(figsize=(12, 4))
         for key, color, label in curves:
@@ -112,8 +117,13 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
     goal = _latent(policy.encode_goal(observation(0)), 'goal_emb').detach()
     goal_cpu = goal[0, -1].cpu()
     dimension = goal.shape[-1]
-    cached = copy(policy)
-    cached.encode_goal = lambda info: goal
+    # The saved goal remains the reference for the original distance curves.
+    # Only reuse it for selection when it is also the policy's target.
+    goal_mode = policy.goal_mode
+    evaluation_policy = policy
+    if goal_mode == 'final_goal':
+        evaluation_policy = copy(policy)
+        evaluation_policy.encode_goal = lambda info: goal
     observed = []
     wm_device = next(policy.world_model.parameters()).device
     for row in tqdm(range(len(steps)), total=len(steps), desc='Encoding observed latents', unit='step'):
@@ -135,9 +145,9 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
         info = observation(row)
         candidates = sample_candidates(dp, build_observation_history(data, int(row), obs), count, seed + i)
         captured = {}
-        recording = copy(cached)
+        recording = copy(evaluation_policy)
         def rollout(**kwargs):
-            output = cached.rollout(**kwargs)
+            output = evaluation_policy.rollout(**kwargs)
             captured['terminal'] = _terminal(output, count, dimension)
             return output
         recording.rollout = rollout
@@ -148,8 +158,9 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
             raise ValueError('GPC evaluation interval differs from the complete action_horizon')
         terminal = captured['terminal']
         # Validate the configured reward separately from ordinary L2 diagnostics.
+        target = observed[row] if goal_mode == 'current_observation' else goal_cpu
         expected = latent_goal_reward(
-            {'predicted_emb': terminal[None, :, None], 'goal_emb': goal_cpu[None, None]}, {},
+            {'predicted_emb': terminal[None, :, None], 'goal_emb': target[None, None]}, {},
             lambda_prop=reward_config['lambda_prop'], image_dim=reward_config['image_latent_dimension'],
             lambda_overhead=reward_config['lambda_overhead'], lambda_wrist=reward_config['lambda_wrist'],
             overhead_dim=reward_config['overhead_latent_dimension'])
@@ -160,8 +171,8 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
         rewards.append(reward[0])
         # GT is used only after independent candidate selection. No DP offset here.
         gt = torch.as_tensor(data['action_cartesian'][row:row + horizon], device=policy.device)[None, None]
-        normalized = cached.normalize_action_for_world_model(gt)
-        output = cached.rollout(info_dict=info, action_sequences=normalized)
+        normalized = evaluation_policy.normalize_action_for_world_model(gt)
+        output = evaluation_policy.rollout(info_dict=info, action_sequences=normalized)
         gt_latents.append(_terminal(output, 1, dimension)[0])
     # Empty rollout sets remain well shaped when an episode is shorter than H+1.
     gt_latents = torch.stack(gt_latents) if gt_latents else torch.empty((0, dimension), dtype=goal_cpu.dtype)
@@ -181,11 +192,17 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
                   candidate_rewards=np.asarray(rewards).reshape(len(valid_rows), count),
                   goal_latent=goal_cpu.numpy(), observed_latents=observed.numpy(),
                   gt_terminal_latents=gt_latents.numpy(), gpc_terminal_latents=selected_latents.numpy())
+    if goal_mode == 'current_observation':
+        current_latents = observed[valid_rows]
+        values['gt_rollout_terminal_distance_to_current_observation'] = _l2(gt_latents, current_latents)
+        values['gpc_rollout_terminal_distance_to_current_observation'] = _l2(selected_latents, current_latents)
     for key in ('image_cost', 'overhead_cost', 'wrist_cost', 'prop_cost', 'weighted_total_cost'):
         if candidate_costs and key in candidate_costs[0]:
             values[key] = np.stack([cost[key] for cost in candidate_costs])
     metadata = dict(metadata, **reward_config)
-    metadata = dict(metadata, execute_first_candidate=policy.execute_first_candidate,
+    metadata = dict(metadata, goal_mode=goal_mode, execute_first_candidate=policy.execute_first_candidate,
+                    goal_distance_reference='goal_latent, observed_latent_distance, *_observed_distance, '
+                                            '*_rollout_terminal_distance and *_distance_delta use the saved final goal',
                     policy_type='gpc', dry_run_mode='latent_dist', episode_idx=int(episode_id),
                     dataset_path=str(Path(dataset_path).expanduser().resolve()),
                     action_horizon=horizon, dp_execute_steps=execute, dry_run_num_candidates=count,
@@ -199,6 +216,10 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
                     evaluation_seeds=[seed + i for i in range(len(valid_rows))],
                     obs_horizon=obs, pred_horizon=int(dp.pred_horizon), goal_encoded_once=True,
                     preprocessing='existing GPC _prepare_info / encode_goal; no pooling, flatten, concat or extra normalization')
+    if goal_mode == 'current_observation':
+        metadata['preprocessing'] = (
+            'GPC _prepare_info and WM encode on the measured observations at each inference step; '
+            'goal_encoded_once refers to the saved final goal used for diagnostics')
     parent = Path(output_dir).expanduser()
     parent.mkdir(parents=True, exist_ok=True)
     out = Path(tempfile.mkdtemp(prefix=f'episode_{episode_id}_', dir=parent))
@@ -213,7 +234,7 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
         f.attrs['metadata'] = json.dumps(metadata, allow_nan=False)
     (out / 'latent_distance_metrics.json').write_text(encoded + '\n')
     plot_latent_dist(values, horizon, out)
-    print(f'Latent-distance GPC diagnostics saved to: {out}')
+    print(f'Latent-distance GPC diagnostics (goal_mode={goal_mode}) saved to: {out}')
     return result
 
 
