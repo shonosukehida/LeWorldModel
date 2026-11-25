@@ -136,12 +136,15 @@ def evaluate_imle_gpc(policy, dataset_path, episode_id, output_dir, execute_step
             obs = {
                 key: data[key][row][None, None] for key in ("pixels", "wrist_pixels")
             }
-            obs.update(
-                proprio=proprio[row][None, None],
-                goal=data["pixels"][-1][None, None],
-                goal_wrist_pixels=data["wrist_pixels"][-1][None, None],
-                goal_proprio=proprio[-1][None, None],
-            )
+            obs['proprio'] = proprio[row][None, None]
+            if policy.goal_mode == 'latent_smoothness':
+                from stable_worldmodel.smoothness import MeasuredHistory
+                obs['smoothness_history'] = MeasuredHistory.from_episode(
+                    policy.smoothness_horizon, data, proprio, steps, row)
+            else:
+                obs.update(goal=data["pixels"][-1][None, None],
+                           goal_wrist_pixels=data["wrist_pixels"][-1][None, None],
+                           goal_proprio=proprio[-1][None, None])
             history = build_observation_history(
                 data, row, policy.action_policy.obs_horizon, history_keys
             )
@@ -161,17 +164,25 @@ def evaluate_imle_gpc(policy, dataset_path, episode_id, output_dir, execute_step
             if policy.goal_mode == "final_goal"
             else "dataset observations; current dataset observation goal; no hardware"
         )
+        if policy.goal_mode == "latent_smoothness":
+            from stable_worldmodel.reward import latent_reward_metadata
+            f.attrs["evaluation"] = "measured episode history and candidate WM predictions"
+            f.attrs.update(**latent_reward_metadata(policy))
+            for key in ("observation_steps", "history_padded", "smoothness_cost",
+                        "best_idx", "selected_candidate_index"):
+                f[key] = [record[key] for record in recorder.records]
     print(f"IMLE-GPC dry-run (goal_mode={policy.goal_mode}) saved to {root}")
     return np.asarray(predicted)
 
 
 def run_offline_imle_gpc(cfg, image_transform, world_model_loader, process, transform):
     from stable_worldmodel.policy import GPCPolicy
-    from stable_worldmodel.reward import LatentGoalReward
+    from stable_worldmodel.reward import gpc_scoring_options
 
     mode = cfg.eval.real_robot.get("dry_run_mode", "episode")
-    if mode != "episode":
-        raise ValueError("IMLE-GPC dataset dry_run supports dry_run_mode=episode only")
+    smoothness = cfg.gpc.get("goal_mode", "final_goal") == "latent_smoothness"
+    if mode != "episode" and not (smoothness and mode in ("chunk_rollout", "multi_sample")):
+        raise ValueError("IMLE-GPC dataset dry_run supports episode, plus chunk_rollout/multi_sample for latent_smoothness")
     device = cfg.gpc.get("imle_device", "cuda")
     if cfg.eval.probing.get("use_random_encoder", False):
         raise ValueError(
@@ -182,19 +193,19 @@ def run_offline_imle_gpc(cfg, image_transform, world_model_loader, process, tran
     world_model.interpolate_pos_encoding = True
     action_policy = load_imle_policy(cfg.gpc.imle_checkpoint, image_transform, device)
     policy = GPCPolicy(
-        goal_mode=cfg.gpc.get("goal_mode", "final_goal"),
+        **gpc_scoring_options(cfg.gpc, world_model),
         execute_first_candidate=cfg.gpc.get("execute_first_candidate", False),
         action_policy=action_policy,
         world_model=world_model,
-        reward_fn=LatentGoalReward(
-            world_model, cfg.gpc.get("lambda_prop", 1.0),
-            lambda_overhead=cfg.gpc.get("lambda_overhead", 1.0),
-            lambda_wrist=cfg.gpc.get("lambda_wrist", 1.0)),
         num_candidates=cfg.gpc.num_candidates,
         process=process,
         transform=transform,
     )
     robot = cfg.eval.real_robot
+    if mode != "episode":
+        from offline_gpc_eval import run_offline_gpc_chunk_rollout, run_offline_gpc_multi_sample
+        evaluate = run_offline_gpc_chunk_rollout if mode == "chunk_rollout" else run_offline_gpc_multi_sample
+        return evaluate(cfg, policy, None, None)
     return evaluate_imle_gpc(
         policy,
         robot.dry_run_dataset_path,

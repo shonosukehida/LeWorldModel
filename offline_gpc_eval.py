@@ -8,7 +8,8 @@ import h5py
 import numpy as np
 import torch
 
-from offline_dp_eval import evaluate_multi_sample, load_episode
+from offline_dp_eval import evaluate_multi_sample, load_episode, compute_metrics
+from stable_worldmodel.smoothness import MeasuredHistory
 from stable_worldmodel.reward import latent_reward_metadata, latent_goal_costs, latent_goal_modality_costs
 
 
@@ -90,6 +91,9 @@ def select_candidates(policy, candidates, wm_observation, diagnostics=None):
     index = int(replay.selected_candidate_index.item())
     if diagnostics is not None:
         diagnostics.update(best_idx=best_idx, selected_candidate_index=index)
+        if policy.goal_mode == 'latent_smoothness':
+            diagnostics.update(wm_observation['smoothness_history'].diagnostics(
+                -rewards[0].cpu().numpy(), best_idx, index))
     start = policy.diffusion_policy.obs_horizon - 1
     end = min(start + policy.action_horizon, candidates.shape[1])
     if not np.array_equal(chunk[0], candidates[index, start:end]):
@@ -97,7 +101,7 @@ def select_candidates(policy, candidates, wm_observation, diagnostics=None):
     return index, rewards.cpu().numpy(), (start, end)
 
 
-def plot_gpc(predicted, gt, index, interval, out, episode, timestep):
+def plot_gpc(predicted, gt, index, interval, out, episode, timestep, smoothness=False):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -115,7 +119,9 @@ def plot_gpc(predicted, gt, index, interval, out, episode, timestep):
                         label='DP candidates' if k == 0 else None)
             ax.axvspan(interval[0] - .5, interval[1] - .5, color='gold', alpha=.15,
                        label='WM evaluated interval [start, end)')
-            ax.plot(x, gt[:, dim], color='blue', linewidth=2.5, label='Ground Truth')
+            if smoothness:
+                ax.plot(x, predicted[0, :, dim], color='blue', label='DP candidate 0')
+            ax.plot(x, gt[:, dim], color='black' if smoothness else 'blue', linewidth=2.5, label='Ground Truth')
             ax.plot(x, predicted[index, :, dim], color='red', linewidth=3, zorder=5,
                     label=f'GPC selected candidate {index}')
             ax.axvline(interval[0], color='black', linestyle='--', label='Selected action index')
@@ -147,7 +153,16 @@ def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, se
         if 'proprio' not in f or len(f['proprio']) != len(f['episode_idx']):
             raise ValueError('GPC requires measured dataset proprio, aligned with episode_idx')
         episode_rows = np.flatnonzero(np.asarray(f['episode_idx']).reshape(-1) == episode)
-        proprio = np.asarray(f['proprio'][int(episode_rows[rows[0]])], dtype=np.float32)
+        row = int(rows[0])
+        proprio = np.asarray(f['proprio'][int(episode_rows[row])], dtype=np.float32)
+        if policy.goal_mode == 'latent_smoothness':
+            first = max(0, row + 1 - policy.smoothness_horizon)
+            window = slice(first, row + 1)
+            measured = np.asarray(f['proprio'][episode_rows[window]], dtype=np.float32)
+            frames = {k: data[k][window].copy() for k in ('pixels', 'wrist_pixels')}
+            history = MeasuredHistory.from_episode(policy.smoothness_horizon, frames, measured,
+                                                    steps[window], row - first)
+            del frames
     if proprio.shape != (8,) or not np.isfinite(proprio).all():
         raise ValueError('Expected finite measured proprio (8,)')
     wm_info = observation_builder(data, int(rows[0]), proprio)
@@ -155,6 +170,8 @@ def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, se
     # episode. Array views would otherwise keep both full image copies alive.
     wm_info = {key: value.copy() if isinstance(value, np.ndarray) else value
                for key, value in wm_info.items()}
+    if policy.goal_mode == 'latent_smoothness':
+        wm_info['smoothness_history'] = history
     del data
     captured = {}
     dp = policy.diffusion_policy
@@ -169,8 +186,13 @@ def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, se
             captured.update(index=index, rewards=rewards, interval=interval)
             return sampled
 
-    result = evaluate_multi_sample(RecordingDP(), dataset_path, episode, timestep,
-                                   count, seed, output_dir, metadata)
+    evaluate = evaluate_multi_sample
+    options = {}
+    if getattr(dp, 'type', None) == 'imle' and dp.use_proprio:
+        from offline_imle_core import evaluate_multi_sample as evaluate
+        from offline_imle_eval import load_proprio_episode
+        options = dict(episode_loader=load_proprio_episode, history_keys=('pixels', 'wrist_pixels', 'proprio'))
+    result = evaluate(RecordingDP(), dataset_path, episode, timestep, count, seed, output_dir, metadata, **options)
     out = Path(result['metadata']['output_dir'])
     index, rewards, interval = captured['index'], captured['rewards'], captured['interval']
     result.update(best_idx=captured['best_idx'], selected_candidate_index=index, candidate_rewards=rewards.tolist())
@@ -185,25 +207,40 @@ def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, se
         for key in ('image_cost', 'overhead_cost', 'wrist_cost', 'prop_cost', 'weighted_total_cost'):
             if key in captured:
                 f[key] = captured[key]
+        if policy.goal_mode == 'latent_smoothness':
+            for key in ('smoothness_cost', 'observation_steps', 'history_padded'):
+                result[key] = captured[key]
+                f[key] = captured[key]
         f['selected_candidate_actions'] = candidates[index]
         f['wm_evaluation_interval'] = interval
         f.attrs['metadata'] = json.dumps(result['metadata'], allow_nan=False)
     (out / 'multi_sample_metrics.json').write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')
-    plot_gpc(candidates, gt, index, interval, out, episode, timestep)
+    plot_gpc(candidates, gt, index, interval, out, episode, timestep, policy.goal_mode == "latent_smoothness")
     print(f'Multi-sample GPC evaluation (goal_mode={policy.goal_mode}) saved to: {out}')
     return result
 
 
-def run_offline_gpc_multi_sample(cfg, policy, goal_loader, observation_builder):
-    robot = cfg.eval.real_robot
+def ranking_observation_builder(policy, robot, goal_loader, observation_builder, *, multi_sample=False):
+    if policy.goal_mode == 'latent_smoothness':
+        def measured(data, row, proprio):
+            return dict(pixels=data['pixels'][None, row:row+1], wrist_pixels=data['wrist_pixels'][None, row:row+1],
+                        proprio=proprio[None, None])
+        return measured
     if not robot.goal_image_path or not robot.goal_wrist_image_path:
         raise ValueError('Offline GPC requires saved goal images; capture is unavailable')
     goal, wrist, goal_proprio = goal_loader(None, robot)
 
     def observation(data, row, proprio):
+        step = robot.dry_run_timestep if multi_sample else int(data['offline_step_idx'][row])
         return observation_builder(data['pixels'][row], data['wrist_pixels'][row],
                                    goal, wrist, proprio[:7], proprio[7], goal_proprio,
-                                   robot.dry_run_timestep, policy.process)
+                                   step, policy.process)
+    return observation
+
+
+def run_offline_gpc_multi_sample(cfg, policy, goal_loader, observation_builder):
+    robot = cfg.eval.real_robot
+    observation = ranking_observation_builder(policy, robot, goal_loader, observation_builder, multi_sample=True)
 
     from omegaconf import OmegaConf
     import stable_worldmodel as swm
@@ -223,8 +260,8 @@ def run_offline_gpc_multi_sample(cfg, policy, goal_loader, observation_builder):
                     # Unused legacy interpolations need not resolve for offline evaluation.
                     config=OmegaConf.to_container(cfg, resolve=False),
                     normalization_stats_path=str(Path(cfg.eval.normalization_stats_path).expanduser().resolve()),
-                    goal_image_path=str(Path(robot.goal_image_path).expanduser().resolve()),
-                    goal_wrist_image_path=str(Path(robot.goal_wrist_image_path).expanduser().resolve()),
+                    goal_image_path=str(Path(robot.goal_image_path).expanduser().resolve()) if robot.goal_image_path else None,
+                    goal_wrist_image_path=str(Path(robot.goal_wrist_image_path).expanduser().resolve()) if robot.goal_wrist_image_path else None,
                     image_size=cfg.eval.img_size,
                     preprocessing='DP training image transform; WM real-robot transform and process')
     return evaluate_gpc_multi_sample(
@@ -236,14 +273,7 @@ def run_offline_gpc_multi_sample(cfg, policy, goal_loader, observation_builder):
 
 def run_offline_gpc_chunk_rollout(cfg, policy, goal_loader, observation_builder):
     robot = cfg.eval.real_robot
-    if not robot.goal_image_path or not robot.goal_wrist_image_path:
-        raise ValueError('Offline GPC requires saved goal images; capture is unavailable')
-    goal, wrist, goal_proprio = goal_loader(None, robot)
-
-    def observation(data, row, proprio):
-        return observation_builder(data['pixels'][row], data['wrist_pixels'][row],
-                                   goal, wrist, proprio[:7], proprio[7], goal_proprio,
-                                   int(data['offline_step_idx'][row]), policy.process)
+    observation = ranking_observation_builder(policy, robot, goal_loader, observation_builder)
 
     from omegaconf import OmegaConf
     import stable_worldmodel as swm
@@ -263,8 +293,8 @@ def run_offline_gpc_chunk_rollout(cfg, policy, goal_loader, observation_builder)
                     # Unused legacy interpolations need not resolve for offline evaluation.
                     config=OmegaConf.to_container(cfg, resolve=False),
                     normalization_stats_path=str(Path(cfg.eval.normalization_stats_path).expanduser().resolve()),
-                    goal_image_path=str(Path(robot.goal_image_path).expanduser().resolve()),
-                    goal_wrist_image_path=str(Path(robot.goal_wrist_image_path).expanduser().resolve()),
+                    goal_image_path=str(Path(robot.goal_image_path).expanduser().resolve()) if robot.goal_image_path else None,
+                    goal_wrist_image_path=str(Path(robot.goal_wrist_image_path).expanduser().resolve()) if robot.goal_wrist_image_path else None,
                     image_size=cfg.eval.img_size,
                     preprocessing='DP training image transform; WM real-robot transform and process')
     execute_steps = getattr(robot, 'dp_execute_steps', 1)
@@ -356,8 +386,15 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
     indices, rewards, intervals = [], [], []
     costs = []
     for i, row in enumerate(tqdm(rows, total=len(rows), desc='GPC chunk rollout', unit='chunk')):
-        candidates = sample_candidates(dp, build_observation_history(data, int(row), obs), count, seed + i)
+        proposal_info = build_observation_history(data, int(row), obs)
+        if getattr(dp, 'type', None) == 'imle' and dp.use_proprio:
+            from offline_imle_core import build_observation_history as imle_history
+            proposal_info.update(imle_history({'proprio': proprio}, int(row), obs, keys=('proprio',)))
+        candidates = sample_candidates(dp, proposal_info, count, seed + i)
         info = observation_builder(data, int(row), proprio[row])
+        if policy.goal_mode == 'latent_smoothness':
+            info['smoothness_history'] = MeasuredHistory.from_episode(
+                policy.smoothness_horizon, data, proprio, steps, row)
         diagnostics = {}
         index, reward, interval = select_candidates(policy, candidates, info, diagnostics)
         costs.append(diagnostics)
@@ -403,6 +440,13 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
                                selected_candidate_indices=indices, candidate_rewards=rewards,
                                selected_chunks=selected, wm_evaluation_intervals=intervals).items():
             f.create_dataset(key, data=value)
+        if policy.goal_mode == 'latent_smoothness':
+            for key in ('observation_steps', 'history_padded', 'smoothness_cost', 'selected_candidate_index'):
+                result[key] = [value[key] for value in costs]
+                f[key] = result[key]
+            gt = data['action_cartesian']
+            result['selected_vs_gt'] = compute_metrics(selected[valid], gt)
+            result['candidate_0_vs_gt'] = compute_metrics(predicted[:, 0][valid], gt)
         for key in ('image_cost', 'overhead_cost', 'wrist_cost', 'prop_cost', 'weighted_total_cost'):
             if costs and key in costs[0]:
                 f[key] = np.stack([value[key] for value in costs])

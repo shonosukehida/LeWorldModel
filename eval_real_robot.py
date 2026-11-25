@@ -48,7 +48,7 @@ from stable_worldmodel.diffusion import (
     ConditionalUnet1D,
     create_obs_encoder,
 )
-from stable_worldmodel.reward import latent_goal_reward, LatentGoalReward
+from stable_worldmodel.reward import latent_goal_reward
 
 from collections import deque
 from utils import get_eval_img_preprocessor
@@ -1831,6 +1831,13 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
         if getattr(dp_policy, "type", None) == "imle" and dp_policy.use_proprio:
             proprio_history = deque(maxlen=dp_policy.obs_horizon)
 
+    smooth_history = None
+    if getattr(policy, "goal_mode", None) == "latent_smoothness":
+        from stable_worldmodel.smoothness import MeasuredHistory
+        from stable_worldmodel.reward import latent_reward_metadata
+        smooth_history = MeasuredHistory(policy.smoothness_horizon)
+        smooth_records = []
+
     gpc_recorder = None
     try:
         if (isinstance(policy, swm.policy.GPCPolicy)
@@ -1914,6 +1921,11 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
                 process=process,
             )
             
+            if smooth_history is not None:
+                smooth_history.append(step_idx, info)
+                info["smoothness_history"] = smooth_history
+                previous_best = policy.best_idx
+
             #Build observation history for DP
 
             dp_info = None
@@ -1989,6 +2001,11 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
 
 
 
+            if smooth_history is not None and policy.best_idx is not previous_best:
+                smooth_records.append(smooth_history.diagnostics(
+                    policy.smoothness_cost[0].cpu(), policy.best_idx.item(),
+                    policy.selected_candidate_index.item()))
+
             if reinforcement_active and action_buffer is not None:
                 action_buffer.clear()
 
@@ -2060,6 +2077,12 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
         # rollout.h5 を保存
         with h5py.File(run_dir / "rollout.h5", "w") as h5:
             h5.attrs["config"] = OmegaConf.to_yaml(cfg)
+            if smooth_history is not None:
+                group = h5.create_group("gpc")
+                group.attrs.update(goal_mode=policy.goal_mode, **latent_reward_metadata(policy))
+                if smooth_records:
+                    for key in smooth_records[0]:
+                        group[key] = [record[key] for record in smooth_records]
 
             for key, values in records.items():
                 array = np.asarray(values)
@@ -2656,6 +2679,7 @@ def run(cfg: DictConfig):
             raise ValueError(f"Unknown dry_run_mode: {mode}")
         return
 
+    from stable_worldmodel.reward import gpc_scoring_options
     imle_checkpoint_path = None
     if (cfg.get("policy_type") == "imle"
             or (cfg.get("policy_type") == "gpc"
@@ -2869,13 +2893,9 @@ def run(cfg: DictConfig):
                 imle_checkpoint_path, img_transform(cfg),
                 cfg.gpc.get("imle_device", "cuda"))
             policy = swm.policy.GPCPolicy(
-                goal_mode=cfg.gpc.get("goal_mode", "final_goal"),
+                **gpc_scoring_options(cfg.gpc, model),
                 execute_first_candidate=cfg.gpc.get("execute_first_candidate", False),
                 action_policy=action_policy, world_model=model,
-                reward_fn=LatentGoalReward(
-                    model, cfg.gpc.get("lambda_prop", 1.0),
-                    lambda_overhead=cfg.gpc.get("lambda_overhead", 1.0),
-                    lambda_wrist=cfg.gpc.get("lambda_wrist", 1.0)),
                 num_candidates=cfg.gpc.num_candidates,
                 process=process, transform=transform)
 
@@ -2901,14 +2921,10 @@ def run(cfg: DictConfig):
             )
 
             policy = swm.policy.GPCPolicy(
-                goal_mode=cfg.gpc.get("goal_mode", "final_goal"),
+                **gpc_scoring_options(cfg.gpc, model),
                 execute_first_candidate=cfg.gpc.get("execute_first_candidate", False),
                 diffusion_policy=diffusion_policy,
                 world_model=model,
-                reward_fn=LatentGoalReward(
-                    model, cfg.gpc.get("lambda_prop", 1.0),
-                    lambda_overhead=cfg.gpc.get("lambda_overhead", 1.0),
-                    lambda_wrist=cfg.gpc.get("lambda_wrist", 1.0)),
                 num_candidates=(getattr(cfg.eval.real_robot, "dry_run_num_candidates", 20)
                                 if offline_gpc else cfg.gpc.num_candidates),
                 process=process,

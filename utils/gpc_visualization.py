@@ -143,6 +143,11 @@ class GPCRecorder:
                                      selected_candidate_index=(0 if self.policy.execute_first_candidate else best),
                                      num_candidates=len(values),
                                      action_horizon=self.pending.shape[1]))
+            if self.policy.goal_mode == "latent_smoothness":
+                info = args[1] if len(args) > 1 else kwargs["info_dict"]
+                record = self.records[-1]
+                record.update(info["smoothness_history"].diagnostics(
+                    -values, best, record["selected_candidate_index"]))
             # Record decomposition only when the configured reward exposes a verified boundary.
             if isinstance(getattr(original, "image_dim", None), int):
                 from stable_worldmodel.reward import latent_goal_costs, latent_goal_modality_costs
@@ -201,6 +206,11 @@ class GPCRecorder:
         for name in ('lambda_overhead', 'lambda_wrist'):
             value = getattr(self.policy.reward_fn, name, 1.0)
             payload[name] = np.array(value if isinstance(value, (int, float)) else 1.0)
+        if self.policy.goal_mode == "latent_smoothness":
+            from stable_worldmodel.reward import latent_reward_metadata
+            for key in ("lambda_prop", "lambda_overhead", "lambda_wrist"):
+                del payload[key]
+            payload.update(latent_reward_metadata(self.policy))
         # Named arrays support variable K/H without pickle or lost step mapping.
         for index, record in enumerate(self.records):
             physical = record["candidate_actions_physical"]

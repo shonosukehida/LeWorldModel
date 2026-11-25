@@ -13,6 +13,7 @@ from offline_dp_eval import (_integer, load_episode, build_observation_history,
                              sample_candidates)
 from offline_gpc_eval import isolated_rng, select_candidates
 from stable_worldmodel.reward import latent_goal_reward, latent_reward_metadata
+from stable_worldmodel.smoothness import MeasuredHistory
 
 
 def _latent(value, name):
@@ -67,6 +68,12 @@ def plot_latent_dist(values, horizon, out):
                    [('gt_rollout_terminal_distance_to_current_observation', 'blue', 'GT action rollout'),
                     ('gpc_rollout_terminal_distance_to_current_observation', 'red', 'GPC selected rollout')],
                    'Rollout start step t', 'Terminal latent L2 distance to observation at t'),)
+    if 'smoothness_cost' in values:
+        specs += (('latent_smoothness_cost', t,
+                   [('gt_smoothness_cost', 'black', 'GT action rollout'),
+                    ('candidate_0_smoothness_cost', 'blue', 'DP candidate 0'),
+                    ('selected_smoothness_cost', 'red', 'GPC selected rollout')],
+                   'Rollout start step t', 'Sum of squared latent second differences'),)
     for name, x, curves, xlabel, ylabel in specs:
         fig, ax = plt.subplots(figsize=(12, 4))
         for key, color, label in curves:
@@ -139,10 +146,14 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
     observed_dist = _l2(observed, goal_cpu.expand_as(observed))
     gt_latents, selected_latents, indices, rewards = [], [], [], []
     candidate_costs = []
+    gt_smoothness = []
     reward_config = latent_reward_metadata(policy)
     for i, row in enumerate(tqdm(valid_rows, total=len(valid_rows),
                                 desc='Evaluating latent distances', unit='rollout')):
         info = observation(row)
+        if goal_mode == 'latent_smoothness':
+            info['smoothness_history'] = MeasuredHistory.from_episode(
+                policy.smoothness_horizon, data, proprio, steps, row)
         candidates = sample_candidates(dp, build_observation_history(data, int(row), obs), count, seed + i)
         captured = {}
         recording = copy(evaluation_policy)
@@ -158,14 +169,15 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
             raise ValueError('GPC evaluation interval differs from the complete action_horizon')
         terminal = captured['terminal']
         # Validate the configured reward separately from ordinary L2 diagnostics.
-        target = observed[row] if goal_mode == 'current_observation' else goal_cpu
-        expected = latent_goal_reward(
-            {'predicted_emb': terminal[None, :, None], 'goal_emb': target[None, None]}, {},
-            lambda_prop=reward_config['lambda_prop'], image_dim=reward_config['image_latent_dimension'],
-            lambda_overhead=reward_config['lambda_overhead'], lambda_wrist=reward_config['lambda_wrist'],
-            overhead_dim=reward_config['overhead_latent_dimension'])
-        if not torch.allclose(torch.as_tensor(reward[0]), expected[0], rtol=1e-5, atol=1e-5):
-            raise ValueError('latent_dist candidate rewards differ from the configured latent_goal_reward')
+        if goal_mode != 'latent_smoothness':
+            target = observed[row] if goal_mode == 'current_observation' else goal_cpu
+            expected = latent_goal_reward(
+                {'predicted_emb': terminal[None, :, None], 'goal_emb': target[None, None]}, {},
+                lambda_prop=reward_config['lambda_prop'], image_dim=reward_config['image_latent_dimension'],
+                lambda_overhead=reward_config['lambda_overhead'], lambda_wrist=reward_config['lambda_wrist'],
+                overhead_dim=reward_config['overhead_latent_dimension'])
+            if not torch.allclose(torch.as_tensor(reward[0]), expected[0], rtol=1e-5, atol=1e-5):
+                raise ValueError('latent_dist candidate rewards differ from the configured latent_goal_reward')
         selected_latents.append(terminal[index])
         indices.append(index)
         rewards.append(reward[0])
@@ -173,6 +185,8 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
         gt = torch.as_tensor(data['action_cartesian'][row:row + horizon], device=policy.device)[None, None]
         normalized = evaluation_policy.normalize_action_for_world_model(gt)
         output = evaluation_policy.rollout(info_dict=info, action_sequences=normalized)
+        if goal_mode == 'latent_smoothness':
+            gt_smoothness.append(-evaluation_policy.reward_fn(output, info).item())
         gt_latents.append(_terminal(output, 1, dimension)[0])
     # Empty rollout sets remain well shaped when an episode is shorter than H+1.
     gt_latents = torch.stack(gt_latents) if gt_latents else torch.empty((0, dimension), dtype=goal_cpu.dtype)
@@ -192,6 +206,16 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
                   candidate_rewards=np.asarray(rewards).reshape(len(valid_rows), count),
                   goal_latent=goal_cpu.numpy(), observed_latents=observed.numpy(),
                   gt_terminal_latents=gt_latents.numpy(), gpc_terminal_latents=selected_latents.numpy())
+    if goal_mode == 'latent_smoothness':
+        values['observation_steps'] = np.asarray([c['observation_steps'] for c in candidate_costs],
+                                                 dtype=np.int64).reshape(-1, policy.smoothness_horizon)
+        values['history_padded'] = np.asarray([c['history_padded'] for c in candidate_costs], dtype=bool)
+        values['selected_candidate_index'] = values['selected_candidate_indices']
+        values['smoothness_cost'] = -values['candidate_rewards']
+        values['gt_smoothness_cost'] = np.asarray(gt_smoothness)
+        values['candidate_0_smoothness_cost'] = values['smoothness_cost'][:, 0]
+        values['selected_smoothness_cost'] = values['smoothness_cost'][np.arange(len(indices)),
+                                                                       values['selected_candidate_indices']]
     if goal_mode == 'current_observation':
         current_latents = observed[valid_rows]
         values['gt_rollout_terminal_distance_to_current_observation'] = _l2(gt_latents, current_latents)
