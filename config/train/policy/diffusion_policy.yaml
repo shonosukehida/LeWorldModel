@@ -24,7 +24,7 @@ policy:
   pred_horizon: 16 #16
 
   # number of observations used for conditioning
-  obs_horizon: 2 #2
+  obs_horizon: 8 #2
 
   # chunk used by standalone DP
   action_horizon: 8 #8
