@@ -11,6 +11,8 @@ python train_subgoal.py subgoal.output_path="$PWD/outputs/subgoal.pt"
 
 [学習設定](../config/train/train_subgoal.yaml) に画像サイズ、正規化統計、ゴール画像2枚、ゴール姿勢を明示する。既定値は [flip_mug.yaml](../config/eval/flip_mug.yaml) と同じ。`policy` に WM の AutoCostModel 参照、`subgoal.dataset_path` にデモ HDF5 を指定する。このパスは評価用の dry_run 設定とは独立している。`subgoal.horizons`、`hidden_dim`、`encode_batch_size`、`batch_size`、`epochs`、`learning_rate`、`device` はすべて `subgoal` 配下で上書きできる。
 
+デモはエピソード単位で seed により分割し、`subgoal.validation_ratio` の既定値は 0.1。0 にすると全エピソードを学習に使う。各エポック終了時に固定パラメータで Train と Validation の全サンプルの MSE を評価する。W&B は `wandb.enabled=true` で有効化し、`wandb.project` と `wandb.entity` を指定できる。評価指標は全体と horizon ごとに epoch を横軸として記録する。
+
 教師データの作成時は WM を評価モードで凍結し、行動を与えずに全実観測を一度ずつエンコードする。CPU メモリに保存するのは各観測の結合潜在で、画像はバッチ単位で読み込む。同じ `episode_idx` 内で `step_idx` がちょうど H 離れた実測ペアだけを使う。共通の最終ゴールは一度だけエンコードし、全ペアで共有する。MLP は `[z_t, z_g, H]` から `z_(t+H)` を MSE で回帰する。保存ファイルは MLP の重み、形式バージョン、入出力を復元するための次元を含む。
 
 同じ WM、正規化統計、ゴール設定で推論する。以下は Diffusion 候補を使う dataset dry_run の例。

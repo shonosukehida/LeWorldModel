@@ -32,8 +32,8 @@ def test_training_config_matches_previous_defaults(tmp_path):
         assert OmegaConf.to_container(OmegaConf.create({"value": OmegaConf.select(previous, key)}),
                                       resolve=True) == OmegaConf.to_container(
             OmegaConf.create({"value": OmegaConf.select(current, key)}), resolve=True)
-    assert set(current.subgoal) == set(previous.subgoal)
-    for key in current.subgoal:
+    assert set(current.subgoal) - {"validation_ratio"} == set(previous.subgoal)
+    for key in previous.subgoal:
         if key == "output_path":
             assert OmegaConf.to_container(previous.subgoal, resolve=False)[key] == (
                 OmegaConf.to_container(current.subgoal, resolve=False)[key])
@@ -61,7 +61,7 @@ def test_training_uses_measured_multiview_states_and_one_goal(tmp_path):
     path = tmp_path / "demo.h5"
     dataset(path, n=5)
     cfg.subgoal.update(dict(dataset_path=str(path), output_path=str(tmp_path / "mlp.pt"),
-                            horizons=[1, 3], epochs=1, encode_batch_size=2, batch_size=2,
+                            horizons=[1, 3], validation_ratio=0, epochs=1, encode_batch_size=2, batch_size=2,
                             hidden_dim=5, device="cpu"))
     cfg.eval.img_size = 32
     for name in ("goal_image_path", "goal_wrist_image_path"):
@@ -105,3 +105,27 @@ def test_training_uses_measured_multiview_states_and_one_goal(tmp_path):
 class Identity:
     def transform(self, value):
         return value
+
+
+def test_episode_split_is_disjoint_and_reproducible():
+    ids = np.repeat(np.arange(10), 3)
+    pairs = torch.tensor([[i, i + 1, 1] for i in range(0, 30, 3)])
+    train, val = training.split_pairs(pairs, ids, 0.2, 42)
+    assert set(ids[train[:, 0]]) .isdisjoint(set(ids[val[:, 0]]))
+    assert len(val) == 2
+    again = training.split_pairs(pairs, ids, 0.2, 42)
+    assert all(torch.equal(a, b) for a, b in zip((train, val), again))
+    assert torch.equal(training.split_pairs(pairs, ids, 0, 42)[0], pairs)
+
+
+def test_evaluation_uses_sample_weighted_losses():
+    network = torch.nn.Linear(3, 1, bias=False)
+    with torch.no_grad():
+        network.weight.zero_()
+    class Model(torch.nn.Module):
+        def forward(self, current, goal, horizon):
+            return network(torch.cat((current, goal, horizon[:, None].float()), dim=1))
+    latents = torch.tensor([[0.], [1.], [2.], [3.]])
+    pairs = torch.tensor([[0, 1, 1], [0, 2, 1], [0, 3, 2]])
+    metrics = training.evaluate(Model(), pairs, latents, torch.zeros(1, 1), 2, "cpu", "val")
+    assert metrics == {"val/loss": 14 / 3, "val/loss_h1": 2.5, "val/loss_h2": 9.0}
