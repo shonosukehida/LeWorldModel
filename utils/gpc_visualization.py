@@ -22,7 +22,7 @@ def evaluation_ranks(rewards):
 
 
 def plot_candidates(actions, rewards, best_idx, step_idx, save_path=None,
-                    selected_candidate_index=None, goal_mode="final_goal"):
+                    selected_candidate_index=None, goal_mode="final_goal", optimized=None):
     import matplotlib.pyplot as plt
     from matplotlib.colors import ListedColormap, Normalize
     from matplotlib.cm import ScalarMappable
@@ -43,6 +43,9 @@ def plot_candidates(actions, rewards, best_idx, step_idx, save_path=None,
         ax.plot(np.arange(horizon), actions[selected, :, axis_idx],
                 color="#8B0000", linewidth=2.8, label=("WM selected target sequence" if selected == best_idx
                        else "Executed target sequence (candidate 0)"))
+        if optimized is not None:
+            ax.plot(np.arange(horizon), optimized[selected, :, axis_idx], color="green",
+                    linestyle="--", linewidth=2, label="Executed after GPC-OPT")
         ax.set_ylabel(f"{'XYZ'[axis_idx]} (normalized)")
         ax.set_ylim(-1, 1)
         ax.set_yticks([-1.0, -0.5, 0.0, 0.5, 1.0])
@@ -132,17 +135,23 @@ class GPCRecorder:
     def _reward_wrapper(self, original):
         def reward(*args, **kwargs):
             result = original(*args, **kwargs)
+            if torch.is_grad_enabled() and self.policy.optimizer is not None:
+                return result
             started = time.perf_counter()
             if self.pending is None or result.shape != (1, len(self.pending)):
                 raise ValueError("Reward/candidate recording mismatch")
             best = int(torch.argmax(result, dim=1).detach().cpu()[0])
             values = result.detach().cpu().numpy().copy()[0]
+            trace = getattr(self.policy, "opt_trace", None)
             self.records.append(dict(step_idx=self.step_idx,
                                      candidate_actions_physical=self.pending,
                                      rewards=values, best_idx=best,
                                      selected_candidate_index=(0 if self.policy.execute_first_candidate else best),
                                      num_candidates=len(values),
                                      action_horizon=self.pending.shape[1]))
+            if isinstance(trace, dict):
+                for key, tensor in trace.items():
+                    self.records[-1]["opt_" + key] = tensor.detach().cpu().numpy()
             if self.policy.goal_mode == "latent_smoothness":
                 info = args[1] if len(args) > 1 else kwargs["info_dict"]
                 record = self.records[-1]
@@ -217,6 +226,10 @@ class GPCRecorder:
             normalized = np.asarray(self.processor.transform(
                 physical.reshape(-1, physical.shape[-1]).copy())).reshape(physical.shape)
             record["candidate_actions"] = normalized
+            if "opt_optimized_actions" in record:
+                after = record["opt_optimized_actions"][0]
+                record["optimized_actions"] = self.processor.transform(
+                    after.reshape(-1, after.shape[-1])).reshape(after.shape)
             prefix = f"record_{index:04d}_"
             for key, value in record.items():
                 payload[prefix + key] = np.asarray(value)
@@ -226,7 +239,7 @@ class GPCRecorder:
                             record["best_idx"], record["step_idx"],
                             root / "gpc_actions" / f"step_{record['step_idx']:04d}.png",
                             selected_candidate_index=record["selected_candidate_index"],
-                            goal_mode=self.policy.goal_mode)
+                            goal_mode=self.policy.goal_mode, optimized=record.get("optimized_actions"))
         return root
 
 
@@ -246,6 +259,7 @@ def render_archive(archive_path, output_dir=None):
                             output_dir / f"step_{step:04d}.png",
                             selected_candidate_index=(int(data[prefix + "selected_candidate_index"])
                                 if prefix + "selected_candidate_index" in data else None),
+                            optimized=data.get(prefix + "optimized_actions"),
                             goal_mode=str(data["goal_mode"]) if "goal_mode" in data else "final_goal")
 
 

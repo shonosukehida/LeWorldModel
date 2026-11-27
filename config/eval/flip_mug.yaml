@@ -40,6 +40,21 @@ seed: 42
 policy: lewm_weights 
 policy_type: gpc #world_model/gpc/diffusion
 gpc:
+  rank:
+    enabled: true
+  opt:
+    enabled: false
+    method: gradient_descent
+    num_steps: 5
+    step_size: 0.001
+    regularization_weight: 0.0
+    optimize_position: true
+    optimize_orientation: false
+    optimize_gripper: false
+    max_position_delta_m: 0.005
+    max_rotation_delta_rad: 0.05
+    max_gripper_delta: 0.05
+    max_grad_norm: null
   goal_mode: latent_smoothness # final_goal / current_observation / latent_smoothness
   smoothness_horizon: 3 # Measured and predicted states per side, latent_smoothness only
   execute_first_candidate: false # Evaluate all candidates, then execute DP candidate 0 when true

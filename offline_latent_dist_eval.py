@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 
 from offline_dp_eval import (_integer, load_episode, build_observation_history,
                              sample_candidates)
-from offline_gpc_eval import isolated_rng, select_candidates
+from offline_gpc_eval import isolated_rng, select_candidates, require_ranking_only
 from stable_worldmodel.reward import latent_goal_reward, latent_reward_metadata
 from stable_worldmodel.smoothness import MeasuredHistory
 
@@ -99,6 +99,7 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
     execute = _integer(dp_execute_steps, 'dp_execute_steps', 1)
     if execute > horizon:
         raise ValueError('dp_execute_steps must be <= action_horizon')
+    require_ranking_only(policy, "latent_dist")
     count = _integer(num_candidates, 'dry_run_num_candidates', 1)
     seed = _integer(seed, 'dry_run_seed')
     if dp.action_dim != 8 or dp.pred_horizon < obs - 1 + horizon:

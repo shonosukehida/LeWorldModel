@@ -1832,7 +1832,8 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
             proprio_history = deque(maxlen=dp_policy.obs_horizon)
 
     smooth_history = None
-    if getattr(policy, "goal_mode", None) == "latent_smoothness":
+    if (getattr(policy, "goal_mode", None) == "latent_smoothness"
+            and (policy.rank_enabled or policy.optimizer is not None)):
         from stable_worldmodel.smoothness import MeasuredHistory
         from stable_worldmodel.reward import latent_reward_metadata
         smooth_history = MeasuredHistory(policy.smoothness_horizon)
@@ -2680,6 +2681,17 @@ def run(cfg: DictConfig):
         return
 
     from stable_worldmodel.reward import gpc_scoring_options
+    if cfg.get("policy_type") == "gpc":
+        settings = cfg.get("gpc", {})
+        opt = settings.get("opt", {}).get("enabled", False)
+        direct = not settings.get("rank", {}).get("enabled", True)
+        robot = cfg.eval.real_robot
+        if opt and cfg.plan_config.action_space != "cartesian":
+            raise ValueError("GPC-OPT requires Cartesian action execution")
+        if (opt or direct) and robot.dry_run and getattr(robot, "dry_run_mode", "episode") != "chunk_rollout":
+            raise ValueError("DP/OPT GPC dry_run supports chunk_rollout only")
+        if (opt or direct) and settings.get("imle_checkpoint") is not None:
+            raise ValueError("GPC-OPT and direct GPC modes require diffusion proposals")
     imle_checkpoint_path = None
     if (cfg.get("policy_type") == "imle"
             or (cfg.get("policy_type") == "gpc"

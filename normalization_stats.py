@@ -27,6 +27,12 @@ class SafeStandardScaler:
     def transform(self, x):
         return (x - self.mean_) / self.scale_
 
+    def transform_tensor(self, x):
+        import torch
+        mean = torch.as_tensor(self.mean_, device=x.device)
+        scale = torch.as_tensor(self.scale_, device=x.device)
+        return ((x - mean) / scale).to(x.dtype)
+
     def inverse_transform(self, x):
         return x * self.scale_ + self.mean_
 

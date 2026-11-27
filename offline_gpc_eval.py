@@ -2,6 +2,7 @@
 from copy import copy
 from functools import wraps
 import json
+import time
 from pathlib import Path
 
 import h5py
@@ -76,6 +77,8 @@ def select_candidates(policy, candidates, wm_observation, diagnostics=None):
 
     def reward(output, info):
         rewards = policy.reward_fn(output, info)
+        if torch.is_grad_enabled() and replay.optimizer is not None:
+            return rewards
         captured['rewards'] = rewards
         if diagnostics is not None:
             diagnostics.update(candidate_costs(policy.reward_fn, output, rewards))
@@ -84,21 +87,39 @@ def select_candidates(policy, candidates, wm_observation, diagnostics=None):
     replay.reward_fn = reward
     with torch.no_grad():
         chunk = replay.get_action_chunk(wm_observation)
+    start = policy.diffusion_policy.obs_horizon - 1
+    end = min(start + policy.action_horizon, candidates.shape[1])
+    scored = policy.rank_enabled or policy.optimizer is not None
+    index = int(replay.selected_candidate_index.item())
+    if not scored:
+        if len(candidates) != 1 or not np.array_equal(chunk[0], candidates[0, start:end]):
+            raise ValueError("Direct DP mode requires one unmodified proposal")
+        if diagnostics is not None:
+            diagnostics.update(best_idx=0, selected_candidate_index=0)
+        return 0, np.empty((1, 0)), (start, end)
     rewards = captured['rewards'].detach().clone()
     if rewards.shape != (1, len(candidates)) or not torch.isfinite(rewards).all():
         raise ValueError('Expected finite candidate rewards (1,K)')
     best_idx = int(torch.argmax(rewards, dim=1).item())
-    index = int(replay.selected_candidate_index.item())
+    evaluated = candidates[:, start:end]
+    if replay.optimizer is not None:
+        trace = {key: value.detach().cpu().numpy() for key, value in replay.opt_trace.items()}
+        evaluated = trace['optimized_actions'][0]
+        if diagnostics is not None:
+            diagnostics.update(opt_trace=trace, dp_proposals=candidates)
     if diagnostics is not None:
         diagnostics.update(best_idx=best_idx, selected_candidate_index=index)
         if policy.goal_mode == 'latent_smoothness':
             diagnostics.update(wm_observation['smoothness_history'].diagnostics(
                 -rewards[0].cpu().numpy(), best_idx, index))
-    start = policy.diffusion_policy.obs_horizon - 1
-    end = min(start + policy.action_horizon, candidates.shape[1])
-    if not np.array_equal(chunk[0], candidates[index, start:end]):
+    if not np.array_equal(chunk[0], evaluated[index]):
         raise ValueError('GPC returned actions differing from saved candidate')
     return index, rewards.cpu().numpy(), (start, end)
+
+
+def require_ranking_only(policy, mode):
+    if policy.optimizer is not None or not policy.rank_enabled:
+        raise ValueError(f"GPC dry_run_mode={mode} supports RANK only. Use chunk_rollout for DP/OPT.")
 
 
 def plot_gpc(predicted, gt, index, interval, out, episode, timestep, smoothness=False):
@@ -141,6 +162,7 @@ def plot_gpc(predicted, gt, index, interval, out, episode, timestep, smoothness=
 def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, seed,
                               output_dir, metadata, observation_builder):
     """Keep DP artifact generation unchanged; add GPC-specific artifacts separately."""
+    require_ranking_only(policy, "multi_sample")
     metadata = dict(metadata, **latent_reward_metadata(policy),
                     goal_mode=policy.goal_mode,
                     execute_first_candidate=policy.execute_first_candidate)
@@ -221,7 +243,9 @@ def evaluate_gpc_multi_sample(policy, dataset_path, episode, timestep, count, se
 
 
 def ranking_observation_builder(policy, robot, goal_loader, observation_builder, *, multi_sample=False):
-    if policy.goal_mode == 'latent_smoothness':
+    if not policy.rank_enabled and policy.optimizer is None:
+        return lambda data, row, proprio: {}
+    if policy.goal_mode == 'latent_smoothness' or (policy.optimizer and policy.goal_mode == 'current_observation'):
         def measured(data, row, proprio):
             return dict(pixels=data['pixels'][None, row:row+1], wrist_pixels=data['wrist_pixels'][None, row:row+1],
                         proprio=proprio[None, None])
@@ -313,7 +337,7 @@ def run_offline_gpc_chunk_rollout(cfg, policy, goal_loader, observation_builder)
         dp_execute_steps=execute_steps)
 
 
-def plot_gpc_chunk_rollout(predicted, gt, steps, chunk_steps, valid, selected, output_dir):
+def plot_gpc_chunk_rollout(predicted, gt, steps, chunk_steps, valid, selected, output_dir, optimized=None):
     """Draw each chunk separately, with the selected candidate above all others."""
     import matplotlib
     matplotlib.use('Agg')
@@ -337,6 +361,9 @@ def plot_gpc_chunk_rollout(predicted, gt, steps, chunk_steps, valid, selected, o
                 ax.plot(x, chunk[selected[i], mask, dim], color='red', linewidth=3, zorder=10,
                         marker='.' if len(x) == 1 else None,
                         label='GPC selected candidate' if i == 0 else None)
+                if optimized is not None:
+                    ax.plot(x, optimized[i, selected[i], :len(x), dim], color='green',
+                            linestyle='--', zorder=11, label='After GPC-OPT (executed)' if i == 0 else None)
                 ax.axvline(x[0], color='gray', linestyle='--', alpha=.25, linewidth=.8)
             ax.set_title(label)
             ax.set_ylabel(ylabel)
@@ -367,6 +394,8 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
     if horizon < obs - 1 + action:
         raise ValueError('pred_horizon must be >= obs_horizon - 1 + action_horizon')
     count = _integer(num_candidates, 'dry_run_num_candidates', 1)
+    if not policy.rank_enabled:
+        count = 1
     seed = _integer(seed, 'dry_run_seed')
     data, steps, order = load_episode(dataset_path, episode_id)
     data['offline_step_idx'] = steps
@@ -385,18 +414,27 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
     chunk_steps = np.full((len(rows), execute_steps), -1, dtype=np.int64)
     indices, rewards, intervals = [], [], []
     costs = []
+    inference_seconds = []
+    scored = policy.rank_enabled or policy.optimizer is not None
+    config_gpc = metadata.get('config', {}).get('gpc', {})
+    comparison = (policy.optimizer is not None or not policy.rank_enabled
+                  or 'opt' in config_gpc or 'rank' in config_gpc)
     for i, row in enumerate(tqdm(rows, total=len(rows), desc='GPC chunk rollout', unit='chunk')):
         proposal_info = build_observation_history(data, int(row), obs)
         if getattr(dp, 'type', None) == 'imle' and dp.use_proprio:
             from offline_imle_core import build_observation_history as imle_history
             proposal_info.update(imle_history({'proprio': proprio}, int(row), obs, keys=('proprio',)))
+        started = time.perf_counter()
         candidates = sample_candidates(dp, proposal_info, count, seed + i)
         info = observation_builder(data, int(row), proprio[row])
-        if policy.goal_mode == 'latent_smoothness':
+        if scored and policy.goal_mode == 'latent_smoothness':
             info['smoothness_history'] = MeasuredHistory.from_episode(
                 policy.smoothness_horizon, data, proprio, steps, row)
         diagnostics = {}
         index, reward, interval = select_candidates(policy, candidates, info, diagnostics)
+        inference_seconds.append(time.perf_counter() - started)
+        if comparison:
+            diagnostics["dp_proposals"] = candidates
         costs.append(diagnostics)
         length = min(execute_steps, len(steps) - row)
         if interval[1] - interval[0] < length:
@@ -409,6 +447,11 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
         intervals.append(interval)
     indices, rewards = np.asarray(indices), np.asarray(rewards)
     selected = predicted[np.arange(len(rows)), indices].copy()
+    best = [value['best_idx'] for value in costs]
+    optimized = None
+    if policy.optimizer is not None:
+        optimized = np.stack([v['opt_trace']['optimized_actions'][0] for v in costs])
+        selected[valid] = optimized[np.arange(len(rows)), indices, :execute_steps][valid]
     metadata = dict(metadata, **latent_reward_metadata(policy),
                     goal_mode=policy.goal_mode,
                     execute_first_candidate=policy.execute_first_candidate)
@@ -419,39 +462,62 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
                     temporal_order=order, chunk_seed_rule='dry_run_seed + chunk_index (zero based)',
                     chunk_seeds=[seed + i for i in range(len(rows))],
                     wm_evaluation_intervals=[list(v) for v in intervals],
-                    wm_interval_convention='prediction indices [start, end); evaluated even beyond episode tail',
+                    wm_interval_convention=('prediction indices [start, end); evaluated even beyond episode tail'
+                                            if scored else 'DP execution interval; no WM evaluation'),
                     visualization_interval=[obs - 1, obs - 1 + execute_steps],
                     execution_note='Offline stride and visualized width are dp_execute_steps; WM evaluates the full GPC action_horizon',
                     invalid_padding='NaN only outside chunk_valid_mask; never evaluated or plotted',
                     alignment='prediction index obs_horizon - 1 + j -> stored step at chunk row + j',
                     action_values='physical actions; sample_candidates denormalize=True exactly once')
+    if comparison:
+        metadata.update(rank_enabled=policy.rank_enabled, opt_enabled=policy.optimizer is not None)
+    if not scored:
+        metadata['reward'] = 'unevaluated (direct DP)'
+        metadata['execution_note'] = 'One unmodified physical DP proposal per refill.'
     parent = Path(output_dir).expanduser()
     parent.mkdir(parents=True, exist_ok=True)
     out = Path(tempfile.mkdtemp(prefix=f'episode_{episode_id}_', dir=parent))
     metadata.update(run_id=out.name, output_dir=str(out.resolve()))
     result = dict(compute_chunk_rollout_metrics(predicted, valid, 0), metadata=metadata,
-                  best_idx=rewards.argmax(axis=1).tolist(),
+                  best_idx=best,
                   selected_candidate_indices=indices.tolist(), candidate_rewards=rewards.tolist())
     with h5py.File(out / 'chunk_rollout.h5', 'w') as f:
         for key, value in dict(predicted_chunks=predicted, ground_truth_actions=data['action_cartesian'],
                                step_idx=steps, chunk_start_steps=steps[rows], chunk_step_idx=chunk_steps,
                                chunk_valid_mask=valid, representative_index=0,
-                               best_idx=rewards.argmax(axis=1),
+                               best_idx=best,
                                selected_candidate_indices=indices, candidate_rewards=rewards,
                                selected_chunks=selected, wm_evaluation_intervals=intervals).items():
             f.create_dataset(key, data=value)
-        if policy.goal_mode == 'latent_smoothness':
+        if comparison:
+            f['inference_seconds'] = inference_seconds
+        if 'dp_proposals' in costs[0]:
+            f['dp_proposals'] = np.stack([v['dp_proposals'] for v in costs])
+        if optimized is not None:
+            group = f.create_group('opt')
+            group['dp_proposals'] = f['dp_proposals']
+            group.attrs['correction_units'] = 'dx,dy,dz (m); local rotation vector (rad); gripper (0..1)'
+            group.attrs['trace_axes'] = 'cost, regularization_cost, gradient_norm, update_norm: chunk, iteration, batch, candidate'
+            group.attrs['regularization'] = 'weight * sum of squared corrections divided by squared per-modality limits'
+            for key in costs[0]['opt_trace']:
+                group[key] = np.stack([v['opt_trace'][key] for v in costs])
+            group['final_cost'] = -rewards
+            before = predicted[np.arange(len(rows)), indices][valid]
+            result['selected_correction'] = compute_metrics(selected[valid], before)
+            result['before_opt_vs_gt'] = compute_metrics(before, data['action_cartesian'])
+        if comparison or policy.goal_mode == 'latent_smoothness':
+            result['selected_vs_gt'] = compute_metrics(selected[valid], data['action_cartesian'])
+        if scored and policy.goal_mode == 'latent_smoothness':
             for key in ('observation_steps', 'history_padded', 'smoothness_cost', 'selected_candidate_index'):
                 result[key] = [value[key] for value in costs]
                 f[key] = result[key]
             gt = data['action_cartesian']
-            result['selected_vs_gt'] = compute_metrics(selected[valid], gt)
             result['candidate_0_vs_gt'] = compute_metrics(predicted[:, 0][valid], gt)
         for key in ('image_cost', 'overhead_cost', 'wrist_cost', 'prop_cost', 'weighted_total_cost'):
             if costs and key in costs[0]:
                 f[key] = np.stack([value[key] for value in costs])
         f.attrs['metadata'] = json.dumps(metadata, allow_nan=False)
     (out / 'chunk_rollout_metrics.json').write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')
-    plot_gpc_chunk_rollout(predicted, data['action_cartesian'], steps, chunk_steps, valid, indices, out)
+    plot_gpc_chunk_rollout(predicted, data['action_cartesian'], steps, chunk_steps, valid, indices, out, optimized=optimized)
     print(f'Chunk rollout GPC evaluation (goal_mode={policy.goal_mode}) saved to: {out}')
     return result

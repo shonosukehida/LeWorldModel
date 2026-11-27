@@ -68,6 +68,11 @@ class MinMaxScaler:
     def transform(self, x):
         return (np.asarray(x) - self.low) / self.span * 2 - 1
 
+    def transform_tensor(self, x):
+        low = torch.as_tensor(self.low, device=x.device)
+        span = torch.as_tensor(self.span, device=x.device)
+        return ((x - low) / span * 2 - 1).to(x.dtype)
+
     def inverse_transform(self, x):
         return (np.asarray(x) + 1) / 2 * self.span + self.low
 
