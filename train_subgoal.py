@@ -118,7 +118,7 @@ def train(cfg):
     return network
 
 
-@hydra.main(version_base=None, config_path="config/eval", config_name="train_subgoal")
+@hydra.main(version_base=None, config_path="config/train", config_name="train_subgoal")
 def main(cfg):
     train(cfg)
 

@@ -1,0 +1,23 @@
+seed: 42
+
+eval:
+  img_size: 224
+  normalization_stats_path: ${oc.env:HOME}/.stable_worldmodel/datasets/flip_mug/ep100_tm300_multiview_play_normal_brightness/process_stats.npz
+  real_robot:
+    goal_image_path: config/eval/goal_state/flip_mug/overhead_goal_image.png
+    goal_wrist_image_path: config/eval/goal_state/flip_mug/wrist_goal_image.png
+    goal_proprio: [0.570201, -0.028193, 0.057318, 0.980398, 0.143173, -0.134568, -0.014609, 0.005000]
+
+# AutoCostModel reference for the frozen encoder. Use the same WM at inference.
+policy: flip_mug/ep100_tm300_multiview_play_normal_brightness/lewm
+
+subgoal:
+  dataset_path: /home/shonosukehida/.stable_worldmodel/datasets/flip_mug/ep200_tm300_multiview_demo/push.h5
+  horizons: [1, 2, 3, 4, 5, 6, 7, 8]
+  hidden_dim: 512
+  encode_batch_size: 8
+  batch_size: 256
+  epochs: 20
+  learning_rate: 0.001
+  device: cuda
+  output_path: ${hydra:runtime.output_dir}/subgoal.pt
