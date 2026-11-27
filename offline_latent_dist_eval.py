@@ -129,7 +129,7 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
     # Only reuse it for selection when it is also the policy's target.
     goal_mode = policy.goal_mode
     evaluation_policy = policy
-    if goal_mode == 'final_goal':
+    if goal_mode in ('final_goal', 'subgoal'):
         evaluation_policy = copy(policy)
         evaluation_policy.encode_goal = lambda info: goal
     observed = []
@@ -160,6 +160,8 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
         recording = copy(evaluation_policy)
         def rollout(**kwargs):
             output = evaluation_policy.rollout(**kwargs)
+            if goal_mode == 'subgoal':
+                captured['subgoal'] = output['goal_emb'][0, -1].detach().cpu()
             captured['terminal'] = _terminal(output, count, dimension)
             return output
         recording.rollout = rollout
@@ -172,6 +174,8 @@ def evaluate_latent_dist(policy, dataset_path, episode_id, num_candidates, seed,
         # Validate the configured reward separately from ordinary L2 diagnostics.
         if goal_mode != 'latent_smoothness':
             target = observed[row] if goal_mode == 'current_observation' else goal_cpu
+            if goal_mode == 'subgoal':
+                target = captured['subgoal']
             expected = latent_goal_reward(
                 {'predicted_emb': terminal[None, :, None], 'goal_emb': target[None, None]}, {},
                 lambda_prop=reward_config['lambda_prop'], image_dim=reward_config['image_latent_dimension'],

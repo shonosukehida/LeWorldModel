@@ -1,0 +1,17 @@
+defaults:
+  - flip_mug
+  - _self_
+
+# AutoCostModel reference for the frozen encoder. Use the same WM at inference.
+policy: flip_mug/ep100_tm300_multiview_play_normal_brightness/lewm
+
+subgoal:
+  dataset_path: ${eval.real_robot.dry_run_dataset_path}
+  horizons: [1, 2, 3, 4, 5, 6, 7, 8]
+  hidden_dim: 512
+  encode_batch_size: 8
+  batch_size: 256
+  epochs: 20
+  learning_rate: 0.001
+  device: cuda
+  output_path: ${hydra:runtime.output_dir}/subgoal.pt

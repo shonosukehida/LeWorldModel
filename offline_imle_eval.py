@@ -99,7 +99,7 @@ def run_offline_imle(cfg, image_transform):
 
 
 @torch.no_grad()
-def evaluate_imle_gpc(policy, dataset_path, episode_id, output_dir, execute_steps=1):
+def evaluate_imle_gpc(policy, dataset_path, episode_id, output_dir, execute_steps=1, *, fixed_goal=None):
     """Exercise actual GPC/WM selection and recorder without robot initialization.
 
     Observations come from the dataset, never from simulated action feedback.
@@ -141,6 +141,10 @@ def evaluate_imle_gpc(policy, dataset_path, episode_id, output_dir, execute_step
                 from stable_worldmodel.smoothness import MeasuredHistory
                 obs['smoothness_history'] = MeasuredHistory.from_episode(
                     policy.smoothness_horizon, data, proprio, steps, row)
+            elif policy.goal_mode == 'subgoal':
+                if fixed_goal is None:
+                    raise ValueError("subgoal requires a configured final goal observation")
+                obs.update(fixed_goal)
             else:
                 obs.update(goal=data["pixels"][-1][None, None],
                            goal_wrist_pixels=data["wrist_pixels"][-1][None, None],
@@ -164,6 +168,8 @@ def evaluate_imle_gpc(policy, dataset_path, episode_id, output_dir, execute_step
             if policy.goal_mode == "final_goal"
             else "dataset observations; current dataset observation goal; no hardware"
         )
+        if policy.goal_mode == "subgoal":
+            f.attrs["evaluation"] = "dataset observations; learned subgoal conditioned on configured final goal"
         if policy.goal_mode == "latent_smoothness":
             from stable_worldmodel.reward import latent_reward_metadata
             f.attrs["evaluation"] = "measured episode history and candidate WM predictions"
@@ -206,12 +212,17 @@ def run_offline_imle_gpc(cfg, image_transform, world_model_loader, process, tran
         from offline_gpc_eval import run_offline_gpc_chunk_rollout, run_offline_gpc_multi_sample
         evaluate = run_offline_gpc_chunk_rollout if mode == "chunk_rollout" else run_offline_gpc_multi_sample
         return evaluate(cfg, policy, None, None)
+    options = {}
+    if policy.goal_mode == "subgoal":
+        from saved_robot_goal import goal_observation
+        options["fixed_goal"] = goal_observation(robot)
     return evaluate_imle_gpc(
         policy,
         robot.dry_run_dataset_path,
         int(robot.dry_run_episode_idx),
         Path(robot.output_dir) / "offline_imle_gpc",
         robot.get("dp_execute_steps", 1),
+        **options,
     )
 
 

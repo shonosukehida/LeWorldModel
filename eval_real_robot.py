@@ -1532,74 +1532,8 @@ def _load_or_capture_goal(
     goal_wrist_path = str(real_cfg.goal_wrist_image_path or "")
 
     if goal_path and goal_wrist_path:
-        goal_bgr = cv2.imread(
-            goal_path,
-            cv2.IMREAD_COLOR,
-        )
-        goal_wrist_bgr = cv2.imread(
-            goal_wrist_path,
-            cv2.IMREAD_COLOR,
-        )
-
-        if goal_bgr is None:
-            raise FileNotFoundError(
-                f"Could not read goal image: {goal_path}"
-            )
-            
-        if goal_wrist_bgr is None:
-            raise FileNotFoundError(
-                "Could not read wrist goal image: "
-                f"{goal_wrist_path}"
-            )
-
-        goal_image = cv2.cvtColor(
-            goal_bgr,
-            cv2.COLOR_BGR2RGB,
-        )
-        goal_wrist_image = cv2.cvtColor(
-            goal_wrist_bgr,
-            cv2.COLOR_BGR2RGB,
-        )
-
-        if real_cfg.get(
-            "goal_proprio",
-            None,
-        ) is None:
-            raise ValueError(
-                "goal_proprio must be specified when "
-                "using a saved goal image"
-            )
-
-        goal_proprio = np.asarray(
-            real_cfg.goal_proprio,
-            dtype=np.float32,
-        )
-
-        if goal_proprio.shape != (8,):
-            raise ValueError(
-                "goal_proprio must have shape (8,), "
-                f"got {goal_proprio.shape}"
-            )
-            
-        goal_quat = goal_proprio[3:7]
-
-        quat_norm = float(
-            np.linalg.norm(goal_quat)
-        )
-
-        if quat_norm < 1e-8:
-            raise ValueError(
-                "goal_proprio contains a zero quaternion"
-            )
-
-        goal_proprio[3:7] = (
-            goal_quat / quat_norm
-        )
-
-        if goal_proprio[6] < 0:
-            goal_proprio[3:7] *= -1.0
-
-        return goal_image, goal_wrist_image, goal_proprio
+        from saved_robot_goal import load_saved_goal
+        return load_saved_goal(real_cfg)
 
     if not real_cfg.non_interactive:
         input(
@@ -2683,6 +2617,11 @@ def run(cfg: DictConfig):
     from stable_worldmodel.reward import gpc_scoring_options
     if cfg.get("policy_type") == "gpc":
         settings = cfg.get("gpc", {})
+        if settings.get("goal_mode") == "subgoal":
+            from saved_robot_goal import validate_goal_config
+            validate_goal_config(cfg.eval.real_robot)
+            if cfg.eval.probing.get("use_random_encoder", False):
+                raise ValueError("subgoal requires the pretrained WM encoder")
         opt = settings.get("opt", {}).get("enabled", False)
         direct = not settings.get("rank", {}).get("enabled", True)
         robot = cfg.eval.real_robot
