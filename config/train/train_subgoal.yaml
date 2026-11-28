@@ -24,6 +24,6 @@ subgoal:
   output_path: ${hydra:runtime.output_dir}/subgoal.pt
 
 wandb:
-  enabled: false
+  enabled: true
   project: le-wm
   entity: null
