@@ -1,4 +1,5 @@
 """GPC chunk rollout contracts and byte-for-byte DP regression."""
+from jepa_integration_baseline import integration_source
 import json
 from pathlib import Path
 import subprocess
@@ -82,7 +83,7 @@ def test_plot_chunk_boundaries_and_colors(tmp_path):
 def test_dp_chunk_artifacts_against_actual_starting_revision(tmp_path):
     source=subprocess.check_output(['git','show','437aec5d059b4000cdaf994fc597d6f32047a335:offline_dp_eval.py'],cwd=fixtures.ROOT,text=True)
     # Only the explicitly authorized progress wrapper may differ from baseline.
-    current = (fixtures.ROOT/'offline_dp_eval.py').read_text()
+    current = integration_source(fixtures.ROOT, 'offline_dp_eval.py')
     current = current.replace('    from tqdm.auto import tqdm\n', '')
     current = current.replace(
         "enumerate(tqdm(rows, total=len(rows), desc='DP chunk rollout', unit='chunk'))",

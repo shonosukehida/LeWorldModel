@@ -25,7 +25,7 @@ def dataset_images_to_hwc(images, key):
     return np.moveaxis(images, 1, -1) if chw else images
 
 
-def load_episode(path, episode_id):
+def load_episode(path, episode_id, use_proprio=False):
     """Select by stored ID, never by ordinal episode number.
 
     HDF5Dataset.load_episode assumes ep_offset/ep_len and ordinal IDs. Read
@@ -33,6 +33,8 @@ def load_episode(path, episode_id):
     """
     with h5py.File(Path(path).expanduser(), 'r') as f:
         required = ('pixels', 'wrist_pixels', 'action_cartesian', 'episode_idx')
+        if use_proprio:
+            required += ('proprio',)
         for key in required:
             if key not in f:
                 raise ValueError(f'Missing dataset column: {key}')
@@ -64,6 +66,8 @@ def load_episode(path, episode_id):
         data = {k: f[k][rows] for k in required if k != 'episode_idx'}
     for key in ('pixels', 'wrist_pixels'):
         data[key] = dataset_images_to_hwc(data[key], key)
+    if use_proprio and (data['proprio'].ndim != 2 or not np.isfinite(data['proprio']).all()):
+        raise ValueError('proprio must be finite (T,D)')
     gt = data['action_cartesian']
     if gt.shape != (len(rows), 8) or not np.isfinite(gt).all():
         raise ValueError('action_cartesian must be finite (T,8)')
@@ -104,12 +108,13 @@ def evaluate_episode(policy, dataset_path, episode_id, output_dir, metadata, dp_
         raise ValueError('Offline evaluation requires an 8D action_cartesian checkpoint')
     if policy.obs_horizon < 1 or policy.action_horizon < 1 or policy.pred_horizon < policy.obs_horizon:
         raise ValueError('Invalid checkpoint horizons')
-    data, steps, order_source = load_episode(dataset_path, episode_id)
+    data, steps, order_source = load_episode(dataset_path, episode_id, getattr(policy, "use_proprio", False))
     if (isinstance(dp_execute_steps, bool) or not isinstance(dp_execute_steps, int)
             or not 1 <= dp_execute_steps <= policy.action_horizon):
         raise ValueError('Require integer 1 <= dp_execute_steps <= policy.action_horizon')
     if dp_execute_steps == 1:
-        histories = {k: deque(maxlen=policy.obs_horizon) for k in ('pixels', 'wrist_pixels')}
+        histories = {k: deque(maxlen=policy.obs_horizon) for k in
+                     ('pixels', 'wrist_pixels') + (('proprio',) if getattr(policy, 'use_proprio', False) else ())}
         predicted = []
         for t in range(len(steps)):
             for key, history in histories.items():
@@ -280,7 +285,8 @@ def build_observation_history(data, row, obs_horizon):
     """Match episode-mode left padding, retaining raw HWC image values."""
     obs_horizon = _integer(obs_horizon, 'obs_horizon', 1)
     rows = np.maximum(np.arange(row - obs_horizon + 1, row + 1), 0)
-    return {key: data[key][rows][None] for key in ('pixels', 'wrist_pixels')}
+    return {key: data[key][rows][None] for key in
+            ('pixels', 'wrist_pixels') + (('proprio',) if 'proprio' in data else ())}
 
 
 def sample_candidates(policy, observation, num_candidates, seed):
@@ -393,7 +399,7 @@ def evaluate_multi_sample(policy, dataset_path, episode_id, timestep, num_candid
     timestep = _integer(timestep, 'dry_run_timestep')
     num_candidates = _integer(num_candidates, 'dry_run_num_candidates', 1)
     seed = _integer(seed, 'dry_run_seed')
-    data, steps, order_source = load_episode(dataset_path, episode_id)
+    data, steps, order_source = load_episode(dataset_path, episode_id, getattr(policy, "use_proprio", False))
     matches = np.flatnonzero(steps == timestep)
     if len(matches) != 1:
         raise ValueError(f'dry_run_timestep {timestep} not found in episode {episode_id} step_idx')
@@ -532,7 +538,7 @@ def evaluate_chunk_rollout(policy, dataset_path, episode_id, num_candidates, see
         raise ValueError('pred_horizon must be >= obs_horizon - 1 + action_horizon')
     num_candidates = _integer(num_candidates, 'dry_run_num_candidates', 1)
     seed = _integer(seed, 'dry_run_seed')
-    data, steps, order_source = load_episode(dataset_path, episode_id)
+    data, steps, order_source = load_episode(dataset_path, episode_id, getattr(policy, "use_proprio", False))
     rows = np.arange(0, len(steps), action)
     if seed > 2**63 - 1 - (len(rows) - 1):
         raise ValueError('dry_run_seed + chunk_index must be <= 2**63 - 1')

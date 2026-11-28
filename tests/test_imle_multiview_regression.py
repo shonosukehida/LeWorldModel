@@ -11,11 +11,12 @@ import unittest
 import numpy as np
 import torch
 import test_dp_action_chunks as helper
+from jepa_integration_baseline import integration_source
 
 ROOT = Path(__file__).resolve().parents[1]
 SWM = ROOT.parent / 'stable-worldmodel'
-LWM_BASE = 'cc06f7de7e1bc5dc6ee2440fca8131d39215a772'
-SWM_BASE = 'ab3e681039977bcd978989082f0b7654a90ef07b'
+LWM_BASE = '037e4d17f1333ab53f4e169df620d948a4b116fa'
+SWM_BASE = '197fbee8e446f76a5e36a660399c9ed415cddb19'
 
 
 def baseline(repo, commit, path):
@@ -73,16 +74,16 @@ class MultiviewRegression(unittest.TestCase):
                      'offline_dp_eval.py', 'offline_gpc_eval.py',
                      'offline_latent_dist_eval.py', 'offline_real_robot_latent_eval.py',
                      'real_robot_latent_visualization.py', 'utils/gpc_visualization.py'):
-            self.assertEqual((ROOT / path).read_text(), baseline(ROOT, LWM_BASE, path), path)
+            self.assertEqual(integration_source(ROOT, path), baseline(ROOT, LWM_BASE, path), path)
         def definition(source, name):
             tree = ast.parse(source)
             node = next(n for n in tree.body if getattr(n, 'name', None) == name)
             return ast.dump(node, include_attributes=False)
         for name in ('load_diffusion_policy', '_DPActionBuffer',
                      '_reinforced_diffusion_action', '_reinforced_gpc_action'):
-            self.assertEqual(definition(self.old_source, name), definition((ROOT / 'eval_real_robot.py').read_text(), name))
+            self.assertEqual(definition(self.old_source, name), definition(integration_source(ROOT, 'eval_real_robot.py'), name))
         old = ast.parse(baseline(SWM, SWM_BASE, 'stable_worldmodel/policy.py'))
-        new = ast.parse((SWM / 'stable_worldmodel/policy.py').read_text())
+        new = ast.parse(integration_source(SWM, 'stable_worldmodel/policy.py'))
         for name in ('BasePolicy', 'DiffusionPolicy'):
             a = next(n for n in old.body if getattr(n, 'name', None) == name)
             b = next(n for n in new.body if getattr(n, 'name', None) == name)

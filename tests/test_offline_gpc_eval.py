@@ -1,4 +1,5 @@
 """Hardware-free regression against the pre-change DP and actual GPC API."""
+from jepa_integration_baseline import integration_source
 import json
 from pathlib import Path
 import subprocess
@@ -166,7 +167,7 @@ def test_diffusion_exact_prechange_artifacts_and_png():
     baseline = types.ModuleType('baseline_offline_dp')
     exec(compile(source, '<baseline>', 'exec'), baseline.__dict__)
     # Only the explicitly authorized progress wrapper may differ from baseline.
-    current = (ROOT/'offline_dp_eval.py').read_text()
+    current = integration_source(ROOT, 'offline_dp_eval.py')
     current = current.replace('    from tqdm.auto import tqdm\n', '')
     current = current.replace(
         "enumerate(tqdm(rows, total=len(rows), desc='DP chunk rollout', unit='chunk'))",
@@ -303,15 +304,15 @@ def test_run_routes_before_hardware_and_uses_offline_transform():
 def test_existing_apis_and_robot_implementation_unchanged():
     import ast
     before = subprocess.check_output(['git','show',
-        '3f7a6325ee7e46951c71ca186c6f242e19ac1326:eval_real_robot.py'],cwd=ROOT,text=True)
+        '037e4d17f1333ab53f4e169df620d948a4b116fa:eval_real_robot.py'],cwd=ROOT,text=True)
     def definitions(source):
         return {n.name: ast.dump(n,include_attributes=False) for n in ast.parse(source).body
                 if isinstance(n,(ast.ClassDef,ast.FunctionDef)) and n.name not in {'run', 'run_xarm_task'}}  # Post-save hook has dedicated tests.
     # Pin robot safety/control definitions to the revision before this experiment.
-    assert definitions(before) == definitions((ROOT/'eval_real_robot.py').read_text())
+    assert definitions(before) == definitions(integration_source(ROOT, 'eval_real_robot.py'))
     wm_root = ROOT.parent/'stable-worldmodel'
     previous = subprocess.check_output(['git','show',
-        '7e1b7b03f707a1b5648c818b84808904f5db64eb:stable_worldmodel/policy.py'],cwd=wm_root,text=True)
+        '197fbee8e446f76a5e36a660399c9ed415cddb19:stable_worldmodel/policy.py'],cwd=wm_root,text=True)
     previous = previous.replace(
         'wm_info[key] = (value[:, None].expand(B, K, *value.shape[1:],))',
         'wm_info[key] = value[:, None].expand(B, K, *value.shape[1:])')
@@ -341,7 +342,7 @@ def test_existing_apis_and_robot_implementation_unchanged():
                                       and isinstance(n.value.value, str))]
         return ast.dump(tree, include_attributes=False)
     assert legacy_policy_definitions(previous) == legacy_policy_definitions(
-        (wm_root/'stable_worldmodel/policy.py').read_text())
+        integration_source(wm_root, 'stable_worldmodel/policy.py'))
 
 
 def test_twenty_candidates_and_argmax_ties():

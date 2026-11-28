@@ -1,0 +1,15 @@
+defaults:
+  - diffusion_policy
+  - _self_
+
+output_model_name: jepa_diffusion_policy
+encoder:
+  type: jepa
+  finetune:
+    mode: partial  # frozen | partial | full
+    unfreeze_last_n_blocks: 6  # per camera, partial only
+    lr: 1.0e-5
+  # Explicit paths to the three artifacts from the SAME JEPA training run.
+  checkpoint: /home/hida/.stable_worldmodel/checkpoints/flip_mug/ep100_tm300_multiview_play_normal_brightness/seed_41/lewm20261103_155756/lewm_epoch_10_object.ckpt # *_object.ckpt, not a Lightning state_dict
+  world_config: /home/hida/.stable_worldmodel/checkpoints/flip_mug/ep100_tm300_multiview_play_normal_brightness/seed_41/lewm20261103_155756/config.yaml # the JEPA run's config.yaml
+  process_stats: /home/hida/.stable_worldmodel/datasets/flip_mug/ep100_tm300_multiview_play_normal_brightness/process_stats.npz # process_stats.npz from the JEPA pretraining dataset

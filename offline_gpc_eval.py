@@ -421,7 +421,7 @@ def evaluate_gpc_chunk_rollout(policy, dataset_path, episode_id, num_candidates,
                   or 'opt' in config_gpc or 'rank' in config_gpc)
     for i, row in enumerate(tqdm(rows, total=len(rows), desc='GPC chunk rollout', unit='chunk')):
         proposal_info = build_observation_history(data, int(row), obs)
-        if getattr(dp, 'type', None) == 'imle' and dp.use_proprio:
+        if getattr(dp, 'use_proprio', False):
             from offline_imle_core import build_observation_history as imle_history
             proposal_info.update(imle_history({'proprio': proprio}, int(row), obs, keys=('proprio',)))
         started = time.perf_counter()

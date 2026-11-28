@@ -102,6 +102,8 @@ class OfflineTests(unittest.TestCase):
             policy = SimpleNamespace(obs_horizon=3, pred_horizon=6, action_horizon=2,
                                      action_dim=8, device='cpu', dtype=torch.float32,
                                      process={'action_cartesian': processor})
+            from stable_worldmodel.policy import DiffusionPolicy
+            policy._encode_observation_info = lambda info: DiffusionPolicy._encode_observation_info(policy, info)
             policy._prepare_info = lambda x: x
             policy._encode_observation = lambda **kw: (None, 1, kw['pixels'].shape[1])
             trajectory = torch.arange(6, dtype=torch.float32)[None, :, None].expand(1, 6, 8)
@@ -216,6 +218,8 @@ class MultiSampleTests(unittest.TestCase):
                                  device=device, dtype=torch.float32, num_inference_steps=3,
                                  process={'action_cartesian': restore_action_processor(stats, 8)},
                                  noise_scheduler=DDPMScheduler(num_train_timesteps=6, clip_sample=False))
+        from stable_worldmodel.policy import DiffusionPolicy
+        policy._encode_observation_info = lambda info: DiffusionPolicy._encode_observation_info(policy, info)
         policy._prepare_info = lambda x: x
         policy._encode_observation = lambda **kw: (torch.ones(1, 4, device=device), 1, 4)
         policy.model = lambda trajectory, *args, **kw: torch.zeros_like(trajectory)

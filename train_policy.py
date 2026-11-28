@@ -36,7 +36,9 @@ class DiffusionPolicyDataset(Dataset):
         obs_horizon,
         image_transform,
         action_transform,
+        use_proprio=False,
     ):
+        self.use_proprio = use_proprio
         self.dataset = dataset
         self.action_key = action_key
         self.obs_horizon = obs_horizon
@@ -68,11 +70,14 @@ class DiffusionPolicyDataset(Dataset):
         data = self.image_transform(data)
         data = self.action_transform(data)
 
-        return {
+        result = {
             "pixels": data["pixels"],
             "wrist_pixels": data["wrist_pixels"],
             "action": data[self.action_key],
         }
+        if self.use_proprio:
+            result["proprio"] = sample["proprio"][:self.obs_horizon].float()
+        return result
 
 
 
@@ -124,6 +129,8 @@ def save_checkpoint(
     """
 
     encoder_type, encoder_config = resolve_obs_encoder_config(cfg.get("encoder", {}))
+    if hasattr(policy, "jepa_source") and encoder_type != "jepa":
+        raise ValueError("Saving a JEPA policy requires encoder.type=jepa")
     checkpoint = {
         "encoder_type": encoder_type,
         "encoder_config": encoder_config,
@@ -203,12 +210,36 @@ def save_checkpoint(
     checkpoint.pop("action_mean")
     checkpoint.pop("action_std")
     checkpoint.update({k: v.cpu() if torch.is_tensor(v) else v for k, v in action_stats.items()})
-    torch.save(checkpoint, path,)
+    if encoder_type == "jepa":
+        from jepa_dp import checkpoint_artifact, finetune_config, save_jepa_checkpoint
+        encoder_config["finetune"] = finetune_config(cfg.encoder)
+        checkpoint.update(checkpoint_artifact(policy))
+        save_jepa_checkpoint(path, checkpoint, policy)
+    else:
+        torch.save(checkpoint, path)
 
 
 # ============================================================
 # train / validation
 # ============================================================
+
+
+def build_optimizer(policy, cfg):
+    if cfg.get("encoder", {}).get("type") == "jepa":
+        from jepa_dp import finetune_config
+        options = finetune_config(cfg.encoder)
+        unet = list(policy.model.parameters())
+        encoder = [p for p in policy.obs_encoder.parameters() if p.requires_grad]
+        parameters = [{"params": unet}]
+        if encoder:
+            parameters.append({"params": encoder, "lr": options["lr"]})
+        print(f"JEPA-DP mode={options['mode']}  "
+              f"U-Net trainable={sum(p.numel() for p in unet):,} lr={cfg.optimizer.lr}  "
+              f"encoder trainable={sum(p.numel() for p in encoder):,} lr={options['lr']}")
+    else:
+        parameters = chain(policy.model.parameters(), policy.obs_encoder.parameters(),
+                           policy.wrist_obs_encoder.parameters())
+    return torch.optim.AdamW(parameters, lr=cfg.optimizer.lr, weight_decay=cfg.optimizer.weight_decay)
 
 
 def train_one_epoch(
@@ -329,6 +360,19 @@ def evaluate(
 )
 def run(cfg):
     print("cfg:", cfg)
+    use_jepa = cfg.get("encoder", {}).get("type") == "jepa"
+    if use_jepa:
+        from jepa_dp import create_jepa_run_dir, finetune_config, load_pretrained_encoder, verify_jepa_source
+        from stable_worldmodel.diffusion.jepa import EmptyWristEncoder, JEPADiffusionPolicy
+        # Persist effective defaults in the run config and W&B for older YAMLs.
+        OmegaConf.update(cfg, "encoder.finetune", finetune_config(cfg.encoder), force_add=True)
+        jepa_encoder, jepa_source = load_pretrained_encoder(dict(cfg.encoder))
+        OmegaConf.update(cfg, "encoder.source_sha256",
+                         {key: entry["sha256"] for key, entry in jepa_source.items()}, force_add=True)
+        print(f"JEPA source: {jepa_source['checkpoint']['path']} "
+              f"SHA-256={jepa_source['checkpoint']['sha256']}")
+        # World-model preprocessing has priority over the DP image-size setting.
+        cfg.img_size = jepa_encoder.image_size
 
     # --------------------------------------------------------
     # Seed
@@ -367,6 +411,9 @@ def run(cfg):
         "wrist_pixels",
         cfg.policy.action_key,
     ]
+
+    if use_jepa:
+        dataset_cfg["keys_to_load"].append("proprio")
 
     dataset_cfg["keys_to_cache"] = [
         cfg.policy.action_key,
@@ -465,6 +512,7 @@ def run(cfg):
         obs_horizon=cfg.policy.obs_horizon,
         image_transform=image_transform,
         action_transform=action_transform,
+        use_proprio=use_jepa,
     )
 
     raw_sample = dataset[0]
@@ -536,8 +584,11 @@ def run(cfg):
     # --------------------------------------------------------
 
     encoder_type, encoder_config = resolve_obs_encoder_config(cfg.get("encoder", {}))
-    obs_encoder = create_obs_encoder(encoder_type, encoder_config)
-    wrist_obs_encoder = create_obs_encoder(encoder_type, encoder_config)
+    if use_jepa:
+        obs_encoder, wrist_obs_encoder = jepa_encoder, EmptyWristEncoder()
+    else:
+        obs_encoder = create_obs_encoder(encoder_type, encoder_config)
+        wrist_obs_encoder = create_obs_encoder(encoder_type, encoder_config)
     print(f"Observation encoder: {encoder_type}, config={encoder_config}")
     print(obs_encoder)
     print(f"Parameters per view: {sum(p.numel() for p in obs_encoder.parameters()):,}; "
@@ -548,7 +599,7 @@ def run(cfg):
         wrist_obs_encoder.output_shape()[0]
     )
 
-    if wrist_obs_feature_dim != obs_feature_dim:
+    if not use_jepa and wrist_obs_feature_dim != obs_feature_dim:
         raise ValueError(
             "Overhead and wrist feature dimensions differ: "
             f"{obs_feature_dim} vs "
@@ -619,7 +670,8 @@ def run(cfg):
     # Diffusion Policy
     # --------------------------------------------------------
 
-    policy = DiffusionPolicy(
+    policy_class = JEPADiffusionPolicy if use_jepa else DiffusionPolicy
+    policy = policy_class(
         model=model,
         obs_encoder=obs_encoder,
         wrist_obs_encoder=wrist_obs_encoder,
@@ -638,6 +690,9 @@ def run(cfg):
         transform=None,
     )
 
+    if use_jepa:
+        policy.jepa_source = jepa_source
+
     policy.model.to(device)
     policy.obs_encoder.to(device)
     policy.wrist_obs_encoder.to(device)
@@ -646,21 +701,7 @@ def run(cfg):
     # Optimizer
     # --------------------------------------------------------
 
-    parameters = list(
-        chain(
-            policy.model.parameters(),
-            policy.obs_encoder.parameters(),
-            policy.wrist_obs_encoder.parameters(),
-        )
-    )
-
-    optimizer = torch.optim.AdamW(
-        parameters,
-        lr=cfg.optimizer.lr,
-        weight_decay=(
-            cfg.optimizer.weight_decay
-        ),
-    )
+    optimizer = build_optimizer(policy, cfg)
 
 
     # --------------------------------------------------------
@@ -701,7 +742,10 @@ def run(cfg):
         timestamp,
     )
 
-    run_dir.mkdir(parents=True, exist_ok=True,)
+    if use_jepa:
+        run_dir = create_jepa_run_dir(run_dir, policy)
+    else:
+        run_dir.mkdir(parents=True, exist_ok=True)
 
     print("run_dir:", run_dir,)
 
@@ -880,6 +924,11 @@ def run(cfg):
 
     if wandb_run is not None:
         wandb_run.finish()
+
+    if use_jepa:
+        verify_jepa_source(jepa_source)
+        print(f"Verified JEPA checkpoint, world_config and process_stats SHA-256; "
+              f"checkpoint={jepa_source['checkpoint']['sha256']}")
 
     print("\nDiffusion Policy training finished.")
 

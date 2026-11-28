@@ -1,0 +1,202 @@
+{
+  "LeWorldModel/train_policy.py": {
+    "revision": "037e4d17f1333ab53f4e169df620d948a4b116fa",
+    "edits": [
+      {
+        "start": 38,
+        "end": 38,
+        "replacement": "        use_proprio=False,\n"
+      },
+      {
+        "start": 39,
+        "end": 39,
+        "replacement": "        self.use_proprio = use_proprio\n"
+      },
+      {
+        "start": 70,
+        "end": 71,
+        "replacement": "        result = {\n"
+      },
+      {
+        "start": 75,
+        "end": 75,
+        "replacement": "        if self.use_proprio:\n            result[\"proprio\"] = sample[\"proprio\"][:self.obs_horizon].float()\n        return result\n"
+      },
+      {
+        "start": 126,
+        "end": 126,
+        "replacement": "    if hasattr(policy, \"jepa_source\") and encoder_type != \"jepa\":\n        raise ValueError(\"Saving a JEPA policy requires encoder.type=jepa\")\n"
+      },
+      {
+        "start": 205,
+        "end": 206,
+        "replacement": "    if encoder_type == \"jepa\":\n        from jepa_dp import checkpoint_artifact, finetune_config, save_jepa_checkpoint\n        encoder_config[\"finetune\"] = finetune_config(cfg.encoder)\n        checkpoint.update(checkpoint_artifact(policy))\n        save_jepa_checkpoint(path, checkpoint, policy)\n    else:\n        torch.save(checkpoint, path)\n"
+      },
+      {
+        "start": 211,
+        "end": 211,
+        "replacement": "\n\ndef build_optimizer(policy, cfg):\n    if cfg.get(\"encoder\", {}).get(\"type\") == \"jepa\":\n        from jepa_dp import finetune_config\n        options = finetune_config(cfg.encoder)\n        unet = list(policy.model.parameters())\n        encoder = [p for p in policy.obs_encoder.parameters() if p.requires_grad]\n        parameters = [{\"params\": unet}]\n        if encoder:\n            parameters.append({\"params\": encoder, \"lr\": options[\"lr\"]})\n        print(f\"JEPA-DP mode={options['mode']}  \"\n              f\"U-Net trainable={sum(p.numel() for p in unet):,} lr={cfg.optimizer.lr}  \"\n              f\"encoder trainable={sum(p.numel() for p in encoder):,} lr={options['lr']}\")\n    else:\n        parameters = chain(policy.model.parameters(), policy.obs_encoder.parameters(),\n                           policy.wrist_obs_encoder.parameters())\n    return torch.optim.AdamW(parameters, lr=cfg.optimizer.lr, weight_decay=cfg.optimizer.weight_decay)\n"
+      },
+      {
+        "start": 331,
+        "end": 331,
+        "replacement": "    use_jepa = cfg.get(\"encoder\", {}).get(\"type\") == \"jepa\"\n    if use_jepa:\n        from jepa_dp import create_jepa_run_dir, finetune_config, load_pretrained_encoder, verify_jepa_source\n        from stable_worldmodel.diffusion.jepa import EmptyWristEncoder, JEPADiffusionPolicy\n        # Persist effective defaults in the run config and W&B for older YAMLs.\n        OmegaConf.update(cfg, \"encoder.finetune\", finetune_config(cfg.encoder), force_add=True)\n        jepa_encoder, jepa_source = load_pretrained_encoder(dict(cfg.encoder))\n        OmegaConf.update(cfg, \"encoder.source_sha256\",\n                         {key: entry[\"sha256\"] for key, entry in jepa_source.items()}, force_add=True)\n        print(f\"JEPA source: {jepa_source['checkpoint']['path']} \"\n              f\"SHA-256={jepa_source['checkpoint']['sha256']}\")\n        # World-model preprocessing has priority over the DP image-size setting.\n        cfg.img_size = jepa_encoder.image_size\n"
+      },
+      {
+        "start": 369,
+        "end": 369,
+        "replacement": "\n    if use_jepa:\n        dataset_cfg[\"keys_to_load\"].append(\"proprio\")\n"
+      },
+      {
+        "start": 467,
+        "end": 467,
+        "replacement": "        use_proprio=use_jepa,\n"
+      },
+      {
+        "start": 538,
+        "end": 540,
+        "replacement": "    if use_jepa:\n        obs_encoder, wrist_obs_encoder = jepa_encoder, EmptyWristEncoder()\n    else:\n        obs_encoder = create_obs_encoder(encoder_type, encoder_config)\n        wrist_obs_encoder = create_obs_encoder(encoder_type, encoder_config)\n"
+      },
+      {
+        "start": 550,
+        "end": 551,
+        "replacement": "    if not use_jepa and wrist_obs_feature_dim != obs_feature_dim:\n"
+      },
+      {
+        "start": 621,
+        "end": 622,
+        "replacement": "    policy_class = JEPADiffusionPolicy if use_jepa else DiffusionPolicy\n    policy = policy_class(\n"
+      },
+      {
+        "start": 640,
+        "end": 640,
+        "replacement": "    if use_jepa:\n        policy.jepa_source = jepa_source\n\n"
+      },
+      {
+        "start": 648,
+        "end": 663,
+        "replacement": "    optimizer = build_optimizer(policy, cfg)\n"
+      },
+      {
+        "start": 703,
+        "end": 704,
+        "replacement": "    if use_jepa:\n        run_dir = create_jepa_run_dir(run_dir, policy)\n    else:\n        run_dir.mkdir(parents=True, exist_ok=True)\n"
+      },
+      {
+        "start": 883,
+        "end": 883,
+        "replacement": "    if use_jepa:\n        verify_jepa_source(jepa_source)\n        print(f\"Verified JEPA checkpoint, world_config and process_stats SHA-256; \"\n              f\"checkpoint={jepa_source['checkpoint']['sha256']}\")\n\n"
+      },
+      {
+        "start": 891,
+        "end": 892,
+        "replacement": "    run()\n"
+      }
+    ]
+  },
+  "LeWorldModel/eval_real_robot.py": {
+    "revision": "037e4d17f1333ab53f4e169df620d948a4b116fa",
+    "edits": [
+      {
+        "start": 1764,
+        "end": 1765,
+        "replacement": "        if getattr(dp_policy, \"use_proprio\", False):\n"
+      },
+      {
+        "start": 2404,
+        "end": 2404,
+        "replacement": "\n    if checkpoint.get(\"encoder_type\") == \"jepa\":\n        from jepa_dp import load_jepa_policy\n        return load_jepa_policy(checkpoint, checkpoint_path, device)\n"
+      }
+    ]
+  },
+  "LeWorldModel/offline_dp_eval.py": {
+    "revision": "037e4d17f1333ab53f4e169df620d948a4b116fa",
+    "edits": [
+      {
+        "start": 27,
+        "end": 28,
+        "replacement": "def load_episode(path, episode_id, use_proprio=False):\n"
+      },
+      {
+        "start": 35,
+        "end": 35,
+        "replacement": "        if use_proprio:\n            required += ('proprio',)\n"
+      },
+      {
+        "start": 66,
+        "end": 66,
+        "replacement": "    if use_proprio and (data['proprio'].ndim != 2 or not np.isfinite(data['proprio']).all()):\n        raise ValueError('proprio must be finite (T,D)')\n"
+      },
+      {
+        "start": 106,
+        "end": 107,
+        "replacement": "    data, steps, order_source = load_episode(dataset_path, episode_id, getattr(policy, \"use_proprio\", False))\n"
+      },
+      {
+        "start": 111,
+        "end": 112,
+        "replacement": "        histories = {k: deque(maxlen=policy.obs_horizon) for k in\n                     ('pixels', 'wrist_pixels') + (('proprio',) if getattr(policy, 'use_proprio', False) else ())}\n"
+      },
+      {
+        "start": 282,
+        "end": 283,
+        "replacement": "    return {key: data[key][rows][None] for key in\n            ('pixels', 'wrist_pixels') + (('proprio',) if 'proprio' in data else ())}\n"
+      },
+      {
+        "start": 395,
+        "end": 396,
+        "replacement": "    data, steps, order_source = load_episode(dataset_path, episode_id, getattr(policy, \"use_proprio\", False))\n"
+      },
+      {
+        "start": 534,
+        "end": 535,
+        "replacement": "    data, steps, order_source = load_episode(dataset_path, episode_id, getattr(policy, \"use_proprio\", False))\n"
+      }
+    ]
+  },
+  "stable-worldmodel/stable_worldmodel/policy.py": {
+    "revision": "197fbee8e446f76a5e36a660399c9ed415cddb19",
+    "edits": [
+      {
+        "start": 463,
+        "end": 470,
+        "replacement": "        global_cond, B, To = self._encode_observation_info(info_dict)\n"
+      },
+      {
+        "start": 581,
+        "end": 588,
+        "replacement": "        global_cond, B, To = self._encode_observation_info(info_dict)\n"
+      },
+      {
+        "start": 677,
+        "end": 684,
+        "replacement": "        global_cond, B, To = self._encode_observation_info(batch)\n"
+      },
+      {
+        "start": 740,
+        "end": 740,
+        "replacement": "\n    def _encode_observation_info(self, info):\n        \"\"\"Observation hook; the legacy image encoding path is unchanged.\"\"\"\n        return self._encode_observation(pixels=info[\"pixels\"], wrist_pixels=info.get(\"wrist_pixels\"))\n"
+      }
+    ]
+  },
+  "stable-worldmodel/stable_worldmodel/diffusion/obs_encoder.py": {
+    "revision": "197fbee8e446f76a5e36a660399c9ed415cddb19",
+    "edits": [
+      {
+        "start": 131,
+        "end": 131,
+        "replacement": "    if encoder_type == \"jepa\":\n        return encoder_type, {key: config.get(key) for key in\n                              (\"checkpoint\", \"world_config\", \"process_stats\")}\n"
+      }
+    ]
+  },
+  "LeWorldModel/offline_gpc_eval.py": {
+    "revision": "037e4d17f1333ab53f4e169df620d948a4b116fa",
+    "edits": [
+      {
+        "start": 423,
+        "end": 424,
+        "replacement": "        if getattr(dp, 'use_proprio', False):\n"
+      }
+    ]
+  }
+}

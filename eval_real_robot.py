@@ -1762,7 +1762,7 @@ def _run_xarm_task_with_env(cfg, policy, process, results_path, env):
         dp_image_history = deque(maxlen=dp_policy.obs_horizon)
 
         dp_wrist_image_history = deque(maxlen=dp_policy.obs_horizon)
-        if getattr(dp_policy, "type", None) == "imle" and dp_policy.use_proprio:
+        if getattr(dp_policy, "use_proprio", False):
             proprio_history = deque(maxlen=dp_policy.obs_horizon)
 
     smooth_history = None
@@ -2402,6 +2402,10 @@ def load_diffusion_policy(
         map_location="cpu",
         weights_only=False,
     )
+
+    if checkpoint.get("encoder_type") == "jepa":
+        from jepa_dp import load_jepa_policy
+        return load_jepa_policy(checkpoint, checkpoint_path, device)
 
     required = (
         "action_dim", "config", "pred_horizon", "obs_horizon", "action_horizon",

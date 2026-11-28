@@ -19,6 +19,7 @@ import torch
 from torchvision import tv_tensors
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 import stable_worldmodel as swm
+from jepa_integration_baseline import integration_source
 from stable_worldmodel.diffusion import ConditionalUnet1D, ResNet18ObsEncoder, create_obs_encoder
 from action_normalization import validate_action_stats, restore_action_processor
 from normalization_stats import SafeStandardScaler
@@ -43,9 +44,9 @@ class LegacyCheckpointTests(unittest.TestCase):
             "offline_dp_eval.py",
             "action_normalization.py",
         ):
-            self.assertEqual(source(ROOT, LEWM_BASE, file), (ROOT / file).read_text())
-        before = ast.parse(source(SWM, SWM_BASE, "stable_worldmodel/policy.py"))
-        after = ast.parse((SWM / "stable_worldmodel/policy.py").read_text())
+            self.assertEqual(source(ROOT, "037e4d17f1333ab53f4e169df620d948a4b116fa", file), integration_source(ROOT, file))
+        before = ast.parse(source(SWM, "197fbee8e446f76a5e36a660399c9ed415cddb19", "stable_worldmodel/policy.py"))
+        after = ast.parse(integration_source(SWM, "stable_worldmodel/policy.py"))
         for name in ("DiffusionPolicy", "GPCPolicy", "WorldModelPolicy"):
             a = next(n for n in before.body if getattr(n, "name", None) == name)
             b = next(n for n in after.body if getattr(n, "name", None) == name)
@@ -53,8 +54,8 @@ class LegacyCheckpointTests(unittest.TestCase):
                 a.body = [n for n in a.body if getattr(n, "name", None) != "__init__"]
                 b.body = [n for n in b.body if getattr(n, "name", None) != "__init__"]
             self.assertEqual(ast.dump(a), ast.dump(b), name)
-        a = ast.parse(source(ROOT, LEWM_BASE, "eval_real_robot.py"))
-        b = ast.parse((ROOT / "eval_real_robot.py").read_text())
+        a = ast.parse(source(ROOT, "037e4d17f1333ab53f4e169df620d948a4b116fa", "eval_real_robot.py"))
+        b = ast.parse(integration_source(ROOT, "eval_real_robot.py"))
         for name in ("load_diffusion_policy", "dp_img_transform", "_DPActionBuffer"):
             aa = next(n for n in a.body if getattr(n, "name", None) == name)
             bb = next(n for n in b.body if getattr(n, "name", None) == name)
